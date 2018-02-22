@@ -2,29 +2,31 @@
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
 from django.db import models
-from django.apps import apps
 
 
-from django.db.models.signals import post_save, post_delete
-from django.dispatch import receiver
+from django.db.models.signals import post_save
 
 
-@receiver(post_save)
 def my_callback(sender, instance, **kwargs):
-    print instance, kwargs
     if sender in dependent_models:
         for _, model, field, computed in dependent_models[sender]:
-            print model, field, computed
+            print sender, instance, model, field, computed
             if not field.startswith('#'):
-                for elem in model.objects.filter(**{field: instance}):
+                print model.objects.filter(**{field: instance}).distinct()
+                for elem in model.objects.filter(**{field: instance}).distinct():
                     elem.save(update_fields=[computed])
             else:
-                print 'hmmm:', sender, model, field
+                #post_save.disconnect(my_callback, sender=None, dispatch_uid='COMP_FIELD')
+                fieldname = getattr(model, field[1:]).rel.field.name
+                print '#backrel', getattr(instance, fieldname)
+                getattr(instance, fieldname).save(update_fields=[computed])
+                #post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD')
 
+
+post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD')
 
 
 computed_models = {}
-
 dependent_models = {}
 
 
@@ -75,12 +77,31 @@ class ComputedFieldsModel(models.Model):
     class Meta:
         abstract = True
 
-    def compute(self, field):
-        setattr(self, field._computed['attr'], field._computed['func'](self))
+    def compute(self, fieldname):
+        field = self._computed_fields[fieldname]
+        return field._computed['func'](self)
 
     def save(self, *args, **kwargs):
-        for field in self._computed_fields.values():
-            self.compute(field)
+        update_fields = kwargs.get('update_fields')
+        if update_fields:
+            update_fields = set(update_fields)
+            all_computed = not (update_fields - set(self._computed_fields.keys()))
+            if all_computed:
+                has_changed = False
+                for fieldname in update_fields:
+                    result = self.compute(fieldname)
+                    field = self._computed_fields[fieldname]
+                    if result != getattr(self, field._computed['attr']):
+                        has_changed = True
+                        setattr(self, field._computed['attr'], result)
+                if not has_changed:
+                    return
+                super(ComputedFieldsModel, self).save(*args, **kwargs)
+                return
+        for fieldname in self._computed_fields:
+            result = self.compute(fieldname)
+            field = self._computed_fields[fieldname]
+            setattr(self, field._computed['attr'], result)
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 

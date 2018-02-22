@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 
 from django.contrib import admin
-from exampleapp.models import Test, Foo, Bar
+from exampleapp.models import Test, Foo, Bar, Baz
 
 
 class TestAdmin(admin.ModelAdmin):
@@ -33,3 +33,13 @@ class BarAdmin(admin.ModelAdmin):
 
 
 admin.site.register(Bar, BarAdmin)
+
+
+class BazAdmin(admin.ModelAdmin):
+    list_display = (
+        'name',
+        'buzzer'
+    )
+
+
+admin.site.register(Baz, BazAdmin)

@@ -10,7 +10,7 @@ class Test(ComputedFieldsModel):
 
     @computed(models.CharField(max_length=32), depends=['#foo_set'])
     def pansen(self):
-        return self.name + 'pansen' + ''.join(map(unicode, self.foo_set.all()))
+        return self.name + 'pansen' + ''.join([e.name for e in self.foo_set.all()])
 
     def __unicode__(self):
         return u'Test %s' % self.pk
@@ -38,6 +38,18 @@ class Bar(ComputedFieldsModel):
 
     def __unicode__(self):
         return u'Bar %s' % self.pk
+
+
+class Baz(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    foos = models.ManyToManyField(Foo)
+
+    @computed(models.CharField(max_length=32), depends=['foos'])
+    def buzzer(self):
+        if not self.pk:
+            return ''
+        return ', '.join(e.drilldown for e in self.foos.all())
+
 
 # comp: 'a__b__c__field' --> model_comp: model_a, model_b, model_c field_c
 #
