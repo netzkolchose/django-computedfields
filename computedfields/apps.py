@@ -8,5 +8,5 @@ class ComputedfieldsConfig(AppConfig):
     name = 'computedfields'
 
     def ready(self):
-        from computedfields.models import resolve_dependencies
-        resolve_dependencies()
+        from computedfields.models import ComputedFieldsModelType
+        ComputedFieldsModelType._resolve_dependencies()

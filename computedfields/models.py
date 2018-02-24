@@ -4,75 +4,24 @@ from django.db.models.base import ModelBase
 from django.db import models
 from django.db.models.signals import post_save
 from collections import OrderedDict
+from computedfields.graph import ComputedModelsGraph
 
 
 def my_callback(sender, instance, **kwargs):
-    if sender in dependent_models:
-        for _, model, field, computed in dependent_models[sender]:
-            print sender, instance, model, field, computed
-            if not field.startswith('#'):
-                print model.objects.filter(**{field: instance}).distinct()
-                for elem in model.objects.filter(**{field: instance}).distinct():
-                    elem.save(update_fields=[computed])
-            else:
-                #post_save.disconnect(my_callback, sender=None, dispatch_uid='COMP_FIELD')
-                fieldname = getattr(model, field[1:]).rel.field.name
-                print '#backrel', getattr(instance, fieldname)
-                getattr(instance, fieldname).save(update_fields=[computed])
-                #post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD')
+    #TODO
+    pass
 
 
 post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD')
 
 
-computed_models = {}
-dependent_models = OrderedDict()
-
-computed_models_new = OrderedDict()
-
-
-def resolve_dependencies():
-    for model, fields in computed_models.iteritems():
-        dep_model = model
-        for field, depends in fields.iteritems():
-            for dependency in depends:
-                agg = []
-                for value in dependency.split('__'):
-                    agg.append(value)
-                    if value.startswith('#'):
-                        related_model = getattr(model, value[1:]).rel.related_model
-                    else:
-                        related_model = model._meta.get_field(value).related_model
-                    dependent_models.setdefault(related_model, []).append((len(agg), dep_model, '__'.join(agg), field))
-                    model = related_model
-    #print 'computed models:'
-    #for e in computed_models:
-    #    print e, computed_models[e]
-    #print 'dep models:'
-    #for dep in dependent_models:
-    #    print dep, dependent_models[dep]
-
-    print 'computed models:'
-    for e in computed_models_new:
-        print e, computed_models_new[e]
-    print
-
-    from computedfields.modelgraph import resolve_dep_string, Graph
-    res = resolve_dep_string(computed_models_new)
-    #graph = Graph(res)
-    #graph.render()
-    #graph.walk()
-    #graph.better_walk()
-
-    #from computedfields.modelgraph import draw_field_dependencies
-    #draw_field_dependencies(dependent_models, dependent_models.keys()[0])
-
-
 class ComputedFieldsModelType(ModelBase):
+    _graph = None
+    _computed_models = OrderedDict()
+
     def __new__(mcs, name, bases, attrs):
         computed_fields = {}
         dependent_fields = {}
-        dependent_fields_new = {}
         for k, v in attrs.iteritems():
             if getattr(v, '_computed', None):
                 computed_fields.update({k: v})
@@ -81,16 +30,17 @@ class ComputedFieldsModelType(ModelBase):
                 depends = v._computed['kwargs'].get('depends')
                 if depends:
                     dependent_fields[k] = depends
-                depends_new = v._computed['kwargs'].get('depends_new')
-                if depends_new:
-                    dependent_fields_new[k] = depends_new
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         cls._computed_fields = computed_fields
         if dependent_fields:
-            computed_models[cls] = dependent_fields
-        if dependent_fields_new:
-            computed_models_new[cls] = dependent_fields_new
+            mcs._computed_models[cls] = dependent_fields
         return cls
+
+    @staticmethod
+    def _resolve_dependencies():
+        ComputedFieldsModelType._graph = ComputedModelsGraph(
+            ComputedFieldsModelType._computed_models)
+        ComputedFieldsModelType._graph.remove_redundant_paths()
 
 
 class ComputedFieldsModel(models.Model):

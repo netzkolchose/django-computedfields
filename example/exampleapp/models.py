@@ -8,7 +8,7 @@ from computedfields.models import ComputedFieldsModel, computed
 class Test(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32), depends=['#foo_set'], depends_new=['foo_set#name'])
+    @computed(models.CharField(max_length=32), depends=['foo_set#name'])
     def pansen(self):
         return self.name + 'pansen' + ''.join([e.name for e in self.foo_set.all()])
 
@@ -20,11 +20,11 @@ class Foo(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     test = models.ForeignKey(Test)
 
-    @computed(models.CharField(max_length=32), depends=['test'], depends_new=['test#pansen', 'bar_set#name'])
+    @computed(models.CharField(max_length=32), depends=['test#pansen', 'bar_set#name'])
     def drilldown(self):
         return self.name + self.test.pansen
 
-    @computed(models.CharField(max_length=32), depends_new=['test#pansen', 'test#name', 'bar_set#name'])
+    @computed(models.CharField(max_length=32), depends=['test#pansen', 'test#name', 'bar_set#name'])
     def test2(self):
         return self.name + self.test.pansen
 
@@ -37,13 +37,13 @@ class Bar(ComputedFieldsModel):
     foo = models.ForeignKey(Foo)
     bla = models.ForeignKey(Foo, related_name='husten')
 
-    @computed(models.CharField(max_length=32), depends=['foo__test'], depends_new=['foo.test#name', 'bla.test#name'])
+    @computed(models.CharField(max_length=32), depends=['foo.test#name', 'bla.test#name'])
     def klaus(self):
         return self.name + self.foo.test.name
 
-    #@computed(models.CharField(max_length=32), depends=['foo__test'], depends_new=['bla.test#name'])
-    #def klaus2(self):
-    #    return self.name + self.bla.test.name
+    @computed(models.CharField(max_length=32), depends=['bla.test#name'])
+    def klaus2(self):
+        return self.name + self.bla.test.name
 
     def __unicode__(self):
         return u'Bar %s' % self.pk
@@ -53,7 +53,7 @@ class Baz(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     foos = models.ManyToManyField(Foo)
 
-    @computed(models.CharField(max_length=32), depends=['foos'], depends_new=['foos#drilldown'])
+    @computed(models.CharField(max_length=32), depends=['foos#drilldown'])
     def buzzer(self):
         if not self.pk:
             return ''
