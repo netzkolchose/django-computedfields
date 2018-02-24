@@ -59,9 +59,10 @@ def resolve_dependencies():
 
     from computedfields.modelgraph import resolve_dep_string, Graph
     res = resolve_dep_string(computed_models_new)
-    graph = Graph(res)
+    #graph = Graph(res)
     #graph.render()
-    graph.walk()
+    #graph.walk()
+    #graph.better_walk()
 
     #from computedfields.modelgraph import draw_field_dependencies
     #draw_field_dependencies(dependent_models, dependent_models.keys()[0])
