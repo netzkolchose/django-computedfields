@@ -134,7 +134,7 @@ class Graph(object):
                 self._get_edge_paths(new_edge, left_edges, paths, seen[:])
         paths.append(seen)
 
-    def get_edge_paths(self):
+    def get_edgepaths(self):
         left_edges = {}
         paths = []
         for edge in self.edges:
@@ -143,31 +143,31 @@ class Graph(object):
             self._get_edge_paths(edge, left_edges, paths)
         return paths
 
-    def get_node_paths(self):
-        paths = self.get_edge_paths()
+    def get_nodepaths(self):
+        paths = self.get_edgepaths()
         node_paths = []
         for path in paths:
             node_paths.append([edge.left for edge in path] + [path[-1].right])
         return node_paths
 
-    def can_replace_path(self, needle, haystack):
+    def _can_replace_nodepath(self, needle, haystack):
         if not set(haystack).issuperset(needle):
             return False
         if is_sublist(needle, haystack):
             return False
         return True
 
-    def compare_startend_paths(self, new_paths, base_paths):
+    def _compare_startend_nodepaths(self, new_paths, base_paths):
         base_points = set((path[0], path[-1]) for path in base_paths)
         new_points = set((path[0], path[-1]) for path in new_paths)
         return base_points == new_points
 
     def remove_redundant_paths(self):
-        paths = self.get_node_paths()
+        paths = self.get_nodepaths()
         possible_replaces = []
         for p in paths:
             for q in paths:
-                if self.can_replace_path(q, p):
+                if self._can_replace_nodepath(q, p):
                     possible_replaces.append((q, p))
         removed = set()
         for candidate, replacement in possible_replaces:
@@ -178,7 +178,7 @@ class Graph(object):
                 self.remove_edge(edge)
                 removed.add(edge)
                 # make sure all startpoints will still update all endpoints
-                if not self.compare_startend_paths(self.get_node_paths(), paths):
+                if not self._compare_startend_nodepaths(self.get_nodepaths(), paths):
                     self.add_edge(edge)
                     removed.remove(edge)
         return removed
