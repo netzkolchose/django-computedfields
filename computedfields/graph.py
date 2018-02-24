@@ -114,14 +114,14 @@ class Graph(object):
     def remove_edge(self, edge):
         self.edges.remove(edge)
 
-    def render(self):
+    def render(self, filename=None):
         from graphviz import Digraph
         dot = Digraph()
         for node in self.nodes:
             dot.node(str(node), str(node))
         for edge in self.edges:
             dot.edge(str(edge.left), str(edge.right))
-        dot.view()
+        dot.render(filename=filename, cleanup=True)
 
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
         if not seen:
