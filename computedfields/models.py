@@ -5,6 +5,8 @@ from django.db import models
 from django.db.models.signals import post_save
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
+from django.conf import settings
+from marshal import load
 
 
 def my_callback(sender, instance, **kwargs):
@@ -37,10 +39,22 @@ class ComputedFieldsModelType(ModelBase):
         return cls
 
     @staticmethod
-    def _resolve_dependencies():
-        ComputedFieldsModelType._graph = ComputedModelsGraph(
-            ComputedFieldsModelType._computed_models)
-        ComputedFieldsModelType._graph.remove_redundant_paths()
+    def _resolve_dependencies(force=False):
+        map = None
+        if hasattr(settings, 'COMPUTEDFIELDS_MAP'):
+            try:
+                from importlib import import_module
+                module = import_module(settings.COMPUTEDFIELDS_MAP)
+                map = module.map
+            except (ImportError, AttributeError):
+                pass
+        if map and not force:
+            ComputedFieldsModelType._lookup = map
+        else:
+            ComputedFieldsModelType._graph = ComputedModelsGraph(
+                ComputedFieldsModelType._computed_models)
+            ComputedFieldsModelType._graph.remove_redundant_paths()
+            ComputedFieldsModelType._lookup = ComputedFieldsModelType._graph.generate_lookup_table()
 
 
 class ComputedFieldsModel(models.Model):

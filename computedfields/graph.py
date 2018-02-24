@@ -188,8 +188,32 @@ class ComputedModelsGraph(Graph):
     def __init__(self, computed_models):
         super(ComputedModelsGraph, self).__init__()
         self.computed_models = computed_models
-        self.cleaned = self.resolve_dependencies(self.computed_models)
+        self.data, self.cleaned = self.resolve_dependencies(self.computed_models)
         self.insert_data(self.cleaned)
+
+    def dump_computed_models(self):
+        print 'computed models field dependencies'
+        for model, data in self.computed_models.iteritems():
+            print model
+            for field, depends in data.iteritems():
+                print '    ', field
+                print '        ', depends
+
+    def dump_data(self):
+        print 'resolved field dependencies'
+        for model, fielddata in self.data.iteritems():
+            print model
+            for field, modeldata in fielddata.iteritems():
+                print '    ', field
+                for depmodel, data in modeldata.iteritems():
+                    print '        ', depmodel, data
+
+    def dump_cleaned(self):
+        print 'graph insert data (edges)'
+        for left_node, right_nodes in self.cleaned.iteritems():
+            print left_node
+            for right_node in right_nodes:
+                print '    ', right_node
 
     def resolve_dependencies(self, computed_models):
         store = OrderedDict()
@@ -226,7 +250,7 @@ class ComputedModelsGraph(Graph):
             for field, modeldata in fielddata.iteritems():
                 for depmodel, data in modeldata.iteritems():
                     for comb in ((modelname(depmodel), dep['depends']
-                    if is_computed_field(depmodel, dep['depends']) else '#') for dep in data):
+                      if is_computed_field(depmodel, dep['depends']) else '#') for dep in data):
                         final.setdefault(comb, set()).add((modelname(model), field))
 
         # fix tree: move all sub updates of field dependencies under '#'
@@ -238,7 +262,7 @@ class ComputedModelsGraph(Graph):
                     smodel, sfield = skey
                     if model == smodel and field != sfield:
                         value.update(svalue)
-        return final
+        return store, final
 
     def insert_data(self, data):
         for node, value in data.iteritems():
@@ -249,3 +273,26 @@ class ComputedModelsGraph(Graph):
             for right in value:
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
+
+    def generate_lookup_table(self):
+        # reorder to {changed_model: {needs_update_model: {computed_field: dep_data}}}
+        final = OrderedDict()
+        for model, fielddata in self.data.iteritems():
+            for field, modeldata in fielddata.iteritems():
+                for depmodel, data in modeldata.iteritems():
+                    final.setdefault(depmodel, {}).setdefault(model, {}).setdefault(field, data)
+        return self.data
+        self.dump_computed_models()
+        self.dump_data()
+        self.dump_cleaned()
+
+        print
+
+        for k, v in final.iteritems():
+            print k
+            for vk, vv in v.iteritems():
+                print '    ', vk
+                for vvk, vvv in vv.iteritems():
+                    print '        ', vvk, vvv
+
+        return self.data
