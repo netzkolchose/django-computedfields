@@ -2,9 +2,8 @@
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
 from django.db import models
-
-
 from django.db.models.signals import post_save
+from collections import OrderedDict
 
 
 def my_callback(sender, instance, **kwargs):
@@ -27,7 +26,9 @@ post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD
 
 
 computed_models = {}
-dependent_models = {}
+dependent_models = OrderedDict()
+
+computed_models_new = OrderedDict()
 
 
 def resolve_dependencies():
@@ -44,18 +45,33 @@ def resolve_dependencies():
                         related_model = model._meta.get_field(value).related_model
                     dependent_models.setdefault(related_model, []).append((len(agg), dep_model, '__'.join(agg), field))
                     model = related_model
+    #print 'computed models:'
+    #for e in computed_models:
+    #    print e, computed_models[e]
+    #print 'dep models:'
+    #for dep in dependent_models:
+    #    print dep, dependent_models[dep]
+
     print 'computed models:'
-    for e in computed_models:
-        print e, computed_models[e]
-    print 'dep models:'
-    for dep in dependent_models:
-        print dep, dependent_models[dep]
+    for e in computed_models_new:
+        print e, computed_models_new[e]
+    print
+
+    from computedfields.modelgraph import resolve_dep_string, Graph
+    res = resolve_dep_string(computed_models_new)
+    graph = Graph(res)
+    #graph.render()
+    graph.walk()
+
+    #from computedfields.modelgraph import draw_field_dependencies
+    #draw_field_dependencies(dependent_models, dependent_models.keys()[0])
 
 
 class ComputedFieldsModelType(ModelBase):
     def __new__(mcs, name, bases, attrs):
         computed_fields = {}
         dependent_fields = {}
+        dependent_fields_new = {}
         for k, v in attrs.iteritems():
             if getattr(v, '_computed', None):
                 computed_fields.update({k: v})
@@ -64,10 +80,15 @@ class ComputedFieldsModelType(ModelBase):
                 depends = v._computed['kwargs'].get('depends')
                 if depends:
                     dependent_fields[k] = depends
+                depends_new = v._computed['kwargs'].get('depends_new')
+                if depends_new:
+                    dependent_fields_new[k] = depends_new
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         cls._computed_fields = computed_fields
         if dependent_fields:
             computed_models[cls] = dependent_fields
+        if dependent_fields_new:
+            computed_models_new[cls] = dependent_fields_new
         return cls
 
 
