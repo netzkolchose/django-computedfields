@@ -6,7 +6,6 @@ from django.db.models.signals import post_save
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
-from pprint import pprint
 
 
 def postsave_handler(sender, instance, **kwargs):
@@ -14,7 +13,6 @@ def postsave_handler(sender, instance, **kwargs):
         return
     mapping = ComputedFieldsModelType._map
     modeldata = mapping[sender]
-    pprint(modeldata, width=120)
     update_fields = kwargs.get('update_fields')
     if not update_fields:
         if '#' not in modeldata:
@@ -26,8 +24,7 @@ def postsave_handler(sender, instance, **kwargs):
             if fieldname in modeldata:
                 updates.add(fieldname)
             else:
-                updates = {'#'}
-                break
+                updates.add('#')
     for update in updates:
         for model, funcs in modeldata[update].iteritems():
             for func in funcs:

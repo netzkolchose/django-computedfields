@@ -2,6 +2,7 @@ from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from itertools import tee, izip
 from django.db.models.fields.reverse_related import ManyToOneRel, OneToOneRel, ManyToManyRel
+from computedfields.funcgenerator import FuncGenerator
 
 
 RELTYPES = {ManyToManyRel: 'm2m', OneToOneRel: 'o2o', ManyToOneRel: 'fk'}
@@ -141,11 +142,14 @@ class Graph(object):
             dot.edge(str(edge.left), str(edge.right))
         dot.view(cleanup=True)
 
+    def edgepath_to_nodepath(self, path):
+        return [edge.left for edge in path] + [path[-1].right]
+
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
         if not seen:
             seen = []
         if edge in seen:
-            raise CycleException(seen[seen.index(edge):] + [edge])
+            raise CycleException(self.edgepath_to_nodepath(seen[seen.index(edge):]))
         seen.append(edge)
         if edge.right in left_edges:
             for new_edge in left_edges[edge.right]:
@@ -175,7 +179,7 @@ class Graph(object):
         paths = self.get_edgepaths()
         node_paths = []
         for path in paths:
-            node_paths.append([edge.left for edge in path] + [path[-1].right])
+            node_paths.append(self.edgepath_to_nodepath(path))
         return node_paths
 
     def _can_replace_nodepath(self, needle, haystack):
@@ -357,7 +361,8 @@ class ComputedModelsGraph(Graph):
 
         NOTE: If there are only known fields in `update_fields` always use
         their specific callbacks, never the '#' callbacks. This is especially
-        important to ensure cycle free db updates.
+        important to ensure cycle free db updates. Due to graph reduction
+        any known field must call it's corresponding callbacks to get properly updated.
 
         NOTE: This map is also used for the optional serialization to circumvent
         the computationally intensive graph reduction in production mode.
@@ -382,6 +387,11 @@ class ComputedModelsGraph(Graph):
                 rstore.setdefault(rmodel, {}).setdefault(rfield, []).extend(
                     final[lmodel][rmodel][rfield])
 
+
+
+        self.lookup_map = table
+        self.dump_lookup_map()
+
         # finally build functions table for the signal handler
         # based on the dependency information
         func_table = {}
@@ -393,102 +403,15 @@ class ComputedModelsGraph(Graph):
                     gen.resolve_all()
                     store[rmodel] = gen.final
 
-        self.lookup_map = table
+        print '#####funcmap#####'
+        for lmodel, data in func_table.iteritems():
+            print lmodel
+            for lfield, fielddata in data.iteritems():
+                print '    ', lfield
+                for rmodel, funcs in fielddata.iteritems():
+                    print '        ', rmodel
+                    for func in funcs:
+                        print '            ', func.func
+        print '#####funcmap#####'
+
         return func_table
-
-
-############################
-# handler functions creation
-############################
-from django.db.models import Q
-from functools import partial
-from copy import deepcopy
-from pprint import pprint
-
-
-def generate_Q(paths, instance):
-    if paths:
-        query_obj = Q(**{paths.pop(): instance})
-        while paths:
-            query_obj |= Q(**{paths.pop(): instance})
-        return query_obj
-    return Q()
-
-
-def fk_relation(model, paths, fields, instance):
-    print 'fk_relation', paths, model
-    for elem in model.objects.filter(generate_Q(paths, instance)).distinct():
-        elem.save(update_fields=fields)
-
-
-def fk_backrelation(model, paths, fields, instance):
-    print 'fk_backrelation', paths, model
-    for path in paths:
-        fieldname = getattr(model, ''.join(path)).rel.field.name
-        print fieldname
-        getattr(instance, fieldname).save(update_fields=fields)
-
-
-def m2m_relation(model, paths, fields, instance):
-    for elem in model.objects.filter(generate_Q(paths, instance)).distinct():
-        elem.save(update_fields=fields)
-
-
-class FuncGenerator(object):
-    def __init__(self, model, fielddata):
-        self.model = model
-        self.data = deepcopy(fielddata)
-        self.final = []
-
-    def dump_data(self):
-        pprint(self.data, width=120)
-
-    def cleanup_data(self):
-        for field in self.data.keys():
-            self.data[field] = [dep for dep in self.data[field] if not dep.get('processed')]
-            if not self.data[field]:
-                del self.data[field]
-
-    def resolve_all(self):
-        self.resolve_fk_relation()
-        self.resolve_fk_backrelation()
-        self.resolve_m2m_relation()
-
-    def resolve_fk_relation(self):
-        paths = set()
-        fields = set()
-        for field, deps in self.data.iteritems():
-            for dep in deps:
-                if dep['rel'] == 'fk' and not dep['backrel']:
-                    paths.add('__'.join(dep['path']))
-                    fields.add(field)
-                    dep['processed'] = True
-        if paths:
-            self.final.append(partial(fk_relation, self.model, paths, fields))
-        self.cleanup_data()
-
-    def resolve_fk_backrelation(self):
-        paths = set()
-        fields = set()
-        for field, deps in self.data.iteritems():
-            for dep in deps:
-                if dep['rel'] == 'fk' and dep['backrel']:
-                    paths.add(tuple(dep['path']))
-                    fields.add(field)
-                    dep['processed'] = True
-        if paths:
-            self.final.append(partial(fk_backrelation, self.model, paths, fields))
-        self.cleanup_data()
-
-    def resolve_m2m_relation(self):
-        paths = set()
-        fields = set()
-        for field, deps in self.data.iteritems():
-            for dep in deps:
-                if dep['rel'] == 'm2m' and not dep['backrel']:
-                    paths.add('__'.join(dep['path']))
-                    fields.add(field)
-                    dep['processed'] = True
-        if paths:
-            self.final.append(partial(m2m_relation, self.model, paths, fields))
-        self.cleanup_data()
