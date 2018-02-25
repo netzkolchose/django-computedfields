@@ -17,6 +17,7 @@ admin.site.register(NormalModel, TestAdmin)
 class FooAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+        'nm_name'
     )
 
 
@@ -26,6 +27,7 @@ admin.site.register(Foo, FooAdmin)
 class BarAdmin(admin.ModelAdmin):
     list_display = (
         'name',
+        'nm_name'
     )
 
 
@@ -35,7 +37,8 @@ admin.site.register(Bar, BarAdmin)
 class BazAdmin(admin.ModelAdmin):
     list_display = (
         'name',
-        'nm_name'
+        'nm_name',
+        'two_ancestors'
     )
 
 
