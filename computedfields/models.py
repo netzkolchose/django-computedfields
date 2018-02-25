@@ -6,20 +6,41 @@ from django.db.models.signals import post_save
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
-from marshal import load
+from pprint import pprint
 
 
-def my_callback(sender, instance, **kwargs):
-    #TODO
-    pass
+def postsave_handler(sender, instance, **kwargs):
+    if sender not in ComputedFieldsModelType._map:
+        return
+    mapping = ComputedFieldsModelType._map
+    modeldata = mapping[sender]
+    pprint(modeldata, width=120)
+    update_fields = kwargs.get('update_fields')
+    if not update_fields:
+        if '#' not in modeldata:
+            return
+        updates = {'#'}
+    else:
+        updates = set()
+        for fieldname in update_fields:
+            if fieldname in modeldata:
+                updates.add(fieldname)
+            else:
+                updates = {'#'}
+                break
+    for update in updates:
+        for model, funcs in modeldata[update].iteritems():
+            for func in funcs:
+                func(instance)
 
 
-post_save.connect(my_callback, sender=None, weak=False, dispatch_uid='COMP_FIELD')
+post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
 
 
 class ComputedFieldsModelType(ModelBase):
     _graph = None
     _computed_models = OrderedDict()
+    _map = {}
 
     def __new__(mcs, name, bases, attrs):
         computed_fields = {}
@@ -46,15 +67,15 @@ class ComputedFieldsModelType(ModelBase):
                 from importlib import import_module
                 module = import_module(settings.COMPUTEDFIELDS_MAP)
                 map = module.map
-            except (ImportError, AttributeError):
+            except (ImportError, AttributeError, Exception):
                 pass
         if map and not force:
-            ComputedFieldsModelType._lookup = map
+            ComputedFieldsModelType._map = map
         else:
             ComputedFieldsModelType._graph = ComputedModelsGraph(
                 ComputedFieldsModelType._computed_models)
             ComputedFieldsModelType._graph.remove_redundant_paths()
-            ComputedFieldsModelType._lookup = ComputedFieldsModelType._graph.generate_lookup_table()
+            ComputedFieldsModelType._map = ComputedFieldsModelType._graph.generate_lookup_map()
 
 
 class ComputedFieldsModel(models.Model):

@@ -24,7 +24,7 @@ class Foo(ComputedFieldsModel):
     def drilldown(self):
         return self.name + self.test.pansen
 
-    @computed(models.CharField(max_length=32), depends=['test#pansen', 'test#name', 'bar_set#name'])
+    @computed(models.CharField(max_length=32, null=True, blank=True), depends=['test#pansen', 'test#name', 'bar_set#name'])
     def test2(self):
         return self.name + self.test.pansen
 
@@ -35,15 +35,17 @@ class Foo(ComputedFieldsModel):
 class Bar(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     foo = models.ForeignKey(Foo)
-    bla = models.ForeignKey(Foo, related_name='husten')
+    bla = models.ForeignKey(Foo, related_name='husten', null=True, blank=True)
 
     @computed(models.CharField(max_length=32), depends=['foo.test#name', 'bla.test#name'])
     def klaus(self):
         return self.name + self.foo.test.name
 
-    @computed(models.CharField(max_length=32), depends=['bla.test#name'])
+    @computed(models.CharField(max_length=32, null=True, blank=True), depends=['bla.test#name'])
     def klaus2(self):
-        return self.name + self.bla.test.name
+        if self.bla:
+            return self.name + self.bla.test.name
+        return self.name
 
     def __unicode__(self):
         return u'Bar %s' % self.pk

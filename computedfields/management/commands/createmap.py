@@ -28,7 +28,7 @@ class Command(BaseCommand):
         try:
             module = import_module(settings.COMPUTEDFIELDS_MAP)
             filename = module.__file__.replace('pyc', 'py')
-        except ImportError:
+        except (ImportError, AttributeError, Exception):
             try:
                 name_splitted = settings.COMPUTEDFIELDS_MAP.split('.')
                 package = '.'.join(name_splitted[:-1])
@@ -43,6 +43,6 @@ class Command(BaseCommand):
         # build the map and save to file
         graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
         graph.remove_redundant_paths()
-        map = graph.generate_lookup_table()
+        map = graph.generate_lookup_map()
         with open(filename, 'w') as f:
             f.write(TMPL % dumps(map))
