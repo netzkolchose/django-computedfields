@@ -3,6 +3,8 @@ from functools import partial
 from copy import deepcopy
 from pprint import pprint
 
+# FIXME: major design flaw in multi path - respect all in between relation types
+
 
 def generate_Q(paths, instance):
     if paths:
@@ -22,7 +24,17 @@ def fk_relation(model, paths, fields, instance):
 def fk_backrelation(model, paths, fields, instance):
     print 'fk_backrelation', paths, model
     for path in paths:
-        assert(len(path) == 1)
+        if len(path) == 2:
+            model = getattr(model, path[0]).field.rel.related_model
+            fieldname = getattr(model, path[1]).rel.field.name
+            getattr(instance, fieldname).save(update_fields=fields)
+            return
+        if len(path) == 3:
+            model = getattr(model, path[0]).field.rel.related_model
+            model = getattr(model, path[1]).field.rel.related_model
+            fieldname = getattr(model, path[2]).rel.field.name
+            getattr(instance, fieldname).save(update_fields=fields)
+            return
         fieldname = getattr(model, ''.join(path)).rel.field.name
         getattr(instance, fieldname).save(update_fields=fields)
 
