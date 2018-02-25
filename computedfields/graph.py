@@ -132,6 +132,15 @@ class Graph(object):
             dot.edge(str(edge.left), str(edge.right))
         dot.render(filename=filename, cleanup=True)
 
+    def view(self):
+        from graphviz import Digraph
+        dot = Digraph()
+        for node in self.nodes:
+            dot.node(str(node), str(node))
+        for edge in self.edges:
+            dot.edge(str(edge.left), str(edge.right))
+        dot.view(cleanup=True)
+
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
         if not seen:
             seen = []
@@ -144,6 +153,11 @@ class Graph(object):
         paths.append(seen)
 
     def get_edgepaths(self):
+        """
+        Returns a list of all paths containing edges.
+        Raises a `CycleException` containing the found cycle,
+        if the graph is not cycle free.
+        """
         left_edges = {}
         paths = []
         for edge in self.edges:
@@ -153,6 +167,11 @@ class Graph(object):
         return paths
 
     def get_nodepaths(self):
+        """
+        Returns a list of all paths containing nodes.
+        Raises a `CycleException` containing the found cycle,
+        if the graph is not cycle free.
+        """
         paths = self.get_edgepaths()
         node_paths = []
         for path in paths:
@@ -172,6 +191,10 @@ class Graph(object):
         return base_points == new_points
 
     def remove_redundant_paths(self):
+        """
+        Tries to find and remove redundant paths.
+        """
+        # TODO: ensure to remove all multi path dependencies here! (signal handler cant do those)
         paths = self.get_nodepaths()
         possible_replaces = []
         for p in paths:
@@ -243,6 +266,7 @@ class ComputedModelsGraph(Graph):
                             print '                ', rfielddata
 
     def resolve_dependencies(self, computed_models):
+        # first resolve all field dependencies
         store = OrderedDict()
         for model, fields in computed_models.iteritems():
             modelentry = store.setdefault(model, {})
@@ -274,7 +298,7 @@ class ComputedModelsGraph(Graph):
                     fieldentry[cls][-1]['depends'] = target_field
                     count += 1
 
-        # reorder data for better graph handling
+        # reorder and simplify data for easier graph handling
         final = {}
         model_mapping = {}
         for model, fielddata in store.iteritems():
@@ -297,6 +321,10 @@ class ComputedModelsGraph(Graph):
         return store, final, model_mapping
 
     def insert_data(self, data):
+        """
+        Adds all needed nodes and edges as in data.
+        Data must be an adjacency list.
+        """
         for node, value in data.iteritems():
             self.add_node(Node(node))
             for node in value:
@@ -306,17 +334,45 @@ class ComputedModelsGraph(Graph):
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
 
+    def cleaned_data_from_edges(self):
+        """
+        Returns an adjacency list of the graph
+        as {left: set(right neighbours)} mapping.
+        """
+        map = {}
+        for edge in self.edges:
+            map.setdefault(edge.left.data, set()).add(edge.right.data)
+        return map
+
     def generate_lookup_map(self):
-        # TODO: premerge queryset logic for signal handler
-        # reorder to {changed_model: {needs_update_model: {computed_field: dep_data}}}
+        """
+        Generates a function lookup map to be used by the signal handler.
+        Structure of the map is:
+            model:
+                '#'      :  [list of callbacks]
+                'fieldA' :  [list of callbacks]
+        `model` denotes the `sender` in the signal handler. The '#' callbacks
+        are to be used if there is no `update_fields` set or there are unkown fields
+        in the kwargs of the signal.
+
+        NOTE: If there are only known fields in `update_fields` always use
+        their specific callbacks, never the '#' callbacks. This is especially
+        important to ensure cycle free db updates.
+
+        NOTE: This map is also used for the optional serialization to circumvent
+        the computationally intensive graph reduction in production mode.
+        """
+        # reorder full node information to
+        # {changed_model: {needs_update_model: {computed_field: dep_data}}}
         final = OrderedDict()
         for model, fielddata in self.data.iteritems():
             for field, modeldata in fielddata.iteritems():
                 for depmodel, data in modeldata.iteritems():
                     final.setdefault(depmodel, {}).setdefault(model, {}).setdefault(field, data)
 
+        # apply full node information to graph edges
         table = {}
-        for left_node, right_nodes in self.cleaned.iteritems():
+        for left_node, right_nodes in self.cleaned_data_from_edges().iteritems():
             lmodel, lfield = left_node
             lmodel = self.model_mapping[lmodel]
             rstore = table.setdefault(lmodel, {}).setdefault(lfield, {})
@@ -326,16 +382,8 @@ class ComputedModelsGraph(Graph):
                 rstore.setdefault(rmodel, {}).setdefault(rfield, []).extend(
                     final[lmodel][rmodel][rfield])
 
-        self.lookup_map = table
-        #self.dump_lookup_map()
-
-
-        # merge queries if (AND):
-        #   - same model
-        #   - same rel type and same backrel
-        #   - same path
-        #   - different path, if possible (join paths with Q objects), not possible for fk backrel
-        # create lambda funcs iterator to be run in handler?
+        # finally build functions table for the signal handler
+        # based on the dependency information
         func_table = {}
         for lmodel, data in table.iteritems():
             for lfield, fielddata in data.iteritems():
@@ -345,6 +393,7 @@ class ComputedModelsGraph(Graph):
                     gen.resolve_all()
                     store[rmodel] = gen.final
 
+        self.lookup_map = table
         return func_table
 
 
@@ -367,14 +416,16 @@ def generate_Q(paths, instance):
 
 
 def fk_relation(model, paths, fields, instance):
+    print 'fk_relation', paths, model
     for elem in model.objects.filter(generate_Q(paths, instance)).distinct():
         elem.save(update_fields=fields)
 
 
 def fk_backrelation(model, paths, fields, instance):
-    # FIXME: showstopper - how to deal with .foo.bar.baz_set? --> multiple chained rel types
+    print 'fk_backrelation', paths, model
     for path in paths:
         fieldname = getattr(model, ''.join(path)).rel.field.name
+        print fieldname
         getattr(instance, fieldname).save(update_fields=fields)
 
 

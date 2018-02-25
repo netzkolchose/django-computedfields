@@ -20,7 +20,7 @@ class Foo(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     test = models.ForeignKey(Test)
 
-    @computed(models.CharField(max_length=32), depends=['test#pansen', 'bar_set#name'])
+    @computed(models.CharField(max_length=32), depends=['test#pansen', 'bar_set#name', 'test.foo_set#name'])
     def drilldown(self):
         return self.name + self.test.pansen
 
