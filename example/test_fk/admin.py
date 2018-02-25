@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 
 from django.contrib import admin
-from exampleapp.models import NormalModel, Foo, Bar, Baz
+from models import NormalModel, Foo, Bar, Baz
 
 
 class TestAdmin(admin.ModelAdmin):
