@@ -306,9 +306,10 @@ class ComputedModelsGraph(Graph):
         final = {}
         model_mapping = {}
         for model, fielddata in store.iteritems():
+            model_mapping[modelname(model)] = model
             for field, modeldata in fielddata.iteritems():
                 for depmodel, data in modeldata.iteritems():
-                    model_mapping[modelname(model)] = model
+                    model_mapping[modelname(depmodel)] = depmodel
                     for comb in ((modelname(depmodel), dep['depends']
                       if is_computed_field(depmodel, dep['depends']) else '#') for dep in data):
                         final.setdefault(comb, set()).add((modelname(model), field))
