@@ -46,6 +46,26 @@ def is_sublist(needle, haystack):
 
 
 class CycleException(Exception):
+    """
+    Exception raised during path linearization, if a cycle was found.
+    Contains the cycle either as edgepath or nodepath in `message`.
+    """
+    pass
+
+
+class CycleEdgeException(CycleException):
+    """
+    Exception raised during path linearization, if a cycle was found.
+    Contains the cycle as edgepath in `message`.
+    """
+    pass
+
+
+class CycleNodeException(CycleException):
+    """
+    Exception raised during path linearization, if a cycle was found.
+    Contains the cycle as nodepath in `message`.
+    """
     pass
 
 
@@ -124,32 +144,36 @@ class Graph(object):
     def remove_edge(self, edge):
         self.edges.remove(edge)
 
-    def render(self, filename=None):
+    def get_dot(self, mark_edges=None, mark_nodes=None):
         from graphviz import Digraph
+        if not mark_edges:
+            mark_edges = {}
+        if not mark_nodes:
+            mark_nodes = {}
         dot = Digraph()
         for node in self.nodes:
-            dot.node(str(node), str(node))
+            dot.node(str(node), str(node), **mark_nodes.get(node, {}))
         for edge in self.edges:
-            dot.edge(str(edge.left), str(edge.right))
-        dot.render(filename=filename, cleanup=True)
+            dot.edge(str(edge.left), str(edge.right), **mark_edges.get(edge, {}))
+        return dot
 
-    def view(self):
-        from graphviz import Digraph
-        dot = Digraph()
-        for node in self.nodes:
-            dot.node(str(node), str(node))
-        for edge in self.edges:
-            dot.edge(str(edge.left), str(edge.right))
-        dot.view(cleanup=True)
+    def render(self, filename=None, mark_edges=None, mark_nodes=None):
+        self.get_dot(mark_edges, mark_nodes).render(filename=filename, cleanup=True)
+
+    def view(self, mark_edges=None, mark_nodes=None):
+        self.get_dot(mark_edges, mark_nodes).view(cleanup=True)
 
     def edgepath_to_nodepath(self, path):
         return [edge.left for edge in path] + [path[-1].right]
+
+    def nodepath_to_edgepath(self, path):
+        return [Edge(*pair) for pair in pairwise(path)]
 
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
         if not seen:
             seen = []
         if edge in seen:
-            raise CycleException(self.edgepath_to_nodepath(seen[seen.index(edge):]))
+            raise CycleEdgeException(seen[seen.index(edge):])
         seen.append(edge)
         if edge.right in left_edges:
             for new_edge in left_edges[edge.right]:
@@ -159,10 +183,10 @@ class Graph(object):
     def get_edgepaths(self):
         """
         Returns a list of all paths containing edges.
-        Raises a `CycleException` containing the found cycle,
-        if the graph is not cycle free.
+        Might raise a `CycleEdgeException`. For in-depth cycle detection
+        use `edge_cycles`, `node_cycles` or `get_cycles()`.
         """
-        left_edges = {}
+        left_edges = OrderedDict()
         paths = []
         for edge in self.edges:
             left_edges.setdefault(edge.left, []).append(edge)
@@ -173,14 +197,84 @@ class Graph(object):
     def get_nodepaths(self):
         """
         Returns a list of all paths containing nodes.
-        Raises a `CycleException` containing the found cycle,
-        if the graph is not cycle free.
+        Might raise a `CycleNodeException`. For in-depth cycle detection
+        use `edge_cycles`, `node_cycles` or `get_cycles()`.
         """
-        paths = self.get_edgepaths()
+        try:
+            paths = self.get_edgepaths()
+        except CycleEdgeException as e:
+            raise CycleNodeException(self.edgepath_to_nodepath(e.message))
         node_paths = []
         for path in paths:
             node_paths.append(self.edgepath_to_nodepath(path))
         return node_paths
+
+    def _get_cycles(self, edge, left_edges, cycles, seen=None):
+        if not seen:
+            seen = []
+        if edge in seen:
+            cycle = frozenset(seen[seen.index(edge):])
+            data = cycles.setdefault(cycle, {'entries': set(), 'path': []})
+            if seen:
+                data['entries'].add(seen[0])
+            data['path'] = seen[seen.index(edge):]
+            return
+        seen.append(edge)
+        if edge.right in left_edges:
+            for new_edge in left_edges[edge.right]:
+                self._get_cycles(new_edge, left_edges, cycles, seen[:])
+
+    def get_cycles(self):
+        """
+        Get all cycles in graph. This is not optimised by any means,
+        it simply walks the whole graph and gathers all cycles. Therefore
+        use this only for in-depth cycle clarification. This applies to all
+        dependent properties as well (`edge_cycles` and `node_cycles`).
+        As start nodes any node on the left side of an edge will be tested.
+        Returns a mapping of
+            `{frozenset(cycling edgepath): {
+                'entries': set of edges leading to the cycle,
+                'path': last seen edge path of the cycle
+            }}`
+        An edge in `entries` is not necessarily part of the cycle itself,
+        but once entered the path will lead to the cycle.
+        """
+        left_edges = OrderedDict()
+        cycles = {}
+        for edge in self.edges:
+            left_edges.setdefault(edge.left, []).append(edge)
+        for edge in self.edges:
+            self._get_cycles(edge, left_edges, cycles)
+        return cycles
+
+    @property
+    def edge_cycles(self):
+        """
+        Returns all cycles as edge paths.
+        Use this only for in-depth cycle clarification.
+        """
+        return [cycle['path'] for cycle in self.get_cycles().values()]
+
+    @property
+    def node_cycles(self):
+        """
+        Returns all cycles as node paths.
+        Use this only for in-depth cycle clarification.
+        """
+        return [self.edgepath_to_nodepath(cycle['path']) for cycle in self.get_cycles().values()]
+
+    @property
+    def is_cyclefree(self):
+        """
+        True if the graph contains no cycles.
+        To be faster this property relies on path linearization
+        instead of the more expensive full cycle detection.
+        """
+        try:
+            self.get_edgepaths()
+            return True
+        except CycleEdgeException:
+            return False
 
     def _can_replace_nodepath(self, needle, haystack):
         if not set(haystack).issuperset(needle):
@@ -196,9 +290,14 @@ class Graph(object):
 
     def remove_redundant_paths(self):
         """
-        Tries to find and remove redundant paths.
+        Find and remove redundant paths. A path is redundant if there there are multiple
+        possibilities to reach a node from a start node. Since the longer path triggers
+        more db updates the shorter gets discarded.
+        Might raise a `CycleNodeException`.
         """
+        # FIXME: check algorithm
         # TODO: ensure to remove all multi path dependencies here! (signal handler cant do those)
+        # UPDATE: better approach --> handle those in signal handler to lower db interaction
         paths = self.get_nodepaths()
         possible_replaces = []
         for p in paths:
@@ -281,7 +380,9 @@ class ComputedModelsGraph(Graph):
                     path, target_field = value.split('#')
                     cls = model
                     agg_path = []
+                    new_data = []
                     for symbol in path.split('.'):
+                        nd = {}
                         agg_path.append(symbol)
                         try:
                             if fieldentry.get(cls):
@@ -292,19 +393,26 @@ class ComputedModelsGraph(Graph):
                         try:
                             rel = cls._meta.get_field(symbol).rel
                             cls = cls._meta.get_field(symbol).related_model
+                            nd['model'] = cls
+                            nd['type'] = reltype(rel)
                         except FieldDoesNotExist:
                             is_backrelation = True
                             rel = getattr(cls, symbol).field.rel
                             cls = getattr(cls, symbol).field.rel.related_model
+                            nd['model'] = cls
+                            nd['type'] = reltype(rel)
+                        nd['backrel'] = is_backrelation
+                        nd['path'] = symbol
+                        new_data.append(nd)
                         fieldentry.setdefault(cls, []).append({
                             'depends': '', 'backrel': is_backrelation,
-                            'rel': reltype(rel), 'path': tuple(agg_path[:])})
+                            'rel': reltype(rel), 'path': tuple(agg_path[:]), 'nd': new_data[:]})
                     fieldentry[cls][-1]['depends'] = target_field
                     count += 1
 
         # reorder and simplify data for easier graph handling
-        final = {}
-        model_mapping = {}
+        final = OrderedDict()
+        model_mapping = OrderedDict()
         for model, fielddata in store.iteritems():
             model_mapping[modelname(model)] = model
             for field, modeldata in fielddata.iteritems():
@@ -362,11 +470,11 @@ class ComputedModelsGraph(Graph):
 
         NOTE: If there are only known fields in `update_fields` always use
         their specific callbacks, never the '#' callbacks. This is especially
-        important to ensure cycle free db updates. Due to graph reduction
-        any known field must call it's corresponding callbacks to get properly updated.
+        important to ensure cycle free db updates. Any known field must call
+        it's corresponding callbacks to get properly updated.
 
         NOTE: This map is also used for the optional serialization to circumvent
-        the computationally intensive graph reduction in production mode.
+        the computationally intensive graph and map creation in production mode.
         """
         # reorder full node information to
         # {changed_model: {needs_update_model: {computed_field: dep_data}}}
@@ -390,8 +498,8 @@ class ComputedModelsGraph(Graph):
 
 
 
-        self.lookup_map = table
-        self.dump_lookup_map()
+        #self.lookup_map = table
+        #self.dump_lookup_map()
 
         # finally build functions table for the signal handler
         # based on the dependency information
@@ -404,15 +512,16 @@ class ComputedModelsGraph(Graph):
                     gen.resolve_all()
                     store[rmodel] = gen.final
 
-        print '#####funcmap#####'
-        for lmodel, data in func_table.iteritems():
-            print lmodel
-            for lfield, fielddata in data.iteritems():
-                print '    ', lfield
-                for rmodel, funcs in fielddata.iteritems():
-                    print '        ', rmodel
-                    for func in funcs:
-                        print '            ', func.func
-        print '#####funcmap#####'
-
+        #print '#####funcmap#####'
+        #for lmodel, data in func_table.iteritems():
+        #    print lmodel
+        #    for lfield, fielddata in data.iteritems():
+        #        print '    ', lfield
+        #        for rmodel, funcs in fielddata.iteritems():
+        #            print '        ', rmodel
+        #            for func in funcs:
+        #                print '            ', func.func
+        #print '#####funcmap#####'
+        #self.view()
+        #print 'removed', self._removed
         return func_table

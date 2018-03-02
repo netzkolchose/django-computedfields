@@ -10,7 +10,7 @@ class ComputedfieldsConfig(AppConfig):
 
     def ready(self):
         # do not run graph reduction in migrations
-        for token in ('makemigrations', 'migrate', 'updatedata', 'help'):
+        for token in ('makemigrations', 'migrate', 'updatedata', 'help', 'rendergraph'):
             if token in sys.argv:
                 return
 
