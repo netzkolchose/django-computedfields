@@ -24,8 +24,8 @@ from computedfields.models import ComputedFieldsModelType
 class GenericModelTestCaseBase(TestCase):
     def parse(self, mapping):
         models = ComputedFieldsModelType._computed_models
-        for modelname, data in mapping.iteritems():
-            for field, values in data.iteritems():
+        for modelname, data in mapping.items():
+            for field, values in data.items():
                 if values.get('depends'):
                     models[MODELS[modelname]] = {field: values.get('depends')}
                 if values.get('func'):
@@ -41,7 +41,7 @@ class GenericModelTestCaseBase(TestCase):
                 fielddata._computed['func'] = lambda x: ''
 
 
-class MultipleFKDependenciesTestCase(GenericModelTestCaseBase):
+class MultipleFKDependencies(GenericModelTestCaseBase):
     def setUp(self):
         self.parse({
             'B': {'comp': {
@@ -59,30 +59,40 @@ class MultipleFKDependenciesTestCase(GenericModelTestCaseBase):
                 }
             }
         })
+        # test data
+        self.b = self.models.B(name='b')
+        self.b.save()
+        self.c = self.models.C(name='c', f_cb=self.b)
+        self.c.save()
+        self.d = self.models.D(name='d', f_dc=self.c)
+        self.d.save()
 
     def tearDown(self):
         self.reset()
 
-    def test_simple_fk_relations(self):
-        b = self.models.B(name='b')
-        b.save()
-        c = self.models.C(name='c', f_cb=b)
-        c.save()
-        d = self.models.D(name='d', f_dc=c)
-        d.save()
-        # insert test
-        self.assertEqual(c.comp, 'cb')
-        self.assertEqual(d.comp, 'dcb')
-        b.name = 'B'
-        b.save()
-        c.refresh_from_db()
-        d.refresh_from_db()
-        # bubbling updates
-        self.assertEqual(c.comp, 'cB')
-        self.assertEqual(d.comp, 'dcB')
-        c.name = 'C'
-        c.save()
-        # this should work without refresh
-        d.name = 'D'
-        d.save()
-        self.assertEqual(d.comp, 'DCB')
+    def test_insert_test(self):
+        self.assertEqual(self.b.comp, 'b')
+        self.assertEqual(self.c.comp, 'cb')
+        self.assertEqual(self.d.comp, 'dcb')
+
+    def test_bubbling_updates(self):
+        self.b.name = 'B'
+        self.b.save()
+        # need to reload data from db
+        self.c.refresh_from_db()
+        self.d.refresh_from_db()
+        self.assertEqual(self.b.comp, 'B')
+        self.assertEqual(self.c.comp, 'cB')
+        self.assertEqual(self.d.comp, 'dcB')
+
+    def test_bubbling_update_without_refresh_on_save(self):
+        # bubbling update without refresh should work on save
+        self.b.name = 'B'
+        self.b.save()
+        self.c.name = 'C'
+        self.c.save()
+        self.d.name = 'D'
+        self.d.save()
+        self.assertEqual(self.b.comp, 'B')
+        self.assertEqual(self.c.comp, 'CB')
+        self.assertEqual(self.d.comp, 'DCB')
