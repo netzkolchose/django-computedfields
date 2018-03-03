@@ -21,8 +21,10 @@ from computedfields.models import ComputedFieldsModelType
 # call_command('loaddata', 'fixtures/myfixture', verbosity=0)
 
 
-class GenericModelTestCaseBase(TestCase):
-    def parse(self, mapping):
+class GenericModelTestBase(TestCase):
+    models = models_module
+
+    def setDeps(self, mapping):
         models = ComputedFieldsModelType._computed_models
         for modelname, data in mapping.items():
             for field, values in data.items():
@@ -31,23 +33,27 @@ class GenericModelTestCaseBase(TestCase):
                 if values.get('func'):
                     MODELS[modelname]._computed_fields[field]._computed['func'] = values.get('func')
         ComputedFieldsModelType._resolve_dependencies()
-        self.models = models_module
+        self.graph = ComputedFieldsModelType._graph
+        #self.graph.view()
 
-    def reset(self):
+    def resetDeps(self):
         models = ComputedFieldsModelType._computed_models
         for model in models:
             models[model] = {}
             for fielddata in model._computed_fields.values():
                 fielddata._computed['func'] = lambda x: ''
+        self.graph = None
 
 
-class MultipleFKDependencies(GenericModelTestCaseBase):
+class ForeignKeyDependencies(GenericModelTestBase):
     def setUp(self):
-        self.parse({
+        self.setDeps({
+            # deps only to itself
             'B': {'comp': {
                     'func': lambda self: self.name
                 }
             },
+            # one fk step deps to comp field
             'C': {'comp': {
                     'depends': ['f_cb#comp'],
                     'func': lambda self: self.name + self.f_cb.comp
@@ -57,18 +63,36 @@ class MultipleFKDependencies(GenericModelTestCaseBase):
                     'depends': ['f_dc#comp'],
                     'func': lambda self: self.name + self.f_dc.comp
                 }
+            },
+            # multi fk steps deps to non comp field
+            'E': {'comp': {
+                    'depends': ['f_ed.f_dc.f_cb.f_ba#name'],
+                    'func': lambda self: self.name + self.f_ed.f_dc.f_cb.f_ba.name
+                }
+            },
+            # multi fk steps deps to comp field
+            'F': {'comp': {
+                    'depends': ['f_fe.f_ed.f_dc.f_cb#name'],
+                    'func': lambda self: self.name + self.f_fe.f_ed.f_dc.f_cb.name
+                }
             }
         })
-        # test data
-        self.b = self.models.B(name='b')
+        # test data - fk chained objects
+        self.a = self.models.A(name='a')
+        self.a.save()
+        self.b = self.models.B(name='b', f_ba=self.a)
         self.b.save()
         self.c = self.models.C(name='c', f_cb=self.b)
         self.c.save()
         self.d = self.models.D(name='d', f_dc=self.c)
         self.d.save()
+        self.e = self.models.E(name='e', f_ed=self.d)
+        self.e.save()
+        self.f = self.models.F(name='f', f_fe=self.e)
+        self.f.save()
 
     def tearDown(self):
-        self.reset()
+        self.resetDeps()
 
     def test_insert_test(self):
         self.assertEqual(self.b.comp, 'b')
@@ -96,3 +120,19 @@ class MultipleFKDependencies(GenericModelTestCaseBase):
         self.assertEqual(self.b.comp, 'B')
         self.assertEqual(self.c.comp, 'CB')
         self.assertEqual(self.d.comp, 'DCB')
+
+    def test_fk_over_multiple_models_insert(self):
+        self.assertEqual(self.e.comp, 'ea')
+        self.assertEqual(self.f.comp, 'fb')
+
+    def test_fk_over_multiple_models_update(self):
+        self.assertEqual(self.e.comp, 'ea')
+        new_a = self.models.A(name='A')
+        new_a.save()
+        self.b.f_ba = new_a
+        self.b.name = 'B'
+        self.b.save()
+        self.e.refresh_from_db()
+        self.f.refresh_from_db()
+        self.assertEqual(self.e.comp, 'eA')
+        self.assertEqual(self.f.comp, 'fB')
