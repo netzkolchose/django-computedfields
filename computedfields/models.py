@@ -13,11 +13,14 @@ def postsave_handler(sender, instance, **kwargs):
         return
     mapping = ComputedFieldsModelType._map
     modeldata = mapping[sender]
+    if not modeldata:
+        return
     update_fields = kwargs.get('update_fields')
     if not update_fields:
         if '#' not in modeldata:
-            return
-        updates = {'#'}
+            updates = set(fieldname for fieldname in modeldata)
+        else:
+            updates = {'#'}
     else:
         updates = set()
         for fieldname in update_fields:
@@ -51,6 +54,7 @@ class ComputedFieldsModelType(ModelBase):
                 if depends:
                     dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
+        mcs._computed_models[cls] = {}
         cls._computed_fields = computed_fields
         if dependent_fields:
             mcs._computed_models[cls] = dependent_fields
@@ -66,7 +70,7 @@ class ComputedFieldsModelType(ModelBase):
                 map = module.map
             except (ImportError, AttributeError, Exception):
                 pass
-        if map and not force:
+        if map and not force and not settings.DEBUG:
             ComputedFieldsModelType._map = map
         else:
             ComputedFieldsModelType._graph = ComputedModelsGraph(

@@ -104,3 +104,8 @@ venv.bak/
 .mypy_cache/
 
 migrations/
+.idea/
+django-computedfields.iml
+example/Digraph.gv.pdf
+example/db.sqlite3
+example/*.pdf

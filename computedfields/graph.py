@@ -431,6 +431,7 @@ class ComputedModelsGraph(Graph):
                     smodel, sfield = skey
                     if model == smodel and field != sfield:
                         value.update(svalue)
+
         return store, final, model_mapping
 
     def insert_data(self, data):
