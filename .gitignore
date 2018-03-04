@@ -109,3 +109,4 @@ django-computedfields.iml
 example/Digraph.gv.pdf
 example/db.sqlite3
 example/*.pdf
+computedfields/*.pdf

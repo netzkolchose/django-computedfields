@@ -45,19 +45,19 @@ class ComputedFieldsModelType(ModelBase):
     def __new__(mcs, name, bases, attrs):
         computed_fields = {}
         dependent_fields = {}
-        for k, v in attrs.iteritems():
-            if getattr(v, '_computed', None):
-                computed_fields.update({k: v})
-                v.editable = False
-                v._computed.update({'attr': k})
-                depends = v._computed['kwargs'].get('depends')
-                if depends:
-                    dependent_fields[k] = depends
+        if name != 'ComputedFieldsModel':
+            for k, v in attrs.iteritems():
+                if getattr(v, '_computed', None):
+                    computed_fields.update({k: v})
+                    v.editable = False
+                    v._computed.update({'attr': k})
+                    depends = v._computed['kwargs'].get('depends')
+                    if depends:
+                        dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
-        mcs._computed_models[cls] = {}
-        cls._computed_fields = computed_fields
-        if dependent_fields:
-            mcs._computed_models[cls] = dependent_fields
+        if name != 'ComputedFieldsModel':
+            cls._computed_fields = computed_fields
+            mcs._computed_models[cls] = dependent_fields or {}
         return cls
 
     @staticmethod
@@ -103,6 +103,12 @@ class ComputedFieldsModel(models.Model):
                         has_changed = True
                         setattr(self, field._computed['attr'], result)
                 if not has_changed:
+                    # we are actually not saving, but must fire
+                    # post_save to trigger all dependent updates
+                    # TODO: define own signal to circumvent side effects?
+                    post_save.send(sender=self.__class__, instance=self, created=False,
+                                   update_fields=kwargs.get('update_fields'),
+                                   raw=kwargs.get('raw'), using=kwargs.get('using'))
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return

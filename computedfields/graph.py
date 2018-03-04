@@ -144,24 +144,24 @@ class Graph(object):
     def remove_edge(self, edge):
         self.edges.remove(edge)
 
-    def get_dot(self, mark_edges=None, mark_nodes=None):
+    def get_dot(self, format='pdf', mark_edges=None, mark_nodes=None):
         from graphviz import Digraph
         if not mark_edges:
             mark_edges = {}
         if not mark_nodes:
             mark_nodes = {}
-        dot = Digraph()
+        dot = Digraph(format=format)
         for node in self.nodes:
             dot.node(str(node), str(node), **mark_nodes.get(node, {}))
         for edge in self.edges:
             dot.edge(str(edge.left), str(edge.right), **mark_edges.get(edge, {}))
         return dot
 
-    def render(self, filename=None, mark_edges=None, mark_nodes=None):
-        self.get_dot(mark_edges, mark_nodes).render(filename=filename, cleanup=True)
+    def render(self, filename=None, format='pdf', mark_edges=None, mark_nodes=None):
+        self.get_dot(format, mark_edges, mark_nodes).render(filename=filename, cleanup=True)
 
-    def view(self, mark_edges=None, mark_nodes=None):
-        self.get_dot(mark_edges, mark_nodes).view(cleanup=True)
+    def view(self, format='pdf', mark_edges=None, mark_nodes=None):
+        self.get_dot(format, mark_edges, mark_nodes).view(cleanup=True)
 
     def edgepath_to_nodepath(self, path):
         return [edge.left for edge in path] + [path[-1].right]
@@ -328,7 +328,7 @@ class ComputedModelsGraph(Graph):
         self.data, self.cleaned, self.model_mapping = self.resolve_dependencies(self.computed_models)
         self.insert_data(self.cleaned)
 
-    def dump_computed_models(self):
+    def dump_computed_models(self):  # pragma: no cover
         print 'computed models field dependencies'
         for model, data in self.computed_models.iteritems():
             print model
@@ -336,7 +336,7 @@ class ComputedModelsGraph(Graph):
                 print '    ', field
                 print '        ', depends
 
-    def dump_data(self):
+    def dump_data(self):  # pragma: no cover
         print 'resolved field dependencies'
         for model, fielddata in self.data.iteritems():
             print model
@@ -345,14 +345,14 @@ class ComputedModelsGraph(Graph):
                 for depmodel, data in modeldata.iteritems():
                     print '        ', depmodel, data
 
-    def dump_cleaned(self):
+    def dump_cleaned(self):  # pragma: no cover
         print 'graph insert data (edges)'
         for left_node, right_nodes in self.cleaned.iteritems():
             print left_node
             for right_node in right_nodes:
                 print '    ', right_node
 
-    def dump_lookup_map(self):
+    def dump_lookup_map(self):  # pragma: no cover
         print 'lookup map for signal handler'
         for lmodel, data in self.lookup_map.iteritems():
             print lmodel
@@ -392,17 +392,19 @@ class ComputedModelsGraph(Graph):
                         is_backrelation = False
                         try:
                             rel = cls._meta.get_field(symbol).rel
+                            nd['model'] = cls
                             cls = cls._meta.get_field(symbol).related_model
-                            nd['model'] = cls
-                            nd['type'] = reltype(rel)
-                        except FieldDoesNotExist:
+                            nd['path'] = symbol
+                        except (FieldDoesNotExist, AttributeError):  # FIXME: do a real reltype check instead
                             is_backrelation = True
-                            rel = getattr(cls, symbol).field.rel
-                            cls = getattr(cls, symbol).field.rel.related_model
+                            field = getattr(cls, symbol).field
+                            rel = field.rel
+                            cls = rel.related_model
+                            nd['path'] = field.name
                             nd['model'] = cls
-                            nd['type'] = reltype(rel)
                         nd['backrel'] = is_backrelation
-                        nd['path'] = symbol
+                        #nd['model'] = cls
+                        nd['type'] = reltype(rel)
                         new_data.append(nd)
                         fieldentry.setdefault(cls, []).append({
                             'depends': '', 'backrel': is_backrelation,
