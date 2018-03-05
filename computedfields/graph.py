@@ -254,9 +254,7 @@ class Graph(object):
         more db updates the shorter gets discarded.
         Might raise a `CycleNodeException`.
         """
-        # FIXME: check algorithm
-        # TODO: ensure to remove all multi path dependencies here! (signal handler cant do those)
-        # UPDATE: better approach --> handle those in signal handler to lower db interaction
+        # FIXME: check algorithm, are '#' and computedfield path are equivalent?
         paths = self.get_nodepaths()
         possible_replaces = []
         for p in paths:

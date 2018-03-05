@@ -32,9 +32,7 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     'computedfields',
-    #'test_full',
-    'test_fk',
-    'test_fk_back',
+    'test_full',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

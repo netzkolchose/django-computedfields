@@ -58,6 +58,6 @@ def generate_models(keys):
     return dict((key.upper(), model_factory(key, keys)) for key in keys)
 
 
-# generate models: A, B ...
+# generate models: A, B ... h for testing purpose
 MODELS = generate_models('abcdefgh')
 

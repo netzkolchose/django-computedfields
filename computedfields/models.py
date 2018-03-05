@@ -22,17 +22,12 @@ def postsave_handler(sender, instance, **kwargs):
         return
     update_fields = kwargs.get('update_fields')
     if not update_fields:
-        if '#' not in modeldata:
-            updates = set(fieldname for fieldname in modeldata)
-        else:
-            updates = {'#'}
+        updates = set(modeldata.keys())
     else:
         updates = set()
         for fieldname in update_fields:
             if fieldname in modeldata:
                 updates.add(fieldname)
-            else:
-                updates.add('#')
     for update in updates:
         for model, funcs in modeldata[update].items():
             for func in funcs:
@@ -80,6 +75,7 @@ class ComputedFieldsModelType(ModelBase):
         else:
             ComputedFieldsModelType._graph = ComputedModelsGraph(
                 ComputedFieldsModelType._computed_models)
+            # automatically checks for cycles
             ComputedFieldsModelType._graph.remove_redundant_paths()
             ComputedFieldsModelType._map = ComputedFieldsModelType._graph.generate_lookup_map()
 
@@ -110,7 +106,6 @@ class ComputedFieldsModel(models.Model):
                 if not has_changed:
                     # we are actually not saving, but must fire
                     # post_save to trigger all dependent updates
-                    # TODO: define own signal to circumvent side effects?
                     post_save.send(sender=self.__class__, instance=self, created=False,
                                    update_fields=kwargs.get('update_fields'),
                                    raw=kwargs.get('raw'), using=kwargs.get('using'))
