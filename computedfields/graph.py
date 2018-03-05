@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
-from computedfields.funcgenerator import FuncGenerator
+from computedfields.pathresolver import PathResolver
 from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computed_field
 
 
@@ -465,7 +465,5 @@ class ComputedModelsGraph(Graph):
             for lfield, fielddata in data.items():
                 store = func_table.setdefault(lmodel, {}).setdefault(lfield, {})
                 for rmodel, rfielddata in fielddata.items():
-                    gen = FuncGenerator(rmodel, rfielddata)
-                    gen.resolve_all()
-                    store[rmodel] = gen.final
+                    store[rmodel] = PathResolver(rmodel, rfielddata).resolve()
         return func_table
