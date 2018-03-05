@@ -1,0 +1,34 @@
+{% load static %}
+<DOCTYPE! html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Dependency Graph</title>
+    <script type="text/javascript" src="{% static "computedfields/viz-lite.js" %}"></script>
+    <style>
+        #graph {
+            margin-top: 30px;
+        }
+        #graph img {
+            width: 100%;
+            object-fit: contain;
+        }
+    </style>
+</head>
+<body onload="renderGraph()">
+    {% if error %}
+    <div style="padding: 10px; margin: 10px;border: 2px solid red">{{ error }}</div>
+        <p style="margin: 10px;">
+        Install it with:
+        <pre>$&gt; pip install graphviz</pre>
+        </p>
+    {%  endif %}
+    <div id="graph"></div>
+    <script type="text/javascript">
+        window.renderGraph = function() {
+            var image = Viz('{{ dot }}', {format: "png-image-element"});
+            document.getElementById('graph').appendChild(image);
+        };
+    </script>
+</body>
+</html>

@@ -6,9 +6,14 @@ from django.db.models.signals import post_save
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
+from django.utils.encoding import python_2_unicode_compatible
+from django.contrib.contenttypes.models import ContentType
+from django.utils.translation import ugettext_lazy as _
 
 
 def postsave_handler(sender, instance, **kwargs):
+    if kwargs.get('raw'):
+        return
     if sender not in ComputedFieldsModelType._map:
         return
     mapping = ComputedFieldsModelType._map
@@ -124,3 +129,26 @@ def computed(field, **kwargs):
         field._computed = {'func': f, 'kwargs': kwargs}
         return field
     return wrap
+
+
+class ComputedModelManager(models.Manager):
+    def get_queryset(self):
+        objs = ContentType.objects.get_for_models(
+            *ComputedFieldsModelType._computed_models.keys()).values()
+        pks = [model.pk for model in objs]
+        return ContentType.objects.filter(pk__in=pks)
+
+
+@python_2_unicode_compatible
+class ComputedFieldsAdminModel(ContentType):
+    objects = ComputedModelManager()
+
+    class Meta:
+        verbose_name = _('Computed Fields Model')
+        verbose_name_plural = _('Computed Fields Models')
+        proxy = True
+        managed = False
+        ordering = ('app_label', 'model')
+
+    def __str__(self):
+        return self.model

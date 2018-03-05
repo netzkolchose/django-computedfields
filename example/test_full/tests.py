@@ -35,7 +35,7 @@ class GenericModelTestBase(TestCase):
                 MODELS[modelname]._computed_fields['comp']._computed['func'] = data.get('func')
         ComputedFieldsModelType._resolve_dependencies()
         self.graph = ComputedFieldsModelType._graph
-        #self.graph.view()
+        self.graph.view()
 
     def resetDeps(self):
         models = ComputedFieldsModelType._computed_models

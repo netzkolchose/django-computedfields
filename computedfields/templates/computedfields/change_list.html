@@ -1,0 +1,16 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools %}
+    <ul class="object-tools">
+        {% block object-tools-items %}
+            <li>
+                <a href="{% url opts|admin_urlname:'computedfields_rendergraph' %}"
+                   target="popup"
+                   onclick="javascript:open('', 'popup', 'height=400,width=600,resizable=yes')">
+                    {% blocktrans with cl.opts.verbose_name_plural|escape as name %}Dependency Graph{% endblocktrans %}
+                </a>
+            </li>
+        {% endblock %}
+    </ul>
+{% endblock %}

@@ -1,3 +1,4 @@
 coverage==4.5.1
 Django==1.11.10
 graphviz==0.8.2
+Pygments==2.2.0
