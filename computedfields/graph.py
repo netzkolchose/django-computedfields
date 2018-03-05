@@ -1,48 +1,7 @@
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
-from itertools import tee, izip
-from django.db.models.fields.reverse_related import ManyToOneRel, OneToOneRel, ManyToManyRel
 from computedfields.funcgenerator import FuncGenerator
-
-
-RELTYPES = {ManyToManyRel: 'm2m', OneToOneRel: 'o2o', ManyToOneRel: 'fk'}
-
-
-def reltype(rel):
-    return RELTYPES[type(rel)]
-
-
-def pairwise(iterable):
-    a, b = tee(iterable)
-    next(b, None)
-    return izip(a, b)
-
-
-def is_computed_field(model, field):
-    if hasattr(model, '_computed_fields') and field in model._computed_fields:
-        return True
-    return False
-
-
-def modelname(model):
-    return '%s.%s' % (model._meta.app_label, model._meta.verbose_name)
-
-
-def is_sublist(needle, haystack):
-    if not needle:
-        return True
-    if not haystack:
-        return False
-    max_k = len(needle) - 1
-    k = 0
-    for elem in haystack:
-        if elem != needle[k]:
-            k = 0
-            continue
-        if k == max_k:
-            return True
-        k += 1
-    return False
+from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computed_field
 
 
 class CycleException(Exception):
@@ -330,37 +289,37 @@ class ComputedModelsGraph(Graph):
 
     def dump_computed_models(self):  # pragma: no cover
         print 'computed models field dependencies'
-        for model, data in self.computed_models.iteritems():
+        for model, data in self.computed_models.items():
             print model
-            for field, depends in data.iteritems():
+            for field, depends in data.items():
                 print '    ', field
                 print '        ', depends
 
     def dump_data(self):  # pragma: no cover
         print 'resolved field dependencies'
-        for model, fielddata in self.data.iteritems():
+        for model, fielddata in self.data.items():
             print model
-            for field, modeldata in fielddata.iteritems():
+            for field, modeldata in fielddata.items():
                 print '    ', field
-                for depmodel, data in modeldata.iteritems():
+                for depmodel, data in modeldata.items():
                     print '        ', depmodel, data
 
     def dump_cleaned(self):  # pragma: no cover
         print 'graph insert data (edges)'
-        for left_node, right_nodes in self.cleaned.iteritems():
+        for left_node, right_nodes in self.cleaned.items():
             print left_node
             for right_node in right_nodes:
                 print '    ', right_node
 
     def dump_lookup_map(self):  # pragma: no cover
         print 'lookup map for signal handler'
-        for lmodel, data in self.lookup_map.iteritems():
+        for lmodel, data in self.lookup_map.items():
             print lmodel
-            for lfield, fielddata in data.iteritems():
+            for lfield, fielddata in data.items():
                 print '    ', lfield
-                for rmodel, rdata in fielddata.iteritems():
+                for rmodel, rdata in fielddata.items():
                     print '        ', rmodel
-                    for rfield, rfielddata in rdata.iteritems():
+                    for rfield, rfielddata in rdata.items():
                         print '            ', rfield
                         if hasattr(rfielddata, '__iter__'):
                             for dep in rfielddata:
@@ -371,9 +330,9 @@ class ComputedModelsGraph(Graph):
     def resolve_dependencies(self, computed_models):
         # first resolve all field dependencies
         store = OrderedDict()
-        for model, fields in computed_models.iteritems():
+        for model, fields in computed_models.items():
             modelentry = store.setdefault(model, {})
-            for field, depends in fields.iteritems():
+            for field, depends in fields.items():
                 fieldentry = modelentry.setdefault(field, {})
                 count = 0
                 for value in depends:
@@ -415,10 +374,10 @@ class ComputedModelsGraph(Graph):
         # reorder and simplify data for easier graph handling
         final = OrderedDict()
         model_mapping = OrderedDict()
-        for model, fielddata in store.iteritems():
+        for model, fielddata in store.items():
             model_mapping[modelname(model)] = model
-            for field, modeldata in fielddata.iteritems():
-                for depmodel, data in modeldata.iteritems():
+            for field, modeldata in fielddata.items():
+                for depmodel, data in modeldata.items():
                     model_mapping[modelname(depmodel)] = depmodel
                     for comb in ((modelname(depmodel), dep['depends']
                       if is_computed_field(depmodel, dep['depends']) else '#') for dep in data):
@@ -426,10 +385,10 @@ class ComputedModelsGraph(Graph):
 
         # fix tree: move all sub updates of field dependencies under '#'
         # leads possibly to double paths (removed later if redundant)
-        for key, value in final.iteritems():
+        for key, value in final.items():
             model, field = key
             if field == '#':
-                for skey, svalue in final.iteritems():
+                for skey, svalue in final.items():
                     smodel, sfield = skey
                     if model == smodel and field != sfield:
                         value.update(svalue)
@@ -441,11 +400,11 @@ class ComputedModelsGraph(Graph):
         Adds all needed nodes and edges as in data.
         Data must be an adjacency list.
         """
-        for node, value in data.iteritems():
+        for node, value in data.items():
             self.add_node(Node(node))
             for node in value:
                 self.add_node(Node(node))
-        for left, value in data.iteritems():
+        for left, value in data.items():
             for right in value:
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
@@ -482,14 +441,14 @@ class ComputedModelsGraph(Graph):
         # reorder full node information to
         # {changed_model: {needs_update_model: {computed_field: dep_data}}}
         final = OrderedDict()
-        for model, fielddata in self.data.iteritems():
-            for field, modeldata in fielddata.iteritems():
-                for depmodel, data in modeldata.iteritems():
+        for model, fielddata in self.data.items():
+            for field, modeldata in fielddata.items():
+                for depmodel, data in modeldata.items():
                     final.setdefault(depmodel, {}).setdefault(model, {}).setdefault(field, data)
 
         # apply full node information to graph edges
         table = {}
-        for left_node, right_nodes in self.cleaned_data_from_edges().iteritems():
+        for left_node, right_nodes in self.cleaned_data_from_edges().items():
             lmodel, lfield = left_node
             lmodel = self.model_mapping[lmodel]
             rstore = table.setdefault(lmodel, {}).setdefault(lfield, {})
@@ -499,32 +458,14 @@ class ComputedModelsGraph(Graph):
                 rstore.setdefault(rmodel, {}).setdefault(rfield, []).extend(
                     final[lmodel][rmodel][rfield])
 
-
-
-        #self.lookup_map = table
-        #self.dump_lookup_map()
-
         # finally build functions table for the signal handler
         # based on the dependency information
         func_table = {}
-        for lmodel, data in table.iteritems():
-            for lfield, fielddata in data.iteritems():
+        for lmodel, data in table.items():
+            for lfield, fielddata in data.items():
                 store = func_table.setdefault(lmodel, {}).setdefault(lfield, {})
-                for rmodel, rfielddata in fielddata.iteritems():
+                for rmodel, rfielddata in fielddata.items():
                     gen = FuncGenerator(rmodel, rfielddata)
                     gen.resolve_all()
                     store[rmodel] = gen.final
-
-        #print '#####funcmap#####'
-        #for lmodel, data in func_table.iteritems():
-        #    print lmodel
-        #    for lfield, fielddata in data.iteritems():
-        #        print '    ', lfield
-        #        for rmodel, funcs in fielddata.iteritems():
-        #            print '        ', rmodel
-        #            for func in funcs:
-        #                print '            ', func.func
-        #print '#####funcmap#####'
-        #self.view()
-        #print 'removed', self._removed
         return func_table

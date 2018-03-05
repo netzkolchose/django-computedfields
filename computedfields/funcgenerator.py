@@ -3,6 +3,7 @@ from copy import deepcopy
 from pprint import pprint
 from operator import attrgetter
 from django.db.models import QuerySet
+from computedfields.helper import modelname
 
 
 # problem:
@@ -59,11 +60,11 @@ class QuerySetGenerator(object):
         return qs
 
     @property
-    def value(self):
+    def eval(self):
         return self._value
 
     def __str__(self):
-        return '<QSG %s %s>' % (self.model._meta.model_name, '__'.join(self.strings))
+        return '<QSG "%s" %s>' % (modelname(self.model), '__'.join(self.strings))
 
     def __repr__(self):
         return str(self)
@@ -87,7 +88,7 @@ class AttrGenerator(object):
         return attr(instance)
 
     @property
-    def value(self):
+    def eval(self):
         return self._value
 
     def __str__(self):
@@ -127,7 +128,7 @@ def path_resolver(model, field, dep, instance):
     # handler code starts here...
     for el in reversed(stack):
         print el
-        instance = el.value(instance)
+        instance = el.eval(instance)
         print instance
         if not instance:
             break

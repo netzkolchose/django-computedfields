@@ -29,7 +29,7 @@ def postsave_handler(sender, instance, **kwargs):
             else:
                 updates.add('#')
     for update in updates:
-        for model, funcs in modeldata[update].iteritems():
+        for model, funcs in modeldata[update].items():
             for func in funcs:
                 func(instance)
 
@@ -46,7 +46,7 @@ class ComputedFieldsModelType(ModelBase):
         computed_fields = {}
         dependent_fields = {}
         if name != 'ComputedFieldsModel':
-            for k, v in attrs.iteritems():
+            for k, v in attrs.items():
                 if getattr(v, '_computed', None):
                     computed_fields.update({k: v})
                     v.editable = False
