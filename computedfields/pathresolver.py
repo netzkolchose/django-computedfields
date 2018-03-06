@@ -43,7 +43,10 @@ class AttrGenerator(object):
     def _value(self, instance):
         if isinstance(instance, QuerySet):
             return instance.values_list(self._qs_string, flat=True).distinct()
-        return self._attrgetter(instance)
+        try:
+            return self._attrgetter(instance)
+        except AttributeError:
+            return None
 
     def finalize(self):
         self._attrgetter = attrgetter('.'.join(reversed(self.strings)))
@@ -98,6 +101,8 @@ class PathResolver(object):
         path segment functions and saves the final result.
         """
         def resolved(instance):
+            if not instance:
+                return
             for func in paths_resolved:
                 instance = func(instance)
                 if not instance:
@@ -105,8 +110,8 @@ class PathResolver(object):
             if isinstance(instance, QuerySet):
                 for el in instance:
                     el.save(update_fields=[field])
-            else:
-                instance.save(update_fields=[field])
+                return
+            instance.save(update_fields=[field])
         return resolved
 
     def resolve(self):

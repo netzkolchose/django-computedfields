@@ -83,7 +83,9 @@ class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
                   ).values_list('name', flat=True))},
             # fk_back + fk + fk_back + fk
             'D': {'depends': ['f_df.fg_f.f_ga.ab_f#name'],
-                  'func': lambda self: ''}
+                  'func': lambda self: self.name + ''.join(MODELS['B'].objects.filter(
+                      f_ba__in=MODELS['G'].objects.filter(f_gf=self.f_df).values_list('f_ga', flat=True)
+                  ).values_list('name', flat=True))}
         })
         self.a = self.models.A(name='a')
         self.a.save()
@@ -134,6 +136,22 @@ class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
         new_g.save()
         self.b.refresh_from_db()
         self.assertEqual(self.b.comp, 'bDd2')
+
+    def test_D_insert(self):
+        self.assertEqual(self.d.comp, 'db')
+
+    def test_D_update(self):
+        self.assertEqual(self.d.comp, 'db')
+        # change linked B
+        self.b.name = 'B'
+        self.b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dB')
+        # add new B
+        new_b = self.models.B(name='b2', f_ba=self.a)
+        new_b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dBb2')
 
 
 class MixedForeignKeysAndBackDependenciesMultipleTwo(GenericModelTestBase):
