@@ -3,6 +3,11 @@ from django.db.models import QuerySet
 
 
 class QuerySetGenerator(object):
+    """
+    Class for inserting a queryset in the dependency path.
+    Handles consecutive querysets as subqueries (translated to sub selects by django).
+    Returns a queryset.
+    """
     def __init__(self):
         self.strings = []
         self.model = None
@@ -13,8 +18,8 @@ class QuerySetGenerator(object):
 
     def _value(self, instance):
         if isinstance(instance, QuerySet):
-            return self.model.objects.filter(**{self._qs_string+'__in': instance})
-        return self.model.objects.filter(**{self._qs_string: instance})
+            return self.model.objects.filter(**{self._qs_string+'__in': instance}).distinct()
+        return self.model.objects.filter(**{self._qs_string: instance}).distinct()
 
     def finalize(self):
         self._qs_string = '__'.join(self.strings)
@@ -22,6 +27,11 @@ class QuerySetGenerator(object):
 
 
 class AttrGenerator(object):
+    """
+    Class for inserting an attribute lookup in the dependency path.
+    Uses `operator.attrgetter` if the input is a model instance.
+    For querysets it returns a flatted value list.
+    """
     def __init__(self):
         self.strings = []
         self._attrgetter = None
@@ -32,7 +42,7 @@ class AttrGenerator(object):
 
     def _value(self, instance):
         if isinstance(instance, QuerySet):
-            return instance.values_list(self._qs_string, flat=True)
+            return instance.values_list(self._qs_string, flat=True).distinct()
         return self._attrgetter(instance)
 
     def finalize(self):
@@ -42,6 +52,17 @@ class AttrGenerator(object):
 
 
 class PathResolver(object):
+    """
+    Class to resolve dependency path segments into consecutive function calls.
+    This works stream like where every function alters the input and outputs the
+    result to the next function. First input is the instance given in the save handler,
+    last action is to save the final output:
+        `func3(func2(func1(instance))).save()`
+    The functions are the `_value()` methods of `QuerySetGenerator` and `AttrGenerator`,
+    which work either on model instances or querysets.
+    To lower the runtime penalty in the save handler the `_value()` methods
+    are as slim as possible.
+    """
     def __init__(self, model, data):
         self.model = model
         self.data = data
@@ -72,6 +93,10 @@ class PathResolver(object):
         return [el.finalize() for el in reversed(stack)]
 
     def _resolve(self, paths_resolved, field):
+        """
+        Closure for the save handler. The inner function calls the
+        path segment functions and saves the final result.
+        """
         def resolved(instance):
             for func in paths_resolved:
                 instance = func(instance)

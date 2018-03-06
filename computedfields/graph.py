@@ -278,6 +278,14 @@ class Graph(object):
 
 
 class ComputedModelsGraph(Graph):
+    """
+    Class to resolve and convert initial computedfields model dependencies into
+    a graph and generate the final signal handler functions.
+    In `resolve_dependencies` the depends field strings are resolved to real models.
+    The dependencies are rearranged to adjacency lists as edges for the underlying graph.
+    The graph does a cycle check and removes redundant edges to lower the database penalty.
+    In the last step the remaining edges are gathered into a lookup map in `generate_lookup_map`.
+    """
     def __init__(self, computed_models):
         super(ComputedModelsGraph, self).__init__()
         self.computed_models = computed_models
@@ -285,48 +293,9 @@ class ComputedModelsGraph(Graph):
         self.data, self.cleaned, self.model_mapping = self.resolve_dependencies(self.computed_models)
         self.insert_data(self.cleaned)
 
-    def dump_computed_models(self):  # pragma: no cover
-        print 'computed models field dependencies'
-        for model, data in self.computed_models.items():
-            print model
-            for field, depends in data.items():
-                print '    ', field
-                print '        ', depends
-
-    def dump_data(self):  # pragma: no cover
-        print 'resolved field dependencies'
-        for model, fielddata in self.data.items():
-            print model
-            for field, modeldata in fielddata.items():
-                print '    ', field
-                for depmodel, data in modeldata.items():
-                    print '        ', depmodel, data
-
-    def dump_cleaned(self):  # pragma: no cover
-        print 'graph insert data (edges)'
-        for left_node, right_nodes in self.cleaned.items():
-            print left_node
-            for right_node in right_nodes:
-                print '    ', right_node
-
-    def dump_lookup_map(self):  # pragma: no cover
-        print 'lookup map for signal handler'
-        for lmodel, data in self.lookup_map.items():
-            print lmodel
-            for lfield, fielddata in data.items():
-                print '    ', lfield
-                for rmodel, rdata in fielddata.items():
-                    print '        ', rmodel
-                    for rfield, rfielddata in rdata.items():
-                        print '            ', rfield
-                        if hasattr(rfielddata, '__iter__'):
-                            for dep in rfielddata:
-                                print '                ', dep
-                        else:
-                            print '                ', rfielddata
-
     def resolve_dependencies(self, computed_models):
-        # first resolve all field dependencies
+        # first resolve all stringified dependencies to real types
+        # walks every depends string for all models
         store = OrderedDict()
         for model, fields in computed_models.items():
             modelentry = store.setdefault(model, {})
@@ -360,7 +329,6 @@ class ComputedModelsGraph(Graph):
                             nd['path'] = field.name
                             nd['model'] = cls
                         nd['backrel'] = is_backrelation
-                        #nd['model'] = cls
                         nd['type'] = reltype(rel)
                         new_data.append(nd)
                         fieldentry.setdefault(cls, []).append({
@@ -369,7 +337,7 @@ class ComputedModelsGraph(Graph):
                     fieldentry[cls][-1]['depends'] = target_field
                     count += 1
 
-        # reorder and simplify data for easier graph handling
+        # reorder to adjacency list tree for easier graph handling
         final = OrderedDict()
         model_mapping = OrderedDict()
         for model, fielddata in store.items():
@@ -425,16 +393,17 @@ class ComputedModelsGraph(Graph):
                 '#'      :  [list of callbacks]
                 'fieldA' :  [list of callbacks]
         `model` denotes the `sender` in the signal handler. The '#' callbacks
-        are to be used if there is no `update_fields` set or there are unkown fields
-        in the kwargs of the signal.
+        are to be used if there is no `update_fields` set or there are any
+        unkown fields in `update_fields`.
 
         NOTE: If there are only known fields in `update_fields` always use
         their specific callbacks, never the '#' callbacks. This is especially
         important to ensure cycle free db updates. Any known field must call
         it's corresponding callbacks to get properly updated.
 
-        NOTE: This map is also used for the optional serialization to circumvent
-        the computationally intensive graph and map creation in production mode.
+        NOTE: The created map is also used for the optional serialization to
+        circumvent the computationally expensive graph and map creation
+        in production mode.
         """
         # reorder full node information to
         # {changed_model: {needs_update_model: {computed_field: dep_data}}}
@@ -457,7 +426,6 @@ class ComputedModelsGraph(Graph):
                     final[lmodel][rmodel][rfield])
 
         # finally build functions table for the signal handler
-        # based on the dependency information
         func_table = {}
         for lmodel, data in table.items():
             for lfield, fielddata in data.items():
