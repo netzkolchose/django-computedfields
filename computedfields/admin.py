@@ -5,17 +5,18 @@ from django.contrib import admin
 from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
 from django.apps import apps
 from django.conf import settings
+from json import dumps
+from django.utils.html import escape, mark_safe
+from django.core.urlresolvers import reverse, NoReverseMatch
+from django.conf.urls import url
+from django.shortcuts import render
 try:
     import pygments
     from pygments.lexers import PythonLexer, JsonLexer
     from pygments.formatters import HtmlFormatter
 except ImportError:
     pygments = False
-from json import dumps
-from django.utils.html import escape, mark_safe
-from django.core.urlresolvers import reverse, NoReverseMatch
-from django.conf.urls import url
-from django.shortcuts import render
+
 
 class ComputedModelsAdmin(admin.ModelAdmin):
     actions = None

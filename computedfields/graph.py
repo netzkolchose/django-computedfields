@@ -51,10 +51,10 @@ class Edge(object):
         return str(self)
 
     def __eq__(self, other):
-        return self.left == other.left and self.right == other.right
+        return self is other
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        return self is not other
 
 
 class Node(object):
@@ -77,10 +77,10 @@ class Node(object):
         return str(self)
 
     def __eq__(self, other):
-        return self.data == other.data
+        return self is other
 
     def __ne__(self, other):
-        return not self.__eq__(other)
+        return self is not other
 
 
 class Graph(object):

@@ -14,10 +14,7 @@ from django.utils.translation import ugettext_lazy as _
 def postsave_handler(sender, instance, **kwargs):
     if kwargs.get('raw'):
         return
-    if sender not in ComputedFieldsModelType._map:
-        return
-    mapping = ComputedFieldsModelType._map
-    modeldata = mapping[sender]
+    modeldata = ComputedFieldsModelType._map.get(sender)
     if not modeldata:
         return
     update_fields = kwargs.get('update_fields')
@@ -106,9 +103,11 @@ class ComputedFieldsModel(models.Model):
                 if not has_changed:
                     # we are actually not saving, but must fire
                     # post_save to trigger all dependent updates
-                    post_save.send(sender=self.__class__, instance=self, created=False,
-                                   update_fields=kwargs.get('update_fields'),
-                                   raw=kwargs.get('raw'), using=kwargs.get('using'))
+                    # FIXME: use own signal here to circumvent side effects
+                    post_save.send(
+                        sender=self.__class__, instance=self, created=False,
+                        update_fields=kwargs.get('update_fields'),
+                        raw=kwargs.get('raw'), using=kwargs.get('using'))
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
@@ -139,10 +138,10 @@ class ComputedFieldsAdminModel(ContentType):
     objects = ComputedModelManager()
 
     class Meta:
-        verbose_name = _('Computed Fields Model')
-        verbose_name_plural = _('Computed Fields Models')
         proxy = True
         managed = False
+        verbose_name = _('Computed Fields Model')
+        verbose_name_plural = _('Computed Fields Models')
         ordering = ('app_label', 'model')
 
     def __str__(self):
