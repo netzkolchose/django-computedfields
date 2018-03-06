@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
 from django.db import models
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, m2m_changed
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
@@ -32,6 +32,19 @@ def postsave_handler(sender, instance, **kwargs):
 
 
 post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
+
+
+def m2m_handler(sender, instance, **kwargs):
+    # FIXME: dirty hack spot changes on m2m realtions
+    if kwargs.get('action') == 'post_add':
+        model = kwargs['model']
+        pk = next(iter(kwargs['pk_set']))
+        inst = model.objects.get(pk=pk)
+        post_save.send(sender=model, instance=inst, created=False, update_fields=None,
+                       raw=False, using=kwargs.get('using'))
+
+
+m2m_changed.connect(m2m_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_M2M')
 
 
 class ComputedFieldsModelType(ModelBase):

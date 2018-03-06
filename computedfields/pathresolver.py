@@ -106,8 +106,8 @@ class PathResolver(object):
         attrs = AttrGenerator()
         stack = []
         for rel in dep['nd']:
-            if rel['type'] == 'fk' and not rel['backrel']:
-                # found a fk relation
+            if rel['type'] in ['fk', 'm2m'] and not rel['backrel']:
+                # found a fk/m2m relation
                 if attrs.strings:
                     stack.append(attrs)
                     attrs = AttrGenerator()
