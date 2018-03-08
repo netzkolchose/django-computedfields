@@ -1,6 +1,5 @@
 from operator import attrgetter
-from django.db.models import QuerySet, Model
-from itertools import ifilter
+from django.db.models import QuerySet
 
 
 class QuerySetGenerator(object):
@@ -19,8 +18,8 @@ class QuerySetGenerator(object):
 
     def _value(self, instance):
         if isinstance(instance, QuerySet):
-            return self.model.objects.filter(**{self._qs_string+'__in': instance}).distinct()
-        return self.model.objects.filter(**{self._qs_string: instance}).distinct()
+            return self.model.objects.filter(**{self._qs_string+'__in': instance})
+        return self.model.objects.filter(**{self._qs_string: instance})
 
     def finalize(self):
         self._qs_string = '__'.join(self.strings)
@@ -43,7 +42,7 @@ class AttrGenerator(object):
 
     def _value(self, instance):
         if isinstance(instance, QuerySet):
-            return instance.values_list(self._qs_string, flat=True).distinct()
+            return instance.values_list(self._qs_string, flat=True)
         try:
             return self._attrgetter(instance)
         except AttributeError:
@@ -53,36 +52,6 @@ class AttrGenerator(object):
         self._attrgetter = attrgetter('.'.join(reversed(self.strings)))
         self._qs_string = '__'.join(reversed(self.strings))
         return self._value
-
-
-def _resolve(paths_resolved, model, field):
-    """
-    Closure for the save handler. The inner function calls the
-    path segment functions and saves the final result.
-    """
-    def resolved(instance):
-        for func in paths_resolved:
-            instance = func(instance)
-            if not instance:
-                return
-        if isinstance(instance, QuerySet):
-            # for multiple fk back relations the final queryset
-            # contains only pks due to the fact that values_list
-            # returns "nacked" pks for foreign fields
-            # simply try to determine if we have no model instances
-            # and replace it with a pk__in filtered queryset
-            try:
-                el = instance[0]
-            except IndexError:
-                return
-            if not isinstance(el, Model):
-                # the value list should point to the pks of the target model
-                instance = model.objects.filter(pk__in=instance)
-            for el in ifilter(bool, instance):
-                el.save(update_fields=[field])
-            return
-        instance.save(update_fields=[field])
-    return resolved
 
 
 class PathResolver(object):
@@ -130,5 +99,5 @@ class PathResolver(object):
         result = []
         for field, deps in self.data.items():
             for dep in deps:
-                result.append(_resolve(self._resolve_path_segments(dep), self.model, field))
+                result.append([field, self._resolve_path_segments(dep)])
         return result

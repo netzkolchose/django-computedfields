@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
 from django.db import models
-from django.db.models.signals import post_save, m2m_changed
+from django.db.models.signals import post_save, m2m_changed, pre_delete, post_delete
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
@@ -11,13 +11,36 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 
 
-def postsave_handler(sender, instance, **kwargs):
-    if kwargs.get('raw'):
-        return
-    modeldata = ComputedFieldsModelType._map.get(sender)
+def predelete_handler(sender, instance, **kwargs):
+    print sender, instance, kwargs
+pre_delete.connect(predelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PREDELETE')
+
+
+def get_dependent_queryset(instance, paths_resolved, model):
+    for func in paths_resolved:
+        instance = func(instance)
+        # early exit for empty relation objects
+        # test for QuerySet type beforehand to avoid triggering db interaction
+        if not isinstance(instance, models.QuerySet) and not instance:
+            return model.objects.none()
+    # turn single model instance into a queryset
+    if not isinstance(instance, models.QuerySet):
+        return model.objects.filter(pk=instance.pk)
+    # we got a pk list queryset from values_list
+    if not instance.model == model:
+        return model.objects.filter(pk__in=instance)
+    return instance
+
+
+def save_qs(qs, fields):
+    for el in qs.distinct():
+        el.save(update_fields=fields)
+
+
+def get_querysets_for_update(model, instance, update_fields=None):
+    modeldata = ComputedFieldsModelType._map.get(model)
     if not modeldata:
-        return
-    update_fields = kwargs.get('update_fields')
+        return {}
     if not update_fields:
         updates = set(modeldata.keys())
     else:
@@ -25,10 +48,41 @@ def postsave_handler(sender, instance, **kwargs):
         for fieldname in update_fields:
             if fieldname in modeldata:
                 updates.add(fieldname)
+    final = OrderedDict()
     for update in updates:
-        for model, funcs in modeldata[update].items():
-            for func in funcs:
-                func(instance)
+        for model, resolvers in modeldata[update].items():
+            final.setdefault(model, [model.objects.none(), set()])
+            for field, paths_resolved in resolvers:
+                # join all queryets to a final one with all update fields
+                final[model][0] |= get_dependent_queryset(instance, paths_resolved, model)
+                final[model][1].add(field)
+    return final
+
+
+def update_dependent(instance, model=None, update_fields=None):
+    """
+    Function to update all dependent computed fields model objects.
+    This is useful to get dependent computed fields of your model updated
+    if you update the database by calling `QuerySet.update`.
+    `instance` can either be a model instance or a queryset. The queryset
+    may not be finalized by `distinct` or any other means.
+    Example:
+        >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
+        >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
+    """
+    if not model:
+        if isinstance(instance, models.QuerySet):
+            model = instance.model
+        else:
+            model = type(instance)
+    for data in get_querysets_for_update(model, instance, update_fields).values():
+        save_qs(*data)
+
+
+def postsave_handler(sender, instance, **kwargs):
+    if kwargs.get('raw'):
+        return
+    update_dependent(instance, sender, kwargs.get('update_fields'))
 
 
 post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')

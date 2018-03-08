@@ -44,6 +44,8 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.resetDeps()
 
     def test_insert(self):
+        self.f.refresh_from_db()
+        self.e.refresh_from_db()
         self.assertEqual(self.g.comp, 'g')
         self.assertEqual(self.f.comp, 'fg')
         self.assertEqual(self.e.comp, 'efg')
@@ -71,9 +73,11 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.assertEqual(self.e.comp, 'EFG')
 
     def test_fkback_over_multiple_models_insert(self):
+        self.c.refresh_from_db()
         self.assertEqual(self.c.comp, 'ce')
 
     def test_fkback_over_multiple_models_update(self):
+        self.c.refresh_from_db()
         self.assertEqual(self.c.comp, 'ce')
         new_e = self.models.E(name='E', f_ed=self.d)
         new_e.save()
@@ -81,9 +85,11 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.assertEqual(self.c.comp, 'ceE')
 
     def test_multiple_fk_deps_insert(self):
+        self.d.refresh_from_db()
         self.assertEqual(self.d.comp, 'dg')
 
     def test_multiple_fk_deps_update(self):
+        self.d.refresh_from_db()
         self.assertEqual(self.d.comp, 'dg')
         new_g = self.models.G(name='G', f_gf=self.f)
         new_g.save()

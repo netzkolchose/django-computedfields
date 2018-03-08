@@ -53,9 +53,11 @@ class MixedForeignKeysAndBackDependenciesSimple(GenericModelTestBase):
         self.assertEqual(self.b.comp, 'bgG')
 
     def test_fkback_fk_insert(self):
+        self.f.refresh_from_db()
         self.assertEqual(self.f.comp, 'fa')
 
     def test_fkback_fk_update(self):
+        self.f.refresh_from_db()
         self.assertEqual(self.f.comp, 'fa')
         new_a = self.models.A(name='A')
         new_a.save()
