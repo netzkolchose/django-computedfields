@@ -36,7 +36,7 @@ def model_factory(name, keys):
         fwd_name = name + key
         bwd_name = key + name
         attrs['f_'+fwd_name] = models.ForeignKey(
-            key, related_name=bwd_name+'_f', blank=True, null=True)
+            key, related_name=bwd_name+'_f', blank=True, null=True, on_delete=models.SET_NULL)
         attrs['m_'+fwd_name] = models.ManyToManyField(
             key, related_name=bwd_name+'_m', blank=True)
         attrs['o_'+fwd_name] = models.OneToOneField(

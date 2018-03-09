@@ -29,7 +29,7 @@ class GenericModelTestBase(TestCase):
                 models[MODELS[modelname]] = {'comp': data.get('depends')}
             if data.get('func'):
                 MODELS[modelname]._computed_fields['comp']._computed['func'] = data.get('func')
-        ComputedFieldsModelType._resolve_dependencies()
+        ComputedFieldsModelType._resolve_dependencies(_force=True)
         self.graph = ComputedFieldsModelType._graph
         #self.graph.view()
 

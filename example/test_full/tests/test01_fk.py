@@ -15,13 +15,13 @@ class ForeignKeyDependencies(GenericModelTestBase):
             'C': {'depends': ['f_cb#comp'],
                   'func': lambda self: self.name + self.f_cb.comp},
             'D': {'depends': ['f_dc#comp'],
-                  'func': lambda self: self.name + self.f_dc.comp},
+                  'func': lambda self: self.name + (self.f_dc.comp if self.f_dc else '-')},
             # multi fk steps deps to non comp field
             'E': {'depends': ['f_ed.f_dc.f_cb.f_ba#name'],
-                  'func': lambda self: self.name + self.f_ed.f_dc.f_cb.f_ba.name},
+                  'func': lambda self: self.name + (self.f_ed.f_dc.f_cb.f_ba.name if self.f_ed.f_dc else '-')},
             # multi fk steps deps to comp field
             'F': {'depends': ['f_fe.f_ed.f_dc.f_cb#name'],
-                  'func': lambda self: self.name + self.f_fe.f_ed.f_dc.f_cb.name},
+                  'func': lambda self: self.name + (self.f_fe.f_ed.f_dc.f_cb.name if self.f_fe.f_ed.f_dc else '-')},
             # multiple mixed deps
             'G': {'depends': ['f_gf#comp', 'f_gf.f_fe.f_ed#name'],
                   'func': lambda self: self.name + self.f_gf.comp + self.f_gf.f_fe.f_ed.name}
@@ -103,3 +103,24 @@ class ForeignKeyDependencies(GenericModelTestBase):
         self.d.save()
         self.g.refresh_from_db()
         self.assertEqual(self.g.comp, 'gFbD')
+
+    def test_deletes(self):
+        self.assertEqual(self.g.comp, 'gfbd')
+        # deleting c should trigger updates for d, e, f, g
+        self.c.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'd-')
+        self.e.refresh_from_db()
+        self.assertEqual(self.e.comp, 'e-')
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.comp, 'f-')
+        self.g.refresh_from_db()
+        self.assertEqual(self.g.comp, 'gf-d')
+        # deleting g should not trigger any updates
+        self.g.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'd-')  # - instead of g
+        self.e.refresh_from_db()
+        self.assertEqual(self.e.comp, 'e-')  # - instead of g
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.comp, 'f-')  # - instead of g

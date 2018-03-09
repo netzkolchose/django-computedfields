@@ -95,3 +95,16 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         new_g.save()
         self.d.refresh_from_db()
         self.assertEqual(self.d.comp, 'dgG')
+
+    def test_deletes(self):
+        # deleting g should update f, d, e
+        self.g.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'd')  # no g
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.comp, 'f')  # no g
+        self.e.refresh_from_db()
+        self.assertEqual(self.e.comp, 'ef')  # no g
+        # deleting g should not update c
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'ce')

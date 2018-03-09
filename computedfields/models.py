@@ -9,11 +9,7 @@ from django.conf import settings
 from django.utils.encoding import python_2_unicode_compatible
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
-
-
-def predelete_handler(sender, instance, **kwargs):
-    print sender, instance, kwargs
-pre_delete.connect(predelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PREDELETE')
+from threading import RLock, local
 
 
 def get_dependent_queryset(instance, paths_resolved, model):
@@ -37,10 +33,11 @@ def save_qs(qs, fields):
         el.save(update_fields=fields)
 
 
-def get_querysets_for_update(model, instance, update_fields=None):
+def get_querysets_for_update(model, instance, update_fields=None, pk_list=False):
+    final = OrderedDict()
     modeldata = ComputedFieldsModelType._map.get(model)
     if not modeldata:
-        return {}
+        return final
     if not update_fields:
         updates = set(modeldata.keys())
     else:
@@ -48,24 +45,38 @@ def get_querysets_for_update(model, instance, update_fields=None):
         for fieldname in update_fields:
             if fieldname in modeldata:
                 updates.add(fieldname)
-    final = OrderedDict()
     for update in updates:
         for model, resolvers in modeldata[update].items():
-            final.setdefault(model, [model.objects.none(), set()])
+            qs = model.objects.none()
+            fields = set()
             for field, paths_resolved in resolvers:
                 # join all queryets to a final one with all update fields
-                final[model][0] |= get_dependent_queryset(instance, paths_resolved, model)
-                final[model][1].add(field)
+                qs |= get_dependent_queryset(instance, paths_resolved, model)
+                fields.add(field)
+            if pk_list:
+                # need pks for post_delete since the real queryset will be empty
+                # after deleting the instance in question
+                # since we need to interact with the db anyways
+                # we can already drop empty results here
+                qs = list(qs.values_list('pk', flat=True))
+                if not qs:
+                    continue
+            final[model] = [qs, fields]
     return final
 
 
 def update_dependent(instance, model=None, update_fields=None):
     """
     Function to update all dependent computed fields model objects.
-    This is useful to get dependent computed fields of your model updated
-    if you update the database by calling `QuerySet.update`.
-    `instance` can either be a model instance or a queryset. The queryset
-    may not be finalized by `distinct` or any other means.
+    This is needed if you have computed fields that depend on the model
+    you would like to update with `QuerySet.update`. Simply call this
+    function after the update with the same queryset (The queryset
+    may not be finalized by `distinct` or any other means.).
+
+    For completeness `instance` can also be a single model instance.
+    Since calling `save` on a model instance will trigger this function by
+    the post_save signal it is not needed for single instances.
+
     Example:
         >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
         >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
@@ -88,6 +99,33 @@ def postsave_handler(sender, instance, **kwargs):
 post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
 
 
+# FIXME: make this thread local
+DELETES = {}
+
+
+def predelete_handler(sender, instance, **kwargs):
+    querysets = get_querysets_for_update(sender, instance, pk_list=True)
+    print
+    print instance, querysets
+    if querysets:
+        DELETES[instance] = querysets
+
+
+pre_delete.connect(predelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PREDELETE')
+
+
+def postdelete_handler(sender, instance, **kwargs):
+    updates = DELETES.pop(instance, None)
+    if updates:
+        for model, data in updates.items():
+            pks, fields = data
+            qs = model.objects.filter(pk__in=pks)
+            save_qs(qs, fields)
+
+
+post_delete.connect(postdelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_POSTDELETE')
+
+
 def m2m_handler(sender, instance, **kwargs):
     # FIXME: dirty hack spot changes on m2m realtions
     if kwargs.get('action') == 'post_add':
@@ -105,6 +143,7 @@ class ComputedFieldsModelType(ModelBase):
     _graph = None
     _computed_models = OrderedDict()
     _map = {}
+    _lock = RLock()
 
     def __new__(mcs, name, bases, attrs):
         computed_fields = {}
@@ -124,24 +163,26 @@ class ComputedFieldsModelType(ModelBase):
             mcs._computed_models[cls] = dependent_fields or {}
         return cls
 
-    @staticmethod
-    def _resolve_dependencies(force=False):
-        map = None
-        if hasattr(settings, 'COMPUTEDFIELDS_MAP'):
-            try:
-                from importlib import import_module
-                module = import_module(settings.COMPUTEDFIELDS_MAP)
-                map = module.map
-            except (ImportError, AttributeError, Exception):
-                pass
-        if map and not force and not settings.DEBUG:
-            ComputedFieldsModelType._map = map
-        else:
-            ComputedFieldsModelType._graph = ComputedModelsGraph(
-                ComputedFieldsModelType._computed_models)
-            # automatically checks for cycles
-            ComputedFieldsModelType._graph.remove_redundant_paths()
-            ComputedFieldsModelType._map = ComputedFieldsModelType._graph.generate_lookup_map()
+    @classmethod
+    def _resolve_dependencies(mcs, force=False, _force=False):
+        with mcs._lock:
+            if mcs._map and not _force:
+                return
+            map = None
+            if hasattr(settings, 'COMPUTEDFIELDS_MAP'):
+                try:
+                    from importlib import import_module
+                    module = import_module(settings.COMPUTEDFIELDS_MAP)
+                    map = module.map
+                except (ImportError, AttributeError, Exception):
+                    pass
+            if map and not force and not settings.DEBUG:
+                mcs._map = map
+            else:
+                mcs._graph = ComputedModelsGraph(mcs._computed_models)
+                # automatically checks for cycles
+                mcs._graph.remove_redundant_paths()
+                mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
 
 
 class ComputedFieldsModel(models.Model):
