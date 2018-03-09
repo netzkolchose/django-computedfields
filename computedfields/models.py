@@ -179,14 +179,16 @@ class ComputedFieldsModelType(ModelBase):
     After startup the method `_resolve_dependencies` gets called by `app.ready`
     to build the dependency resolver functions. To avoid the expensive calculations
     in production mode the resolver functions can be pickled into a map file
-    by setting `COMPUTEDFIELDS_MAP` in settings.py to a writable file and calling
-    the management command `createmap`.
-    NOTE: The map will not be updates automatically and must be recreated
-    after code changes.
+    by setting `COMPUTEDFIELDS_MAP` in settings.py to a writable file path
+    and calling the management command `createmap`.
+
+    NOTE: The map file will not be updated automatically and must be recreated
+    by calling the management command `createmap` after code changes.
     """
     _graph = None
     _computed_models = OrderedDict()
     _map = {}
+    _map_loaded = False
     _lock = RLock()
 
     def __new__(mcs, name, bases, attrs):
@@ -209,24 +211,46 @@ class ComputedFieldsModelType(ModelBase):
 
     @classmethod
     def _resolve_dependencies(mcs, force=False, _force=False):
+        """
+        This method triggers all the ugly stuff.
+        Without providing a map file the calculations are done
+        once per process by `app.ready`. The steps are:
+            - create a graph of the dependencies
+            - cycling check
+            - remove redundant paths
+            - create final resolver lookup map
+
+        Since these steps are very expensive, you should consider
+        using a map file for production mode. This method will
+        transparently load the map file omitting the graph and map
+        creation upon every process creation.
+
+        NOTE: The test cases rely on runtime overrides of the
+        computed model fields dependencies and therefore override the
+        "once per process" rule with `_force`. Dont use this
+        for your regular model development. If you really need to
+        force the recreation of the graph and map, use `force` instead.
+        Never do this at runtime in a multithreaded environment or hell
+        will break loose. You have been warned ;)
+        """
         with mcs._lock:
-            if mcs._map and not _force:
+            if mcs._map_loaded and not _force:
                 return
-            map = None
-            if hasattr(settings, 'COMPUTEDFIELDS_MAP'):
+            from_map = hasattr(settings, 'COMPUTEDFIELDS_MAP') and not force and not _force
+            if from_map:
                 try:
                     from importlib import import_module
                     module = import_module(settings.COMPUTEDFIELDS_MAP)
-                    map = module.map
+                    mcs._map = module.map
+                    mcs._map_loaded = True
+                    return
                 except (ImportError, AttributeError, Exception):
-                    pass
-            if map and not force and not settings.DEBUG:
-                mcs._map = map
-            else:
-                mcs._graph = ComputedModelsGraph(mcs._computed_models)
-                # automatically checks for cycles
-                mcs._graph.remove_redundant_paths()
-                mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
+                    raise
+            mcs._graph = ComputedModelsGraph(mcs._computed_models)
+            # automatically checks for cycles
+            mcs._graph.remove_redundant_paths()
+            mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
+            mcs._map_loaded = True
 
 
 class ComputedFieldsModel(models.Model):
