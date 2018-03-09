@@ -58,19 +58,25 @@ class PathResolver(object):
     """
     Class to resolve dependency path segments into consecutive function calls.
     This works stream like where every function alters the input and outputs the
-    result to the next function. First input is the instance given in the save handler,
-    last action is to save the final output:
-        `func3(func2(func1(instance))).save()`
+    result to the next function. First input is the initial instance
+    (model instance or queryset), last output is the final dependent
+    model instance or queryset:
+        ` instance = func3(func2(func1(instance)))`
     The functions are the `_value()` methods of `QuerySetGenerator` and `AttrGenerator`,
     which work either on model instances or querysets.
-    To lower the runtime penalty in the save handler the `_value()` methods
-    are as slim as possible.
+    To lower the runtime penalty the `_value` methods are as slim as possible.
     """
     def __init__(self, model, data):
         self.model = model
         self.data = data
 
     def _resolve_path_segments(self, dep):
+        """
+        Builds a stack of `QuerySetGenerator` and `AttrGenerator`
+        objects based on the dependencies data.
+        Returns the reversed stack of `_value` methods to be applied
+        later to a model instance or queryset.
+        """
         search = QuerySetGenerator()
         attrs = AttrGenerator()
         stack = []
@@ -96,6 +102,10 @@ class PathResolver(object):
         return [el.finalize() for el in reversed(stack)]
 
     def resolve(self):
+        """
+        Returns a list containing
+        [['computed fieldname', [resolve functions]], ...].
+        """
         result = []
         for field, deps in self.data.items():
             for dep in deps:

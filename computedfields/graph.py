@@ -29,6 +29,12 @@ class CycleNodeException(CycleException):
 
 
 class Edge(object):
+    """
+    Class for representing an edge in `Graph`.
+    The instances are created as singletons,
+    calling `Edge('A', 'B')` multiple times
+    will point to the same object.
+    """
     instances = {}
 
     def __new__(cls, *args, **kwargs):
@@ -58,6 +64,12 @@ class Edge(object):
 
 
 class Node(object):
+    """
+    Class for representing a node in `Graph`.
+    The instances are created as singletons,
+    calling `Node('A')` multiple times will
+    point to the same object.
+    """
     instances = {}
 
     def __new__(cls, *args, **kwargs):
@@ -84,26 +96,47 @@ class Node(object):
 
 
 class Graph(object):
+    """
+    Simple directed graph implementation.
+    """
     def __init__(self):
         self.nodes = set()
         self.edges = set()
         self._removed = set()
 
     def add_node(self, node):
+        """Add a node to the graph."""
         self.nodes.add(node)
 
     def remove_node(self, node):
+        """
+        Remove a node from the graph.
+        NOTE: Removing edges containing the removed node
+        is not implemented.
+        """
         self.nodes.remove(node)
 
     def add_edge(self, edge):
+        """
+        Add an edge to the graph.
+        Automatically inserts the nodes.
+        """
         self.edges.add(edge)
         self.nodes.add(edge.left)
         self.nodes.add(edge.right)
 
     def remove_edge(self, edge):
+        """
+        Removes an edge from the graph.
+        NOTE: Does not remove contained nodes.
+        """
         self.edges.remove(edge)
 
     def get_dot(self, format='pdf', mark_edges=None, mark_nodes=None):
+        """
+        Returns the graphviz object of the graph.
+        Needs the graphviz package to be installed.
+        """
         from graphviz import Digraph
         if not mark_edges:
             mark_edges = {}
@@ -117,18 +150,36 @@ class Graph(object):
         return dot
 
     def render(self, filename=None, format='pdf', mark_edges=None, mark_nodes=None):
+        """
+        Renders the graph to file.
+        Needs the graphviz package to be installed.
+        """
         self.get_dot(format, mark_edges, mark_nodes).render(filename=filename, cleanup=True)
 
     def view(self, format='pdf', mark_edges=None, mark_nodes=None):
+        """
+        Directly opens the graph in the associated viewer.
+        Needs the graphviz package to be installed.
+        """
         self.get_dot(format, mark_edges, mark_nodes).view(cleanup=True)
 
     def edgepath_to_nodepath(self, path):
+        """
+        Converts an edge path to a node path.
+        """
         return [edge.left for edge in path] + [path[-1].right]
 
     def nodepath_to_edgepath(self, path):
+        """
+        Converts a node path to an edge path.
+        """
         return [Edge(*pair) for pair in pairwise(path)]
 
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
+        """
+        Walks the graph recursively to get all possible paths.
+        Might raise a `CycleEdgeException`.
+        """
         if not seen:
             seen = []
         if edge in seen:
@@ -141,7 +192,7 @@ class Graph(object):
 
     def get_edgepaths(self):
         """
-        Returns a list of all paths containing edges.
+        Returns a list of all edge paths.
         Might raise a `CycleEdgeException`. For in-depth cycle detection
         use `edge_cycles`, `node_cycles` or `get_cycles()`.
         """
@@ -155,7 +206,7 @@ class Graph(object):
 
     def get_nodepaths(self):
         """
-        Returns a list of all paths containing nodes.
+        Returns a list of all node paths.
         Might raise a `CycleNodeException`. For in-depth cycle detection
         use `edge_cycles`, `node_cycles` or `get_cycles()`.
         """
@@ -169,6 +220,9 @@ class Graph(object):
         return node_paths
 
     def _get_cycles(self, edge, left_edges, cycles, seen=None):
+        """
+        Walks the graph to collect all cycles.
+        """
         if not seen:
             seen = []
         if edge in seen:
@@ -186,14 +240,14 @@ class Graph(object):
     def get_cycles(self):
         """
         Get all cycles in graph. This is not optimised by any means,
-        it simply walks the whole graph and gathers all cycles. Therefore
-        use this only for in-depth cycle clarification. This applies to all
+        it simply walks the whole graph and collects all cycles. Therefore
+        use this only for in-depth cycle inspection. This applies to all
         dependent properties as well (`edge_cycles` and `node_cycles`).
         As start nodes any node on the left side of an edge will be tested.
         Returns a mapping of
             `{frozenset(cycling edgepath): {
                 'entries': set of edges leading to the cycle,
-                'path': last seen edge path of the cycle
+                'path': last seen edge path of the cycle in order
             }}`
         An edge in `entries` is not necessarily part of the cycle itself,
         but once entered the path will lead to the cycle.
@@ -210,7 +264,7 @@ class Graph(object):
     def edge_cycles(self):
         """
         Returns all cycles as edge paths.
-        Use this only for in-depth cycle clarification.
+        Use this only for in-depth cycle inspection.
         """
         return [cycle['path'] for cycle in self.get_cycles().values()]
 
@@ -218,9 +272,10 @@ class Graph(object):
     def node_cycles(self):
         """
         Returns all cycles as node paths.
-        Use this only for in-depth cycle clarification.
+        Use this only for in-depth cycle inspection.
         """
-        return [self.edgepath_to_nodepath(cycle['path']) for cycle in self.get_cycles().values()]
+        return [self.edgepath_to_nodepath(cycle['path'])
+                for cycle in self.get_cycles().values()]
 
     @property
     def is_cyclefree(self):
@@ -228,6 +283,7 @@ class Graph(object):
         True if the graph contains no cycles.
         To be faster this property relies on path linearization
         instead of the more expensive full cycle detection.
+        For in-depth cycle inspection use `edge_cycles` or `node_cycles`.
         """
         try:
             self.get_edgepaths()
@@ -253,8 +309,8 @@ class Graph(object):
         possibilities to reach a node from a start node. Since the longer path triggers
         more db updates the shorter gets discarded.
         Might raise a `CycleNodeException`.
+        Returns the removed edges.
         """
-        # FIXME: check algorithm, are '#' and computedfield path are equivalent?
         paths = self.get_nodepaths()
         possible_replaces = []
         for p in paths:
@@ -277,23 +333,32 @@ class Graph(object):
         return removed
 
 
+# TODO: simplify the deps handling in resolve_dependencies and generate_lookup_map
 class ComputedModelsGraph(Graph):
     """
     Class to resolve and convert initial computedfields model dependencies into
-    a graph and generate the final signal handler functions.
+    a graph and generate the final resolver functions.
     In `resolve_dependencies` the depends field strings are resolved to real models.
     The dependencies are rearranged to adjacency lists as edges for the underlying graph.
     The graph does a cycle check and removes redundant edges to lower the database penalty.
-    In the last step the remaining edges are gathered into a lookup map in `generate_lookup_map`.
+    In the last step the path segments of remaining edges are resolver functions and
+    gathered into a lookup map in `generate_lookup_map`.
     """
     def __init__(self, computed_models):
+        """
+        `computed_fields` is the `ComputedFieldsModelType._computed_models`
+        created during model initialization.
+        """
         super(ComputedModelsGraph, self).__init__()
         self.computed_models = computed_models
         self.lookup_map = {}
         self.data, self.cleaned, self.model_mapping = self.resolve_dependencies(self.computed_models)
-        self.insert_data(self.cleaned)
+        self._insert_data(self.cleaned)
 
     def resolve_dependencies(self, computed_models):
+        """
+        Converts all depends strings into real model and field dependencies.
+        """
         # first resolve all stringified dependencies to real types
         # walks every depends string for all models
         store = OrderedDict()
@@ -361,10 +426,10 @@ class ComputedModelsGraph(Graph):
 
         return store, final, model_mapping
 
-    def insert_data(self, data):
+    def _insert_data(self, data):
         """
-        Adds all needed nodes and edges as in data.
-        Data must be an adjacency list.
+        Adds all needed nodes and edges to the graph as in `data`.
+        Data must be an adjacency mapping.
         """
         for node, value in data.items():
             self.add_node(Node(node))
@@ -375,10 +440,10 @@ class ComputedModelsGraph(Graph):
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
 
-    def cleaned_data_from_edges(self):
+    def _cleaned_data_from_edges(self):
         """
-        Returns an adjacency list of the graph
-        as {left: set(right neighbours)} mapping.
+        Returns an adjacency mapping of the graph
+        as {left: set(right neighbours)}.
         """
         map = {}
         for edge in self.edges:
@@ -387,14 +452,14 @@ class ComputedModelsGraph(Graph):
 
     def generate_lookup_map(self):
         """
-        Generates a function lookup map to be used by the signal handler.
+        Generates a function lookup map to be used to get dependent objects.
         Structure of the map is:
             model:
                 '#'      :  [list of callbacks]
                 'fieldA' :  [list of callbacks]
-        `model` denotes the `sender` in the signal handler. The '#' callbacks
-        are to be used if there is no `update_fields` set or there are any
-        unkown fields in `update_fields`.
+        `model` denotes the source model. The '#' callbacks are to be used
+        if there is no `update_fields` set or there are any unkown fields
+        (ordinary non computed model fields) in `update_fields`.
 
         NOTE: If there are only known fields in `update_fields` always use
         their specific callbacks, never the '#' callbacks. This is especially
@@ -415,7 +480,7 @@ class ComputedModelsGraph(Graph):
 
         # apply full node information to graph edges
         table = {}
-        for left_node, right_nodes in self.cleaned_data_from_edges().items():
+        for left_node, right_nodes in self._cleaned_data_from_edges().items():
             lmodel, lfield = left_node
             lmodel = self.model_mapping[lmodel]
             rstore = table.setdefault(lmodel, {}).setdefault(lfield, {})

@@ -12,7 +12,13 @@ from django.utils.translation import ugettext_lazy as _
 from threading import RLock, local
 
 
-def get_dependent_queryset(instance, paths_resolved, model):
+def _get_dependent_queryset(instance, paths_resolved, model):
+    """
+    Returns a queryset containing all dependent objects of type `model`
+    for `instance`.
+    `paths_resolved` is a list of precalculated resolver functions,
+    that resolve the transition from the instance to the dependent queryset.
+    """
     for func in paths_resolved:
         instance = func(instance)
         # early exit for empty relation objects
@@ -28,12 +34,19 @@ def get_dependent_queryset(instance, paths_resolved, model):
     return instance
 
 
-def save_qs(qs, fields):
+def _save_qs(qs, fields):
+    """
+    Save the queryset `qs` with `fields` as 'update_fields'.
+    """
     for el in qs.distinct():
         el.save(update_fields=fields)
 
 
-def get_querysets_for_update(model, instance, update_fields=None, pk_list=False):
+def _get_querysets_for_update(model, instance, update_fields=None, pk_list=False):
+    """
+    Returns a mapping of all dependent models, dependent fields and a
+    queryset containing all dependent objects.
+    """
     final = OrderedDict()
     modeldata = ComputedFieldsModelType._map.get(model)
     if not modeldata:
@@ -51,7 +64,7 @@ def get_querysets_for_update(model, instance, update_fields=None, pk_list=False)
             fields = set()
             for field, paths_resolved in resolvers:
                 # join all queryets to a final one with all update fields
-                qs |= get_dependent_queryset(instance, paths_resolved, model)
+                qs |= _get_dependent_queryset(instance, paths_resolved, model)
                 fields.add(field)
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
@@ -112,8 +125,8 @@ def update_dependent(instance, model=None, update_fields=None):
             model = instance.model
         else:
             model = type(instance)
-    for data in get_querysets_for_update(model, instance, update_fields).values():
-        save_qs(*data)
+    for data in _get_querysets_for_update(model, instance, update_fields).values():
+        _save_qs(*data)
 
 
 def postsave_handler(sender, instance, **kwargs):
@@ -130,7 +143,7 @@ DELETES = {}
 
 
 def predelete_handler(sender, instance, **kwargs):
-    querysets = get_querysets_for_update(sender, instance, pk_list=True)
+    querysets = _get_querysets_for_update(sender, instance, pk_list=True)
     if querysets:
         DELETES[instance] = querysets
 
@@ -144,7 +157,7 @@ def postdelete_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            save_qs(qs, fields)
+            _save_qs(qs, fields)
 
 
 post_delete.connect(postdelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_POSTDELETE')
@@ -159,6 +172,18 @@ m2m_changed.connect(m2m_handler, sender=None, weak=False, dispatch_uid='COMP_FIE
 
 
 class ComputedFieldsModelType(ModelBase):
+    """
+    Metaclass for computed field models. Handles the creation of the db fields.
+    Also holds the needed data for graph calculations and dependency resolving.
+
+    After startup the method `_resolve_dependencies` gets called by `app.ready`
+    to build the dependency resolver functions. To avoid the expensive calculations
+    in production mode the resolver functions can be pickled into a map file
+    by setting `COMPUTEDFIELDS_MAP` in settings.py to a writable file and calling
+    the management command `createmap`.
+    NOTE: The map will not be updates automatically and must be recreated
+    after code changes.
+    """
     _graph = None
     _computed_models = OrderedDict()
     _map = {}
