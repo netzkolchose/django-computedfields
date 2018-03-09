@@ -70,6 +70,17 @@ class MixedForeignKeysAndBackDependenciesSimple(GenericModelTestBase):
         self.f.refresh_from_db()
         self.assertEqual(self.f.comp, 'faA')
 
+    def test_deletes(self):
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'bg')
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.comp, 'fa')
+        self.g.delete()
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'b')
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.comp, 'f')
+
 
 class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
     """
@@ -139,6 +150,26 @@ class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
         self.b.refresh_from_db()
         self.assertEqual(self.b.comp, 'bDd2')
 
+    def test_B_update_insert_delete(self):
+        # change D
+        self.d.name = 'D'
+        self.d.save()
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'bD')
+        # new D
+        new_d = self.models.D(name='d2', f_df=self.f)
+        new_d.save()
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'bDd2')
+        # delete new_d
+        new_d.delete()
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'bD')
+        # delete d
+        self.d.delete()
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'b')
+
     def test_D_insert(self):
         self.assertEqual(self.d.comp, 'db')
 
@@ -154,6 +185,25 @@ class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
         new_b.save()
         self.d.refresh_from_db()
         self.assertEqual(self.d.comp, 'dBb2')
+
+    def test_D_insert_update_delete(self):
+        self.b.name = 'B'
+        self.b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dB')
+        # add new B
+        new_b = self.models.B(name='b2', f_ba=self.a)
+        new_b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dBb2')
+        # delete new_b
+        new_b.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dB')
+        # delete b
+        self.b.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'd')
 
 
 class MixedForeignKeysAndBackDependenciesMultipleTwo(GenericModelTestBase):
@@ -206,6 +256,26 @@ class MixedForeignKeysAndBackDependenciesMultipleTwo(GenericModelTestBase):
         new_d.save()
         self.c.refresh_from_db()
         self.assertEqual(self.c.comp, 'cDd2')
+
+    def test_C_update_delete(self):
+        # change D
+        self.d.name = 'D'
+        self.d.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cD')
+        # add new D
+        new_d = self.models.D(name='d2', f_dg=self.g)
+        new_d.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDd2')
+        # delete new_d
+        new_d.delete()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cD')
+        # delete d
+        self.d.delete()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'c')
 
 
 class MixedForeignKeysAndBackDependenciesMultipleExtendedFKBack(GenericModelTestBase):
@@ -266,3 +336,25 @@ class MixedForeignKeysAndBackDependenciesMultipleExtendedFKBack(GenericModelTest
         self.g.save()
         self.d.refresh_from_db()
         self.assertEqual(self.d.comp, 'db2')
+
+    def test_D_update_delete(self):
+        # change B
+        self.b.name = 'B'
+        self.b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dB')
+        # add new A, B and C, change f_ga
+        new_b = self.models.B(name='b2')
+        new_b.save()
+        new_c = self.models.C(name='c2', f_cb=new_b)
+        new_c.save()
+        new_a = self.models.A(name='A', f_ac=new_c)
+        new_a.save()
+        self.g.f_ga = new_a
+        self.g.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'db2')
+        # delete new_a - should remove b from d
+        new_a.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'd')

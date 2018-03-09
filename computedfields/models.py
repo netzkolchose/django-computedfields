@@ -105,8 +105,6 @@ DELETES = {}
 
 def predelete_handler(sender, instance, **kwargs):
     querysets = get_querysets_for_update(sender, instance, pk_list=True)
-    print
-    print instance, querysets
     if querysets:
         DELETES[instance] = querysets
 

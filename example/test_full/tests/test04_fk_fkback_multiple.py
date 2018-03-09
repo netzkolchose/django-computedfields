@@ -62,6 +62,36 @@ class MultipleDependenciesOne(GenericModelTestBase):
         self.c.refresh_from_db()
         self.assertEqual(self.c.comp, 'cDd2Ee2')
 
+    def test_C_update_deletes(self):
+        # change D
+        self.d.name = 'D'
+        self.d.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDe')
+        # add new D
+        new_d = self.models.D(name='d2', f_dg=self.g)
+        new_d.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDd2e')
+        # change E
+        self.e.name = 'E'
+        self.e.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDd2E')
+        # add new E
+        new_e = self.models.E(name="e2", f_ed=self.d)
+        new_e.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDd2Ee2')
+        # delete new_d
+        new_d.delete()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'cDEe2')
+        # delete d - should remove D, E and e2
+        self.d.delete()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'c')
+
 
 class MultipleDependenciesTwo(GenericModelTestBase):
     def setUp(self):
@@ -117,3 +147,26 @@ class MultipleDependenciesTwo(GenericModelTestBase):
         self.d.refresh_from_db()
         # this should only change the "first" B dep
         self.assertEqual(self.d.comp, 'db2B')
+
+    def test_D_update_deletes(self):
+        # change B --> should change both deps
+        self.b.name = 'B'
+        self.b.save()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dBB')
+        # add new A, B and C, change f_ga
+        new_b = self.models.B(name='b2')
+        new_b.save()
+        new_c = self.models.C(name='c2', f_cb=new_b)
+        new_c.save()
+        new_a = self.models.A(name='A', f_ac=new_c)
+        new_a.save()
+        self.g.f_ga = new_a
+        self.g.save()
+        self.d.refresh_from_db()
+        # this should only change the "first" B dep
+        self.assertEqual(self.d.comp, 'db2B')
+        # delete new_b - should remove b2
+        new_b.delete()
+        self.d.refresh_from_db()
+        self.assertEqual(self.d.comp, 'dB')
