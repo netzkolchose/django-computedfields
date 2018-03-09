@@ -68,18 +68,44 @@ def get_querysets_for_update(model, instance, update_fields=None, pk_list=False)
 def update_dependent(instance, model=None, update_fields=None):
     """
     Function to update all dependent computed fields model objects.
+
     This is needed if you have computed fields that depend on the model
     you would like to update with `QuerySet.update`. Simply call this
-    function after the update with the same queryset (The queryset
-    may not be finalized by `distinct` or any other means.).
+    function after the update with the queryset containing the changed
+    objects. The queryset may not be finalized by `distinct` or any other means.
+
+    Example:
+
+        >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
+        >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
+
+    This can also be used with `bulk_create`. Since `bulk_create` returns
+    the objects in a python container, you have to create the queryset
+    yourself, e.g. with the pks:
+
+        >>> objs = Entry.objects.bulk_create([
+        ...     Entry(headline='This is a test'),
+        ...     Entry(headline='This is only a test'),
+        ... ])
+        >>> pks = set((obj.pk for obj in objs))
+        >>> update_dependent(Entry.objects.filter(pk__in=pks))
+
+    NOTE: This function cannot be used to update computed fields on a
+    computed fields model itself (this might change with future versions).
+    For computed fields models always use `save` on the model objects.
+    You still can use `update` or `bulk_create` but have to call
+    `save` afterwards (which defeats the purpose):
+
+        >>> objs = SomeComputedFieldsModel.objects.bulk_create([
+        ...     SomeComputedFieldsModel(headline='This is a test'),
+        ...     SomeComputedFieldsModel(headline='This is only a test'),
+        ... ])
+        >>> for obj in objs:
+        ...     obj.save()
 
     For completeness `instance` can also be a single model instance.
     Since calling `save` on a model instance will trigger this function by
-    the post_save signal it is not needed for single instances.
-
-    Example:
-        >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
-        >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
+    the `post_save` signal it is not needed for single instances.
     """
     if not model:
         if isinstance(instance, models.QuerySet):
@@ -91,9 +117,9 @@ def update_dependent(instance, model=None, update_fields=None):
 
 
 def postsave_handler(sender, instance, **kwargs):
-    if kwargs.get('raw'):
-        return
-    update_dependent(instance, sender, kwargs.get('update_fields'))
+
+    if not kwargs.get('raw'):
+        update_dependent(instance, sender, kwargs.get('update_fields'))
 
 
 post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
@@ -125,13 +151,8 @@ post_delete.connect(postdelete_handler, sender=None, weak=False, dispatch_uid='C
 
 
 def m2m_handler(sender, instance, **kwargs):
-    # FIXME: dirty hack spot changes on m2m realtions
     if kwargs.get('action') == 'post_add':
-        model = kwargs['model']
-        pk = next(iter(kwargs['pk_set']))
-        inst = model.objects.get(pk=pk)
-        post_save.send(sender=model, instance=inst, created=False, update_fields=None,
-                       raw=False, using=kwargs.get('using'))
+        update_dependent(kwargs['model'].objects.filter(pk__in=kwargs['pk_set']), kwargs['model'])
 
 
 m2m_changed.connect(m2m_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_M2M')
@@ -184,12 +205,44 @@ class ComputedFieldsModelType(ModelBase):
 
 
 class ComputedFieldsModel(models.Model):
+    """
+    Base class for a computed fields model.
+
+    To use computed fields derive your model from this
+    base class and use the `computed` decorator:
+
+        >>> from django.db import models
+        >>> from computedfields.models import ComputedFieldsModel, computed
+        >>> class Person(ComputedFieldsModel):
+        ...     forename = models.CharField(max_length=32)
+        ...     surname = models.CharField(max_length=32)
+        ...     @computed(models.CharField(max_length=32))
+        ...     def combined(self):
+        ...         return u'%s, %s' % (self.surname, self.forename)
+
+    `combined` will be turned into a real database field and can be accessed
+    and searched like any other field. Upon `save` the value gets calculated and the
+    result is written to the database. With the method `compute(fieldname)`
+    you can inspect the value that will be written (useful if you have pending changes):
+
+        >>> person = Person(forename='Leeroy', surname='Jenkins')
+        >>> person.combined             # empty since not saved yet
+        >>> person.compute('combined')  # outputs 'Jenkins, Leeroy'
+        >>> person.save()
+        >>> person.combined             # outputs 'Jenkins, Leeroy'
+        >>> Person.objects.filter(combined__<some condition>)  # used in a queryset
+    """
     __metaclass__ = ComputedFieldsModelType
 
     class Meta:
         abstract = True
 
     def compute(self, fieldname):
+        """
+        Returns the computed field value for `fieldname`.
+        :param fieldname:
+        :return: computed field value
+        """
         field = self._computed_fields[fieldname]
         return field._computed['func'](self)
 
@@ -207,13 +260,8 @@ class ComputedFieldsModel(models.Model):
                         has_changed = True
                         setattr(self, field._computed['attr'], result)
                 if not has_changed:
-                    # we are actually not saving, but must fire
-                    # post_save to trigger all dependent updates
-                    # FIXME: use own signal here to circumvent side effects
-                    post_save.send(
-                        sender=self.__class__, instance=self, created=False,
-                        update_fields=kwargs.get('update_fields'),
-                        raw=kwargs.get('raw'), using=kwargs.get('using'))
+                    # no save needed, we still need to update dependent objects
+                    update_dependent(self, type(self), update_fields)
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
@@ -225,6 +273,70 @@ class ComputedFieldsModel(models.Model):
 
 
 def computed(field, **kwargs):
+    """
+    Decorator for computed fields.
+
+    `field` should be a model field suitable to hold the result
+    of the method. The decorator understands an optional
+    keyword argument `depends` to indicate dependencies to
+    related model fields. Listed dependencies get updated
+    automatically.
+
+    Examples:
+
+        create a char field with no outer dependencies
+
+            >>> computed(models.CharField(max_length=32))
+
+        create a char field with one dependency to the name
+        field of a foreign key relation `fk`
+
+            >>> computed(models.CharField(max_length=32), depends=['fk#name'])
+
+    List the dependencies as strings in this fashion:
+        ['rel_a.rel_b#fieldname', ...]
+    Meaning: The computed field gets a value from a field 'fieldname',
+    which is accessible through the relations 'rel_a' --> 'rel_b'.
+    The relation can be any relation type (foreign keys, m2m, one2one
+    and their corresponding back relations).
+    The fieldname at the end separated by '#' is mandatory for the
+    dependency resolver to decide, whether the updates depend on other
+    computed fields. For multiple dependencies to non computed fields
+    of the same model you have to list only one fieldname
+    (others are covered automatically):
+
+        >>> computed(models.CharField(max_length=32), depends=['fk#name'])
+
+    '#name' itself is not a computed field. Listing it will ensure,
+    that any changes to the object behind 'fk' will update your computed field.
+
+    Dependencies to computed fields must be listed separately
+    to make sure your computed field gets properly updated:
+
+        >>> computed(models.CharField(max_length=32), depends=['fk#comp1', 'fk#comp2'])
+
+    Here 'comp1' and 'comp2' are computed fields itself and must be listed both,
+    if your computed field depends on those.
+
+    NOTE: With the auto resolving of the dependencies you can easily create
+    recursive dependencies by accident. Imagine the following simple case:
+
+        >>> class A(ComputedFieldsModel):
+        >>>     @computed(models.CharField(max_length=32), depends=['b_set#comp'])
+        >>>     def comp(self):
+        >>>         return ''.join(b.comp for b in self.b_set.all())
+        >>>
+        >>> class B(ComputedFieldsModel):
+        >>>     a = models.ForeignKey(A)
+        >>>     @computed(models.CharField(max_length=32), depends=['a#comp'])
+        >>>     def comp(self):
+        >>>         return a.comp
+
+    Neither A nor B can be saved, since the `comp` fields depend on each other.
+    While this sounds logically for this simple case it might be hard to spot
+    for more complicated dependencies. Thus the dependency resolver tries
+    to detect cyclic dependencies and raises a `CycleNodeException`.
+    """
     def wrap(f):
         field._computed = {'func': f, 'kwargs': kwargs}
         return field
