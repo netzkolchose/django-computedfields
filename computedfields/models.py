@@ -353,6 +353,11 @@ class ComputedModelManager(models.Manager):
 
 @python_2_unicode_compatible
 class ComputedFieldsAdminModel(ContentType):
+    """
+    Proxy model to list all computed models with their field dependencies
+    in admin. This is especially useful during development.
+    To enable it, set `COMPUTEDFIELDS_ADMIN` in settings.yp to `True`.
+    """
     objects = ComputedModelManager()
 
     class Meta:

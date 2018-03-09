@@ -16,9 +16,18 @@ try:
     from pygments.formatters import HtmlFormatter
 except ImportError:
     pygments = False
+try:
+    from graphviz import Digraph
+except ImportError:
+    Digraph = False
 
 
 class ComputedModelsAdmin(admin.ModelAdmin):
+    """
+    Shows all ComputedFieldsModel models with their field dependencies in the admin.
+    If the `graphviz` python package is installed, it is also possible to inspect
+    the dependency graph.
+    """
     actions = None
     change_list_template = 'computedfields/change_list.html'
     list_display = ('name', 'dependencies')
@@ -60,15 +69,14 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         return databaseview_urls + urls
 
     def render_graph(self, request, extra_context=None):
-        try:
-            from graphviz import Digraph
+        error = 'graphviz must be installed to use this feature.'
+        dot = ''
+        if Digraph:
             error = ''
-        except ImportError:
-            error = 'graphviz must be installed to use this feature.'
-        graph = ComputedFieldsModelType._graph
-        dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
+            graph = ComputedFieldsModelType._graph
+            dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
 
-if hasattr(settings, 'COMPUTEDFIELDS_ADMIN') and settings.COMPUTEDFIELDS_ADMIN or settings.DEBUG:
+if hasattr(settings, 'COMPUTEDFIELDS_ADMIN') and settings.COMPUTEDFIELDS_ADMIN:
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
