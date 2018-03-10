@@ -24,8 +24,8 @@ except ImportError:
 
 class ComputedModelsAdmin(admin.ModelAdmin):
     """
-    Shows all :code:`ComputedFieldsModel` models with their field dependencies
-    in the admin. If the :code:`graphviz` python package is installed,
+    Shows all ``ComputedFieldsModel`` models with their field dependencies
+    in the admin. If the :mod:`graphviz` package is installed,
     it is also possible to inspect the dependency graph.
     """
     actions = None

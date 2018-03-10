@@ -14,9 +14,9 @@ from threading import RLock, local
 
 def _get_dependent_queryset(instance, paths_resolved, model):
     """
-    Returns a queryset containing all dependent objects of type `model`
-    for `instance`.
-    `paths_resolved` is a list of precalculated resolver functions,
+    Returns a queryset containing all dependent objects of type ``model``
+    for ``instance``.
+    ``paths_resolved`` is a list of precalculated resolver functions,
     that resolve the transition from the instance to the dependent queryset.
     """
     for func in paths_resolved:
@@ -36,7 +36,7 @@ def _get_dependent_queryset(instance, paths_resolved, model):
 
 def _save_qs(qs, fields):
     """
-    Save the queryset `qs` with `fields` as 'update_fields'.
+    Save the queryset ``qs`` with ``fields`` as 'update_fields'.
     """
     for el in qs.distinct():
         el.save(update_fields=fields)
@@ -83,15 +83,15 @@ def update_dependent(instance, model=None, update_fields=None):
     Function to update all dependent computed fields model objects.
 
     This is needed if you have computed fields that depend on the model
-    you would like to update with :code:`QuerySet.update`. Simply call this
+    you would like to update with ``QuerySet.update``. Simply call this
     function after the update with the queryset containing the changed
-    objects. The queryset may not be finalized by :code:`distinct` or
+    objects. The queryset may not be finalized by ``distinct`` or
     any other means.
 
         >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
         >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
 
-    This can also be used with :code:`bulk_create`. Since :code:`bulk_create`
+    This can also be used with ``bulk_create``. Since ``bulk_create``
     returns the objects in a python container, you have to create the queryset
     yourself, e.g. with pks:
 
@@ -106,9 +106,9 @@ def update_dependent(instance, model=None, update_fields=None):
 
         This function cannot be used to update computed fields on a
         computed fields model itself. For computed fields models always
-        use :code:`save` on the model objects. You still can use
-        :code:`update` or :code:`bulk_create` but have to call
-        :code:`save` afterwards:
+        use ``save`` on the model objects. You still can use
+        ``update`` or ``bulk_create`` but have to call
+        ``save`` afterwards:
 
             >>> objs = SomeComputedFieldsModel.objects.bulk_create([
             ...     SomeComputedFieldsModel(headline='This is a test'),
@@ -119,9 +119,9 @@ def update_dependent(instance, model=None, update_fields=None):
 
         (This behavior might change with future versions.)
 
-    For completeness - :code:`instance` can also be a single model instance.
-    Since calling :code:`save` on a model instance will trigger this function by
-    the :code:`post_save` signal it should not be invoked for single model
+    For completeness - ``instance`` can also be a single model instance.
+    Since calling ``save`` on a model instance will trigger this function by
+    the ``post_save`` signal it should not be invoked for single model
     instances if they get saved explicitly.
     """
     if not model:
@@ -182,18 +182,18 @@ class ComputedFieldsModelType(ModelBase):
     Handles the creation of the db fields. Also holds the needed data for
     graph calculations and dependency resolving.
 
-    After startup the method :code:`_resolve_dependencies` gets called by
-    :code:`app.ready` to build the dependency resolver functions.
+    After startup the method ``_resolve_dependencies`` gets called by
+    ``app.ready`` to build the dependency resolver functions.
     To avoid the expensive calculations in production mode the resolver
     functions can be pickled into a map file by setting
-    :code:`COMPUTEDFIELDS_MAP` in settings.py to a writable file path
-    and calling the management command :code:`createmap`.
+    ``COMPUTEDFIELDS_MAP`` in settings.py to a writable file path
+    and calling the management command ``createmap``.
 
     .. NOTE::
 
         The map file will not be updated automatically and therefore
         must be recreated by calling the management command
-        :code:`createmap` after code changes.
+        ``createmap`` after code changes.
     """
     _graph = None
     _computed_models = OrderedDict()
@@ -224,7 +224,7 @@ class ComputedFieldsModelType(ModelBase):
         """
         This method triggers all the ugly stuff.
         Without providing a map file the calculations are done
-        once per process by `app.ready`. The steps are:
+        once per process by ``app.ready``. The steps are:
             - create a graph of the dependencies
             - cycling check
             - remove redundant paths
@@ -237,9 +237,9 @@ class ComputedFieldsModelType(ModelBase):
 
         NOTE: The test cases rely on runtime overrides of the
         computed model fields dependencies and therefore override the
-        "once per process" rule with `_force`. Dont use this
+        "once per process" rule with ``_force``. Dont use this
         for your regular model development. If you really need to
-        force the recreation of the graph and map, use `force` instead.
+        force the recreation of the graph and map, use ``force`` instead.
         Never do this at runtime in a multithreaded environment or hell
         will break loose. You have been warned ;)
         """
@@ -268,7 +268,7 @@ class ComputedFieldsModel(models.Model):
     Base class for a computed fields model.
 
     To use computed fields derive your model from this class
-    and use the :code:`@computed` decorator:
+    and use the ``@computed`` decorator:
 
     .. code-block:: python
 
@@ -283,9 +283,9 @@ class ComputedFieldsModel(models.Model):
             def combined(self):
                 return u'%s, %s' % (self.surname, self.forename)
 
-    :code:`combined` will be turned into a real database field and can be accessed
+    ``combined`` will be turned into a real database field and can be accessed
     and searched like any other field. During saving the value gets calculated and
-    written to the database. With the method :code:`compute('fieldname')` you can
+    written to the database. With the method ``compute('fieldname')`` you can
     inspect the value that will be written, which is useful if you have pending
     changes:
 
@@ -303,7 +303,7 @@ class ComputedFieldsModel(models.Model):
 
     def compute(self, fieldname):
         """
-        Returns the computed field value for :code:`fieldname`.
+        Returns the computed field value for ``fieldname``.
         """
         field = self._computed_fields[fieldname]
         return field._computed['func'](self)
@@ -338,9 +338,9 @@ def computed(field, **kwargs):
     """
     Decorator to create computed fields.
 
-    :code:`field` should be a model field suitable to hold the result
+    ``field`` should be a model field suitable to hold the result
     of the decorated method. The decorator understands an optional
-    keyword argument :code:`depends` to indicate dependencies to
+    keyword argument ``depends`` to indicate dependencies to
     related model fields. Listed dependencies will be updated
     automatically.
 
@@ -354,7 +354,7 @@ def computed(field, **kwargs):
             def ...
 
         - create a char field with one dependency to the field
-          :code:`name` of a foreign key relation :code:`fk`
+          ``name`` of a foreign key relation ``fk``
 
           .. code-block:: python
 
@@ -362,9 +362,9 @@ def computed(field, **kwargs):
             def ...
 
     The format of the dependency strings is in the form
-    :code:`'rel_a.rel_b#fieldname'` where the computed field gets
-    a value from a field :code:`fieldname`, which is accessible through
-    the relations :code:`rel_a` --> :code:`rel_b`.
+    ``'rel_a.rel_b#fieldname'`` where the computed field gets
+    a value from a field ``fieldname``, which is accessible through
+    the relations ``rel_a`` --> ``rel_b``.
     A relation can be any of the relation types (foreign keys, m2m, one2one
     and their corresponding back relations).
 
@@ -379,8 +379,8 @@ def computed(field, **kwargs):
         def some_field(self):
             return self.fk.name + self.fk.field_xy
 
-    Here :code:`name` and :code:`field_xy` are ordinary fields. Listing one of them
-    in :code:`depends` is sufficient to get the computed field properly updated.
+    Here ``name`` and ``field_xy`` are ordinary fields. Listing one of them
+    in ``depends`` is sufficient to get the computed field properly updated.
 
     On the contrary dependencies to other computed fields must always
     be listed separately to make sure your computed field gets properly updated:
@@ -410,16 +410,16 @@ def computed(field, **kwargs):
                 def comp(self):
                     return a.comp
 
-        Neither an object of :code:`A` or :code:`B` can be saved, since the
-        :code:`comp` fields depend on each other. While this is quite easy
+        Neither an object of ``A`` or ``B`` can be saved, since the
+        ``comp`` fields depend on each other. While this is quite easy
         to spot for this simple case it might get tricky for more
         complicated dependencies. Therefore the dependency resolver tries
-        to detect cyclic dependencies and raises a :code:`CycleNodeException`
+        to detect cyclic dependencies and raises a ``CycleNodeException``
         if a cycle was found.
 
         If you experience this in your project try to get in-depth cycle
-        information, either by using the :code:`rendergraph` management command or
-        by accessing the graph object directly under :code:`your_model._graph`.
+        information, either by using the ``rendergraph`` management command or
+        by accessing the graph object directly under ``your_model._graph``.
         Also see the graph :ref:`documentation<graph>`.
     """
     def wrap(f):
@@ -441,7 +441,7 @@ class ComputedFieldsAdminModel(ContentType):
     """
     Proxy model to list all computed fields models with their
     field dependencies in admin. This might be useful during development.
-    To enable it, set :code:`COMPUTEDFIELDS_ADMIN` in settings.py to :code:`True`.
+    To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
     """
     objects = ComputedModelManager()
 

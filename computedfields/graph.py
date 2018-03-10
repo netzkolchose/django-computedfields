@@ -8,7 +8,7 @@ class CycleException(Exception):
     """
     Exception raised during path linearization, if a cycle was found.
     Contains the cycle either as edge path or node path in
-    :code:`message`.
+    ``message``.
     """
     pass
 
@@ -16,7 +16,7 @@ class CycleException(Exception):
 class CycleEdgeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the cycle as edge path in :code:`message`.
+    Contains the cycle as edge path in ``message``.
     """
     pass
 
@@ -24,16 +24,16 @@ class CycleEdgeException(CycleException):
 class CycleNodeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the cycle as node path in :code:`message`.
+    Contains the cycle as node path in ``message``.
     """
     pass
 
 
 class Edge(object):
     """
-    Class for representing an edge in :code:`Graph`.
+    Class for representing an edge in ``Graph``.
     The instances are created as singletons,
-    calling :code:`Edge('A', 'B')` multiple times
+    calling ``Edge('A', 'B')`` multiple times
     will point to the same object.
     """
     instances = {}
@@ -66,9 +66,9 @@ class Edge(object):
 
 class Node(object):
     """
-    Class for representing a node in :code:`Graph`.
+    Class for representing a node in ``Graph``.
     The instances are created as singletons,
-    calling :code:`Node('A')` multiple times will
+    calling ``Node('A')`` multiple times will
     point to the same object.
     """
     instances = {}
@@ -142,7 +142,7 @@ class Graph(object):
     def get_dot(self, format='pdf', mark_edges=None, mark_nodes=None):
         """
         Returns the graphviz object of the graph.
-        Needs the graphviz package to be installed.
+        Needs the :mod:`graphviz` package to be installed.
         """
         from graphviz import Digraph
         if not mark_edges:
@@ -159,14 +159,14 @@ class Graph(object):
     def render(self, filename=None, format='pdf', mark_edges=None, mark_nodes=None):
         """
         Renders the graph to file.
-        Needs the graphviz package to be installed.
+        Needs the :mod:`graphviz` package to be installed.
         """
         self.get_dot(format, mark_edges, mark_nodes).render(filename=filename, cleanup=True)
 
     def view(self, format='pdf', mark_edges=None, mark_nodes=None):
         """
         Directly opens the graph in the associated desktop viewer.
-        Needs the graphviz package to be installed.
+        Needs the :mod:`graphviz` package to be installed.
         """
         self.get_dot(format, mark_edges, mark_nodes).view(cleanup=True)
 
@@ -185,7 +185,7 @@ class Graph(object):
     def _get_edge_paths(self, edge, left_edges, paths, seen=None):
         """
         Walks the graph recursively to get all possible paths.
-        Might raise a `CycleEdgeException`.
+        Might raise a ``CycleEdgeException``.
         """
         if not seen:
             seen = []
@@ -200,8 +200,8 @@ class Graph(object):
     def get_edgepaths(self):
         """
         Returns a list of all edge paths.
-        Might raise a :code:`CycleEdgeException`. For in-depth cycle detection
-        use :code:`edge_cycles`, :code:`node_cycles` or :code:`get_cycles()`.
+        Might raise a ``CycleEdgeException``. For in-depth cycle detection
+        use ``edge_cycles``, `node_cycles`` or ``get_cycles()``.
         """
         left_edges = OrderedDict()
         paths = []
@@ -214,8 +214,8 @@ class Graph(object):
     def get_nodepaths(self):
         """
         Returns a list of all node paths.
-        Might raise a :code:`CycleNodeException`. For in-depth cycle detection
-        use :code:`edge_cycles`, :code:`node_cycles` or :code:`get_cycles()`.
+        Might raise a ``CycleNodeException``. For in-depth cycle detection
+        use ``edge_cycles``, ``node_cycles`` or ``get_cycles()``.
         """
         try:
             paths = self.get_edgepaths()
@@ -249,7 +249,7 @@ class Graph(object):
         Get all cycles in graph. This is not optimised by any means,
         it simply walks the whole graph and collects all cycles. Therefore
         use this only for in-depth cycle inspection. This applies to all
-        dependent properties as well (:code:`edge_cycles` and :code:`node_cycles`).
+        dependent properties as well (``edge_cycles`` and ``node_cycles``).
         As start nodes any node on the left side of an edge will be tested.
         Returns a mapping of
 
@@ -260,7 +260,7 @@ class Graph(object):
                 'path': <last seen edge path of the cycle in order>
             }}
 
-        An edge in :code:`entries` is not necessarily part of the cycle itself,
+        An edge in ``entries`` is not necessarily part of the cycle itself,
         but once entered the path will lead to the cycle.
         """
         left_edges = OrderedDict()
@@ -294,8 +294,8 @@ class Graph(object):
         True if the graph contains no cycles.
         To be faster this property relies on path linearization
         instead of the more expensive full cycle detection.
-        For in-depth cycle inspection use :code:`edge_cycles`
-        or :code:`node_cycles`.
+        For in-depth cycle inspection use ``edge_cycles``
+        or ``node_cycles``.
         """
         try:
             self.get_edgepaths()
@@ -320,7 +320,7 @@ class Graph(object):
         Find and remove redundant paths. A path is redundant if there there are multiple
         possibilities to reach a node from a start node. Since the longer path triggers
         more db updates the shorter gets discarded.
-        Might raise a :code:`CycleNodeException`.
+        Might raise a ``CycleNodeException``.
         Returns the removed edges.
         """
         paths = self.get_nodepaths()
@@ -350,15 +350,15 @@ class ComputedModelsGraph(Graph):
     """
     Class to resolve and convert initial computed fields model dependencies into
     a graph and generate the final resolver functions.
-    In :code:`resolve_dependencies` the depends field strings are resolved to real models.
+    In ``resolve_dependencies`` the depends field strings are resolved to real models.
     The dependencies are rearranged to adjacency lists for the underlying graph.
     The graph does a cycle check and removes redundant edges to lower the database penalty.
     In the last step the path segments of remaining edges are resolver functions and
-    gathered into a lookup map in :code:`generate_lookup_map`.
+    gathered into a lookup map in ``generate_lookup_map``.
     """
     def __init__(self, computed_models):
         """
-        `computed_fields` is the `ComputedFieldsModelType._computed_models`
+        ``computed_fields`` is the ``ComputedFieldsModelType._computed_models``
         created during model initialization.
         """
         super(ComputedModelsGraph, self).__init__()
@@ -440,7 +440,7 @@ class ComputedModelsGraph(Graph):
 
     def _insert_data(self, data):
         """
-        Adds all needed nodes and edges to the graph as in `data`.
+        Adds all needed nodes and edges to the graph as in ``data``.
         Data must be an adjacency mapping.
         """
         for node, value in data.items():
@@ -455,7 +455,7 @@ class ComputedModelsGraph(Graph):
     def _cleaned_data_from_edges(self):
         """
         Returns an adjacency mapping of the graph
-        as {left: set(right neighbours)}.
+        as ``{left: set(right neighbours)}``.
         """
         map = {}
         for edge in self.edges:
@@ -475,14 +475,14 @@ class ComputedModelsGraph(Graph):
                 }
             }
 
-        :code:`model` denotes the source model. The '#' callbacks are to be used
-        if there are no :code:`update_fields` set or if it conains unkown fields
+        ``model`` denotes the source model. The ``'#'`` callbacks are to be used
+        if there are no ``update_fields`` set or if it conains unkown fields
         (ordinary non computed model fields).
 
         .. CAUTION::
 
-            If there are only known fields in :code:`update_fields` always use
-            their specific callbacks, never the '#' callbacks. This is important
+            If there are only known fields in ``update_fields`` always use
+            their specific callbacks, never the ``'#'`` callbacks. This is important
             to ensure cycle free database updates. Any known field must call
             it's corresponding callbacks to get properly updated.
 
