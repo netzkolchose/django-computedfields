@@ -29,7 +29,7 @@ class QuerySetGenerator(object):
 class AttrGenerator(object):
     """
     Class for inserting an attribute lookup in the dependency path.
-    Uses `operator.attrgetter` if the input is a model instance.
+    Uses :code:`operator.attrgetter` if the input is a model instance.
     For querysets it returns a flatted value list queryset.
     """
     def __init__(self):
@@ -61,10 +61,15 @@ class PathResolver(object):
     result to the next function. First input is the initial instance
     (model instance or queryset), last output is the final dependent
     model instance or queryset:
-        ` instance = func3(func2(func1(instance)))`
-    The functions are the `_value()` methods of `QuerySetGenerator` and `AttrGenerator`,
+
+    .. code:: python
+
+        instance = func3(func2(func1(instance)))
+
+    The final resolve functions are the :code:`_value()` methods of
+    :code:`QuerySetGenerator` and :code:`AttrGenerator`,
     which work either on model instances or querysets.
-    To lower the runtime penalty the `_value` methods are as slim as possible.
+    To lower the runtime penalty they are as slim as possible.
     """
     def __init__(self, model, data):
         self.model = model
@@ -104,7 +109,7 @@ class PathResolver(object):
     def resolve(self):
         """
         Returns a list containing
-        [['computed fieldname', [resolve functions]], ...].
+        :code:`[['computed fieldname', [resolve functions]], ...]`.
         """
         result = []
         for field, deps in self.data.items():

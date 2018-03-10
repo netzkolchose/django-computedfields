@@ -7,7 +7,8 @@ from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_c
 class CycleException(Exception):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the cycle either as edgepath or nodepath in `message`.
+    Contains the cycle either as edge path or node path in
+    :code:`message`.
     """
     pass
 
@@ -15,7 +16,7 @@ class CycleException(Exception):
 class CycleEdgeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the cycle as edgepath in `message`.
+    Contains the cycle as edge path in :code:`message`.
     """
     pass
 
@@ -23,16 +24,16 @@ class CycleEdgeException(CycleException):
 class CycleNodeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the cycle as nodepath in `message`.
+    Contains the cycle as node path in :code:`message`.
     """
     pass
 
 
 class Edge(object):
     """
-    Class for representing an edge in `Graph`.
+    Class for representing an edge in :code:`Graph`.
     The instances are created as singletons,
-    calling `Edge('A', 'B')` multiple times
+    calling :code:`Edge('A', 'B')` multiple times
     will point to the same object.
     """
     instances = {}
@@ -65,9 +66,9 @@ class Edge(object):
 
 class Node(object):
     """
-    Class for representing a node in `Graph`.
+    Class for representing a node in :code:`Graph`.
     The instances are created as singletons,
-    calling `Node('A')` multiple times will
+    calling :code:`Node('A')` multiple times will
     point to the same object.
     """
     instances = {}
@@ -97,6 +98,8 @@ class Node(object):
 
 class Graph(object):
     """
+    .. _graph:
+
     Simple directed graph implementation.
     """
     def __init__(self):
@@ -111,8 +114,10 @@ class Graph(object):
     def remove_node(self, node):
         """
         Remove a node from the graph.
-        NOTE: Removing edges containing the removed node
-        is not implemented.
+
+        .. WARNING::
+            Removing edges containing the removed node
+            is not implemented.
         """
         self.nodes.remove(node)
 
@@ -128,7 +133,9 @@ class Graph(object):
     def remove_edge(self, edge):
         """
         Removes an edge from the graph.
-        NOTE: Does not remove contained nodes.
+
+        .. WARNING::
+            Does not remove leftover contained nodes.
         """
         self.edges.remove(edge)
 
@@ -158,7 +165,7 @@ class Graph(object):
 
     def view(self, format='pdf', mark_edges=None, mark_nodes=None):
         """
-        Directly opens the graph in the associated viewer.
+        Directly opens the graph in the associated desktop viewer.
         Needs the graphviz package to be installed.
         """
         self.get_dot(format, mark_edges, mark_nodes).view(cleanup=True)
@@ -193,8 +200,8 @@ class Graph(object):
     def get_edgepaths(self):
         """
         Returns a list of all edge paths.
-        Might raise a `CycleEdgeException`. For in-depth cycle detection
-        use `edge_cycles`, `node_cycles` or `get_cycles()`.
+        Might raise a :code:`CycleEdgeException`. For in-depth cycle detection
+        use :code:`edge_cycles`, :code:`node_cycles` or :code:`get_cycles()`.
         """
         left_edges = OrderedDict()
         paths = []
@@ -207,8 +214,8 @@ class Graph(object):
     def get_nodepaths(self):
         """
         Returns a list of all node paths.
-        Might raise a `CycleNodeException`. For in-depth cycle detection
-        use `edge_cycles`, `node_cycles` or `get_cycles()`.
+        Might raise a :code:`CycleNodeException`. For in-depth cycle detection
+        use :code:`edge_cycles`, :code:`node_cycles` or :code:`get_cycles()`.
         """
         try:
             paths = self.get_edgepaths()
@@ -242,14 +249,18 @@ class Graph(object):
         Get all cycles in graph. This is not optimised by any means,
         it simply walks the whole graph and collects all cycles. Therefore
         use this only for in-depth cycle inspection. This applies to all
-        dependent properties as well (`edge_cycles` and `node_cycles`).
+        dependent properties as well (:code:`edge_cycles` and :code:`node_cycles`).
         As start nodes any node on the left side of an edge will be tested.
         Returns a mapping of
-            `{frozenset(cycling edgepath): {
-                'entries': set of edges leading to the cycle,
-                'path': last seen edge path of the cycle in order
-            }}`
-        An edge in `entries` is not necessarily part of the cycle itself,
+
+        .. code:: python
+
+            {frozenset(<cycling edgepath>): {
+                'entries': set(<edges leading to the cycle>),
+                'path': <last seen edge path of the cycle in order>
+            }}
+
+        An edge in :code:`entries` is not necessarily part of the cycle itself,
         but once entered the path will lead to the cycle.
         """
         left_edges = OrderedDict()
@@ -283,7 +294,8 @@ class Graph(object):
         True if the graph contains no cycles.
         To be faster this property relies on path linearization
         instead of the more expensive full cycle detection.
-        For in-depth cycle inspection use `edge_cycles` or `node_cycles`.
+        For in-depth cycle inspection use :code:`edge_cycles`
+        or :code:`node_cycles`.
         """
         try:
             self.get_edgepaths()
@@ -308,7 +320,7 @@ class Graph(object):
         Find and remove redundant paths. A path is redundant if there there are multiple
         possibilities to reach a node from a start node. Since the longer path triggers
         more db updates the shorter gets discarded.
-        Might raise a `CycleNodeException`.
+        Might raise a :code:`CycleNodeException`.
         Returns the removed edges.
         """
         paths = self.get_nodepaths()
@@ -336,13 +348,13 @@ class Graph(object):
 # TODO: simplify the deps handling in resolve_dependencies and generate_lookup_map
 class ComputedModelsGraph(Graph):
     """
-    Class to resolve and convert initial computedfields model dependencies into
+    Class to resolve and convert initial computed fields model dependencies into
     a graph and generate the final resolver functions.
-    In `resolve_dependencies` the depends field strings are resolved to real models.
-    The dependencies are rearranged to adjacency lists as edges for the underlying graph.
+    In :code:`resolve_dependencies` the depends field strings are resolved to real models.
+    The dependencies are rearranged to adjacency lists for the underlying graph.
     The graph does a cycle check and removes redundant edges to lower the database penalty.
     In the last step the path segments of remaining edges are resolver functions and
-    gathered into a lookup map in `generate_lookup_map`.
+    gathered into a lookup map in :code:`generate_lookup_map`.
     """
     def __init__(self, computed_models):
         """
@@ -454,21 +466,29 @@ class ComputedModelsGraph(Graph):
         """
         Generates a function lookup map to be used to get dependent objects.
         Structure of the map is:
-            model:
+
+        .. code:: python
+
+            {model: {
                 '#'      :  [list of callbacks]
                 'fieldA' :  [list of callbacks]
-        `model` denotes the source model. The '#' callbacks are to be used
-        if there is no `update_fields` set or there are any unkown fields
-        (ordinary non computed model fields) in `update_fields`.
+                }
+            }
 
-        NOTE: If there are only known fields in `update_fields` always use
-        their specific callbacks, never the '#' callbacks. This is especially
-        important to ensure cycle free db updates. Any known field must call
-        it's corresponding callbacks to get properly updated.
+        :code:`model` denotes the source model. The '#' callbacks are to be used
+        if there are no :code:`update_fields` set or if it conains unkown fields
+        (ordinary non computed model fields).
 
-        NOTE: The created map is also used for the optional serialization to
-        circumvent the computationally expensive graph and map creation
-        in production mode.
+        .. CAUTION::
+
+            If there are only known fields in :code:`update_fields` always use
+            their specific callbacks, never the '#' callbacks. This is important
+            to ensure cycle free database updates. Any known field must call
+            it's corresponding callbacks to get properly updated.
+
+        .. NOTE::
+            The created map is also used for the map file to circumvent
+            the computationally expensive graph and map creation in production mode.
         """
         # reorder full node information to
         # {changed_model: {needs_update_model: {computed_field: dep_data}}}
