@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
-from django.db import models
+from django.db import models, transaction
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
@@ -207,9 +207,10 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
-        for qs, fields in mcs._querysets_for_update(model, instance, update_fields).values():
-            for el in qs.distinct():
-                el.save(update_fields=fields)
+        with transaction.atomic():
+            for qs, fields in mcs._querysets_for_update(model, instance, update_fields).values():
+                for el in qs.distinct():
+                    el.save(update_fields=fields)
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
