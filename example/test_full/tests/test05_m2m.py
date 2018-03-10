@@ -4,7 +4,6 @@ from base import GenericModelTestBase, MODELS
 
 
 def h(f):
-    # TODO: note for doc: computed fields depending on own m2m fields need initial state
     def wrap(self):
         if not self.pk:
             return ''
@@ -20,7 +19,7 @@ class M2MDependencies(GenericModelTestBase):
                   'func': h(lambda self: self.name + ''.join(
                       self.m_ba.all().values_list('name', flat=True)))},
             'C': {'depends': ['m_cb.m_ba#name'],
-                  'func': h(lambda self: self.name + self.m_cb.first().m_ba.last().name)}
+                  'func': h(lambda self: self.name + getattr(self.m_cb.first().m_ba.last(), 'name', '-'))}
         })
         self.a1 = self.models.A(name='a1')
         self.a1.save()
@@ -63,6 +62,66 @@ class M2MDependencies(GenericModelTestBase):
         self.assertEqual(self.c1.comp, 'c1a3')
         self.assertEqual(self.c2.comp, 'c2a3')
         self.assertEqual(self.c3.comp, 'c3a3')
+
+    def test_create(self):
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1a2a3')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a3')
+        self.assertEqual(self.c2.comp, 'c2a3')
+        self.assertEqual(self.c3.comp, 'c3a3')
+        # create new a in b1
+        self.b1.m_ba.create(name='a4')
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1a2a3a4')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a4')
+        self.assertEqual(self.c2.comp, 'c2a4')
+        self.assertEqual(self.c3.comp, 'c3a4')
+
+    def test_set(self):
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1a2a3')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a3')
+        self.assertEqual(self.c2.comp, 'c2a3')
+        self.assertEqual(self.c3.comp, 'c3a3')
+        # set new a4 a5 in b1
+        new_a4 = self.models.A(name='a4')
+        new_a4.save()
+        new_a5 = self.models.A(name='a5')
+        new_a5.save()
+        self.b1.m_ba.set([new_a4, new_a5])
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a4a5')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a5')
+        self.assertEqual(self.c2.comp, 'c2a5')
+        self.assertEqual(self.c3.comp, 'c3a5')
 
     def test_update(self):
         self.a1.name = 'A1'
@@ -132,3 +191,59 @@ class M2MDependencies(GenericModelTestBase):
         self.assertEqual(self.c1.comp, 'c1a2')
         self.assertEqual(self.c2.comp, 'c2a2')
         self.assertEqual(self.c3.comp, 'c3a2')
+
+    def test_removes(self):
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1a2a3')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a3')
+        self.assertEqual(self.c2.comp, 'c2a3')
+        self.assertEqual(self.c3.comp, 'c3a3')
+        # remove a2, a3 from b1
+        self.b1.m_ba.remove(self.a2, self.a3)
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a1')
+        self.assertEqual(self.c2.comp, 'c2a1')
+        self.assertEqual(self.c3.comp, 'c3a1')
+
+    def test_clear(self):
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1a1a2a3')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1a3')
+        self.assertEqual(self.c2.comp, 'c2a3')
+        self.assertEqual(self.c3.comp, 'c3a3')
+        # clear b1
+        self.b1.m_ba.clear()
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1')
+        self.assertEqual(self.b2.comp, 'b2a1a2a3')
+        self.assertEqual(self.b3.comp, 'b3a1a2a3')
+        self.c1.refresh_from_db()
+        self.c2.refresh_from_db()
+        self.c3.refresh_from_db()
+        self.assertEqual(self.c1.comp, 'c1-')
+        self.assertEqual(self.c2.comp, 'c2-')
+        self.assertEqual(self.c3.comp, 'c3-')

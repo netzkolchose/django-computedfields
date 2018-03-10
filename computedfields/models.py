@@ -149,7 +149,7 @@ class ComputedFieldsModelType(ModelBase):
                     # after deleting the instance in question
                     # since we need to interact with the db anyways
                     # we can already drop empty results here
-                    qs = list(qs.values_list('pk', flat=True))
+                    qs = list(qs.distinct().values_list('pk', flat=True))
                     if not qs:
                         continue
                 final[model] = [qs, fields]
@@ -207,8 +207,11 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
+        updates = mcs._querysets_for_update(model, instance, update_fields).values()
+        if not updates:
+            return
         with transaction.atomic():
-            for qs, fields in mcs._querysets_for_update(model, instance, update_fields).values():
+            for qs, fields in updates:
                 for el in qs.distinct():
                     el.save(update_fields=fields)
 
