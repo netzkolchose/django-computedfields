@@ -25,9 +25,9 @@ graph
    :show-inheritance:
 
 
-pathresolver
-------------
+resolver
+--------
 
-.. automodule:: computedfields.pathresolver
+.. automodule:: computedfields.resolver
    :members:
    :show-inheritance:

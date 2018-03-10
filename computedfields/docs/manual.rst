@@ -29,7 +29,8 @@ The module respects two optional settings in settings.py:
     Used to set a file path for the pickled resolver map. To create the pickled resolver map
     point this setting to a writeable path and call the management command ``createmap``.
     This should always be used in production mode in multi process environments
-    to avoid the expensive map creation on every process launch.
+    to avoid the expensive map creation on every process launch. If set, the file must
+    be recreated after model changes.
 
 - ``COMPUTEDFIELDS_ADMIN``
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
@@ -76,10 +77,10 @@ Automatic Updates
 -----------------
 
 The ``@computed`` decorator understands a keyword argument ``depends`` to indicate
-dependencies to related model fields. If set, the computed field gets auto updated
-upon changes of the related fields.
+dependencies to related model fields. If set, the computed field gets automatically
+updated upon changes of the related fields.
 
-The example above extended by an ``Address`` model:
+The example above extended by a model ``Address``:
 
 .. code-block:: python
 
@@ -97,13 +98,13 @@ The example above extended by an ``Address`` model:
 Now if the name of a person changes, the field ``full_address`` will be updated
 accordingly.
 
-Note the format of the depends string - it consists of the name of the relation
+Note the format of the depends string - it consists of the relation name
 and the field name separated by '#'. The field name is mandatory (due to the way
 the dependency resolver works) and can either point to another computed field or
 any ordinary database field. The relation name part can span serveral models,
-simply name the relations in python style with a dot (e.g. ``'person.siblings#age'``).
-The relations can be of any type (foreign keys, m2m, one2one and their
-back relations are supported).
+simply name the relation in python style with a dot (e.g. ``'a.b.c#field'``).
+A relation can be of any of django's relation type (foreign keys, m2m, one2one
+and their back relations are supported).
 
 .. CAUTION::
 
@@ -116,14 +117,25 @@ Advanced Usage
 --------------
 
 For bulk creation and updates you can trigger the update of dependent computed
-fields directly by calling ``update_dependent``. See API Reference for further
-details.
+fields directly by calling ``update_dependent``:
+
+    >>> from computedfields.models import update_dependent
+    >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
+    >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
+
+See API Reference for further details.
 
 
 Management Commands
 -------------------
 
 - ``createmap``
-- ``rendergraph``
-- ``updatedata``
+    recreates the pickled resolver map. Set the file path with ``COMPUTEDFIELDS_MAP``
+    in settings.py.
 
+- ``rendergraph <filename>``
+    renders the dependency graph to <filename>.
+
+- ``updatedata``
+    updates all computed fields of the project. Useful after tons of bulk changes,
+    e.g. from fixtures.

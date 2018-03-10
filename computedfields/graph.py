@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
-from computedfields.pathresolver import PathResolver
+from computedfields.resolver import PathResolver
 from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computed_field
 
 

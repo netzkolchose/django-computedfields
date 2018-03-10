@@ -2,177 +2,13 @@
 from __future__ import unicode_literals
 from django.db.models.base import ModelBase
 from django.db import models
-from django.db.models.signals import post_save, m2m_changed, pre_delete, post_delete
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
 from django.utils.encoding import python_2_unicode_compatible
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
-from threading import RLock, local
-
-
-def _get_dependent_queryset(instance, paths_resolved, model):
-    """
-    Returns a queryset containing all dependent objects of type ``model``
-    for ``instance``.
-    ``paths_resolved`` is a list of precalculated resolver functions,
-    that resolve the transition from the instance to the dependent queryset.
-    """
-    for func in paths_resolved:
-        instance = func(instance)
-        # early exit for empty relation objects
-        # test for QuerySet type beforehand to avoid triggering db interaction
-        if not isinstance(instance, models.QuerySet) and not instance:
-            return model.objects.none()
-    # turn single model instance into a queryset
-    if not isinstance(instance, models.QuerySet):
-        return model.objects.filter(pk=instance.pk)
-    # we got a pk list queryset from values_list
-    if not instance.model == model:
-        return model.objects.filter(pk__in=instance)
-    return instance
-
-
-def _save_qs(qs, fields):
-    """
-    Save the queryset ``qs`` with ``fields`` as 'update_fields'.
-    """
-    for el in qs.distinct():
-        el.save(update_fields=fields)
-
-
-def _get_querysets_for_update(model, instance, update_fields=None, pk_list=False):
-    """
-    Returns a mapping of all dependent models, dependent fields and a
-    queryset containing all dependent objects.
-    """
-    final = OrderedDict()
-    modeldata = ComputedFieldsModelType._map.get(model)
-    if not modeldata:
-        return final
-    if not update_fields:
-        updates = set(modeldata.keys())
-    else:
-        updates = set()
-        for fieldname in update_fields:
-            if fieldname in modeldata:
-                updates.add(fieldname)
-    for update in updates:
-        for model, resolvers in modeldata[update].items():
-            qs = model.objects.none()
-            fields = set()
-            for field, paths_resolved in resolvers:
-                # join all queryets to a final one with all update fields
-                qs |= _get_dependent_queryset(instance, paths_resolved, model)
-                fields.add(field)
-            if pk_list:
-                # need pks for post_delete since the real queryset will be empty
-                # after deleting the instance in question
-                # since we need to interact with the db anyways
-                # we can already drop empty results here
-                qs = list(qs.values_list('pk', flat=True))
-                if not qs:
-                    continue
-            final[model] = [qs, fields]
-    return final
-
-
-def update_dependent(instance, model=None, update_fields=None):
-    """
-    Function to update all dependent computed fields model objects.
-
-    This is needed if you have computed fields that depend on the model
-    you would like to update with ``QuerySet.update``. Simply call this
-    function after the update with the queryset containing the changed
-    objects. The queryset may not be finalized by ``distinct`` or
-    any other means.
-
-        >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
-        >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
-
-    This can also be used with ``bulk_create``. Since ``bulk_create``
-    returns the objects in a python container, you have to create the queryset
-    yourself, e.g. with pks:
-
-        >>> objs = Entry.objects.bulk_create([
-        ...     Entry(headline='This is a test'),
-        ...     Entry(headline='This is only a test'),
-        ... ])
-        >>> pks = set((obj.pk for obj in objs))
-        >>> update_dependent(Entry.objects.filter(pk__in=pks))
-
-    .. NOTE::
-
-        This function cannot be used to update computed fields on a
-        computed fields model itself. For computed fields models always
-        use ``save`` on the model objects. You still can use
-        ``update`` or ``bulk_create`` but have to call
-        ``save`` afterwards:
-
-            >>> objs = SomeComputedFieldsModel.objects.bulk_create([
-            ...     SomeComputedFieldsModel(headline='This is a test'),
-            ...     SomeComputedFieldsModel(headline='This is only a test'),
-            ... ])
-            >>> for obj in objs:
-            ...     obj.save()
-
-        (This behavior might change with future versions.)
-
-    For completeness - ``instance`` can also be a single model instance.
-    Since calling ``save`` on a model instance will trigger this function by
-    the ``post_save`` signal it should not be invoked for single model
-    instances if they get saved explicitly.
-    """
-    if not model:
-        if isinstance(instance, models.QuerySet):
-            model = instance.model
-        else:
-            model = type(instance)
-    for data in _get_querysets_for_update(model, instance, update_fields).values():
-        _save_qs(*data)
-
-
-def postsave_handler(sender, instance, **kwargs):
-
-    if not kwargs.get('raw'):
-        update_dependent(instance, sender, kwargs.get('update_fields'))
-
-
-post_save.connect(postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
-
-
-# FIXME: make this thread local
-DELETES = {}
-
-
-def predelete_handler(sender, instance, **kwargs):
-    querysets = _get_querysets_for_update(sender, instance, pk_list=True)
-    if querysets:
-        DELETES[instance] = querysets
-
-
-pre_delete.connect(predelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PREDELETE')
-
-
-def postdelete_handler(sender, instance, **kwargs):
-    updates = DELETES.pop(instance, None)
-    if updates:
-        for model, data in updates.items():
-            pks, fields = data
-            qs = model.objects.filter(pk__in=pks)
-            _save_qs(qs, fields)
-
-
-post_delete.connect(postdelete_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_POSTDELETE')
-
-
-def m2m_handler(sender, instance, **kwargs):
-    if kwargs.get('action') == 'post_add':
-        update_dependent(kwargs['model'].objects.filter(pk__in=kwargs['pk_set']), kwargs['model'])
-
-
-m2m_changed.connect(m2m_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_M2M')
+from threading import RLock
 
 
 class ComputedFieldsModelType(ModelBase):
@@ -261,6 +97,122 @@ class ComputedFieldsModelType(ModelBase):
             mcs._graph.remove_redundant_paths()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._map_loaded = True
+
+    @classmethod
+    def _get_dependent_queryset(mcs, instance, paths_resolved, model):
+        """
+        Returns a queryset containing all dependent objects of type ``model``
+        for ``instance``.
+        ``paths_resolved`` is a list of precalculated resolver functions.
+        """
+        for func in paths_resolved:
+            instance = func(instance)
+            # early exit for empty relation objects
+            # test for QuerySet type beforehand to avoid triggering db interaction
+            if not isinstance(instance, models.QuerySet) and not instance:
+                return model.objects.none()
+        # turn single model instance into a queryset
+        if not isinstance(instance, models.QuerySet):
+            return model.objects.filter(pk=instance.pk)
+        # we got a pk list queryset from values_list
+        if not instance.model == model:
+            return model.objects.filter(pk__in=instance)
+        return instance
+
+    @classmethod
+    def _querysets_for_update(mcs, model, instance, update_fields=None, pk_list=False):
+        """
+        Returns a mapping of all dependent models, dependent fields and a
+        queryset containing all dependent objects.
+        """
+        final = OrderedDict()
+        modeldata = mcs._map.get(model)
+        if not modeldata:
+            return final
+        if not update_fields:
+            updates = set(modeldata.keys())
+        else:
+            updates = set()
+            for fieldname in update_fields:
+                if fieldname in modeldata:
+                    updates.add(fieldname)
+        for update in updates:
+            for model, resolvers in modeldata[update].items():
+                qs = model.objects.none()
+                fields = set()
+                for field, paths_resolved in resolvers:
+                    # join all queryets to a final one with all update fields
+                    qs |= mcs._get_dependent_queryset(instance, paths_resolved, model)
+                    fields.add(field)
+                if pk_list:
+                    # need pks for post_delete since the real queryset will be empty
+                    # after deleting the instance in question
+                    # since we need to interact with the db anyways
+                    # we can already drop empty results here
+                    qs = list(qs.values_list('pk', flat=True))
+                    if not qs:
+                        continue
+                final[model] = [qs, fields]
+        return final
+
+    @classmethod
+    def update_dependent(mcs, instance, model=None, update_fields=None):
+        """
+        Updates all dependent computed fields model objects.
+
+        This is needed if you have computed fields that depend on the model
+        you would like to update with ``QuerySet.update``. Simply call this
+        function after the update with the queryset containing the changed
+        objects. The queryset may not be finalized by ``distinct`` or
+        any other means.
+
+            >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
+            >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
+
+        This can also be used with ``bulk_create``. Since ``bulk_create``
+        returns the objects in a python container, you have to create the queryset
+        yourself, e.g. with pks:
+
+            >>> objs = Entry.objects.bulk_create([
+            ...     Entry(headline='This is a test'),
+            ...     Entry(headline='This is only a test'),
+            ... ])
+            >>> pks = set((obj.pk for obj in objs))
+            >>> update_dependent(Entry.objects.filter(pk__in=pks))
+
+        .. NOTE::
+
+            This function cannot be used to update computed fields on a
+            computed fields model itself. For computed fields models always
+            use ``save`` on the model objects. You still can use
+            ``update`` or ``bulk_create`` but have to call
+            ``save`` afterwards:
+
+                >>> objs = SomeComputedFieldsModel.objects.bulk_create([
+                ...     SomeComputedFieldsModel(headline='This is a test'),
+                ...     SomeComputedFieldsModel(headline='This is only a test'),
+                ... ])
+                >>> for obj in objs:
+                ...     obj.save()
+
+            (This behavior might change with future versions.)
+
+        For completeness - ``instance`` can also be a single model instance.
+        Since calling ``save`` on a model instance will trigger this function by
+        the ``post_save`` signal it should not be invoked for single model
+        instances if they get saved explicitly.
+        """
+        if not model:
+            if isinstance(instance, models.QuerySet):
+                model = instance.model
+            else:
+                model = type(instance)
+        for qs, fields in mcs._querysets_for_update(model, instance, update_fields).values():
+            for el in qs.distinct():
+                el.save(update_fields=fields)
+
+
+update_dependent = ComputedFieldsModelType.update_dependent
 
 
 class ComputedFieldsModel(models.Model):
