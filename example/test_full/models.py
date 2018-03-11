@@ -40,7 +40,7 @@ def model_factory(name, keys):
         attrs['m_'+fwd_name] = models.ManyToManyField(
             key, related_name=bwd_name+'_m', blank=True)
         attrs['o_'+fwd_name] = models.OneToOneField(
-            key, related_name=bwd_name+'_o', blank=True, null=True)
+            key, related_name=bwd_name+'_o', blank=True, null=True, on_delete=models.SET_NULL)
 
     # comp field
     attrs['comp'] = computed(models.CharField(max_length=20), depends=[])(lambda self: '')

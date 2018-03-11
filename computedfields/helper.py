@@ -1,4 +1,5 @@
-from itertools import tee, izip
+from itertools import tee
+from django.utils.six.moves import zip
 from django.db.models.fields.reverse_related import ManyToOneRel, OneToOneRel, ManyToManyRel
 
 
@@ -12,7 +13,7 @@ def reltype(rel):
 def pairwise(iterable):
     a, b = tee(iterable)
     next(b, None)
-    return izip(a, b)
+    return zip(a, b)
 
 
 def is_computed_field(model, field):

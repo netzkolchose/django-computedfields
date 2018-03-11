@@ -19,7 +19,8 @@ class CycleException(Exception):
     Contains the found cycle either as list of edges or nodes in
     ``message``.
     """
-    pass
+    def __init__(self, message):
+        self.message = message
 
 
 class CycleEdgeException(CycleException):
@@ -51,7 +52,7 @@ class Edge(object):
         key = (args[0], args[1])
         if key in cls.instances:
             return cls.instances[key]
-        instance = super(Edge, cls).__new__(cls, *args, **kwargs)
+        instance = super(Edge, cls).__new__(cls)
         cls.instances[key] = instance
         return instance
 
@@ -72,6 +73,9 @@ class Edge(object):
     def __ne__(self, other):
         return self is not other
 
+    def __hash__(self):
+        return id(self)
+
 
 class Node(object):
     """
@@ -85,7 +89,7 @@ class Node(object):
     def __new__(cls, *args, **kwargs):
         if args[0] in cls.instances:
             return cls.instances[args[0]]
-        instance = super(Node, cls).__new__(cls, *args, **kwargs)
+        instance = super(Node, cls).__new__(cls)
         cls.instances[args[0]] = instance
         return instance
 
@@ -103,6 +107,9 @@ class Node(object):
 
     def __ne__(self, other):
         return self is not other
+
+    def __hash__(self):
+        return id(self)
 
 
 class Graph(object):
@@ -430,7 +437,10 @@ class ComputedModelsGraph(Graph):
                         except (FieldDoesNotExist, AttributeError):
                             is_backrelation = True
                             field = getattr(cls, symbol).field
-                            rel = field.rel
+                            try:
+                                rel = field.rel  # not working Django 2.0
+                            except AttributeError:
+                                rel = field
 
                             if reltype(rel) == 'm2m':
                                 nd['model'] = cls

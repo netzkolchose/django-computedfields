@@ -133,14 +133,14 @@ def m2m_handler(sender, instance, **kwargs):
         # geez - have to get pks of other side ourself
         if kwargs['reverse']:
             inst_model = type(instance)
-            rel = filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                         inst_model._meta.get_fields())[0]
+            rel = list(filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
+                         inst_model._meta.get_fields()))[0]
             to_add = CFMT._querysets_for_update(
                 model, getattr(instance, rel.name).all(), pk_list=True)
         else:
             inst_model = type(instance)
-            field = filter(lambda f: f.rel.through == sender,
-                           inst_model._meta.many_to_many)[0]
+            field = list(filter(lambda f: f.rel.through == sender,
+                           inst_model._meta.many_to_many))[0]
             to_add = CFMT._querysets_for_update(
                 model, getattr(instance, field.name).all(), pk_list=True)
         if to_add:

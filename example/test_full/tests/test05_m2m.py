@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-from base import GenericModelTestBase, MODELS
+from .base import GenericModelTestBase
 
 
 def h(f):

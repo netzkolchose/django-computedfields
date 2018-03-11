@@ -7,7 +7,7 @@ from django.apps import apps
 from django.conf import settings
 from json import dumps
 from django.utils.html import escape, mark_safe
-from django.core.urlresolvers import reverse, NoReverseMatch
+from django.urls import reverse, NoReverseMatch
 from django.conf.urls import url
 from django.shortcuts import render
 try:

@@ -9,6 +9,7 @@ from django.utils.encoding import python_2_unicode_compatible
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
+from django.utils import six
 
 
 class ComputedFieldsModelType(ModelBase):
@@ -219,7 +220,7 @@ class ComputedFieldsModelType(ModelBase):
 update_dependent = ComputedFieldsModelType.update_dependent
 
 
-class ComputedFieldsModel(models.Model):
+class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):
     """
     Base class for a computed fields model.
 
@@ -252,8 +253,6 @@ class ComputedFieldsModel(models.Model):
         >>> person.combined             # outputs 'Jenkins, Leeroy'
         >>> Person.objects.filter(combined__<some condition>)  # used in a queryset
     """
-    __metaclass__ = ComputedFieldsModelType
-
     class Meta:
         abstract = True
 

@@ -1,3 +1,4 @@
+from __future__ import print_function
 from django.core.management.base import BaseCommand
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import ComputedModelsGraph, CycleException
@@ -50,12 +51,12 @@ class Command(BaseCommand):
             for cycle in cycles:
                 counter.update(cycle)
             mark_edges = dict((edge, {'color': COLORS.get(amount, 'blue')})
-                              for edge, amount in counter.iteritems())
+                              for edge, amount in counter.items())
             dot = graph.get_dot(mark_edges=mark_edges)
             with dot.subgraph(name='cluster_1') as c:
                 c.attr(label='Colors - edge in cycles', color='white')
                 c.node('1', label=LEGEND, shape='plaintext', color='black')
             dot.render(filename=options['filename'][0], cleanup=True)
-            print self.style.WARNING('Warning -  %s cycles in dependencies found:' % len(cycles))
+            print(self.style.WARNING('Warning -  %s cycles in dependencies found:' % len(cycles)))
             for cycle in cycles:
-                print graph.edgepath_to_nodepath(cycle)
+                print(graph.edgepath_to_nodepath(cycle))

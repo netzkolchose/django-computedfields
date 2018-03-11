@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-from base import GenericModelTestBase
+from .base import GenericModelTestBase
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
+from django.utils.six.moves import cStringIO
 
 
 class CommandTests(GenericModelTestBase):
@@ -37,10 +38,6 @@ class CommandTests(GenericModelTestBase):
 
     def test_rendergraph_with_cycle(self):
         import sys
-        try:
-            import StringIO
-        except ImportError:
-            from io import StringIO
 
         # raises due to get_nodepaths() in _resolve_dependencies()
         self.assertRaises(
@@ -52,7 +49,7 @@ class CommandTests(GenericModelTestBase):
         )
         self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
         stdout = sys.stdout
-        sys.stdout = StringIO.StringIO()
+        sys.stdout = cStringIO()
         call_command('rendergraph', 'output', verbosity=0)
         # should have printed cycle info on stdout
         self.assertIn('Warning -  1 cycles in dependencies found:', sys.stdout.getvalue())
