@@ -86,8 +86,8 @@ class PathResolver(object):
         attrs = AttrGenerator()
         stack = []
         for rel in dep['nd']:
-            if rel['type'] in ['fk', 'm2m'] and not rel['backrel']:
-                # found a fk/m2m relation
+            if ((rel['type'] in ['fk', 'm2m'] and not rel['backrel'])
+                  or (rel['type'] == 'm2m' and rel['backrel'])):
                 if attrs.strings:
                     stack.append(attrs)
                     attrs = AttrGenerator()
@@ -95,11 +95,12 @@ class PathResolver(object):
                     search.model = rel['model']
                 search.add_string(rel['path'])
             elif rel['type'] == 'fk' and rel['backrel']:
-                # found a fk backrelation
                 if search.strings:
                     stack.append(search)
                     search = QuerySetGenerator()
                 attrs.add_string(rel['path'])
+            else:
+                raise NotImplemented([rel['type'], rel['backrel']])
         if attrs.strings:
             stack.append(attrs)
         if search.strings:

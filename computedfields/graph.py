@@ -402,9 +402,17 @@ class ComputedModelsGraph(Graph):
                             is_backrelation = True
                             field = getattr(cls, symbol).field
                             rel = field.rel
+
+                            if reltype(rel) == 'm2m':
+                                nd['model'] = cls
+                                nd['path'] = symbol
+
                             cls = rel.related_model
-                            nd['path'] = field.name
-                            nd['model'] = cls
+
+                            if reltype(rel) != 'm2m':
+                                nd['model'] = cls
+                                nd['path'] = field.name
+
                         nd['backrel'] = is_backrelation
                         nd['type'] = reltype(rel)
                         new_data.append(nd)
