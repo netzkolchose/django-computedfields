@@ -1,9 +1,21 @@
+"""
+Module containing the database signal handlers.
+
+The handlers are registered during application startup
+in ``apps.ready``.
+
+.. NOTE::
+
+    The handlers are not registered in the managment
+    commands ``makemigrations``, ``migrate`` and ``help``.
+"""
 from computedfields.models import ComputedFieldsModelType as CFMT
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
 from collections import OrderedDict
 
-
+# thread local storage to hold
+# the pk lists for deletes
 STORAGE = local()
 STORAGE.DELETES = {}
 STORAGE.M2M_REMOVE = {}
@@ -15,12 +27,25 @@ M2M_CLEAR = STORAGE.M2M_CLEAR
 
 
 def postsave_handler(sender, instance, **kwargs):
+    """
+    ``post_save`` handler.
+
+    Directly updates dependent objects.
+    Does nothing during fixtures.
+    """
     # do not update for fixtures
     if not kwargs.get('raw'):
-        CFMT.update_dependent(instance, sender, kwargs.get('update_fields'))
+        CFMT.update_dependent(
+            instance, sender, kwargs.get('update_fields'))
 
 
 def predelete_handler(sender, instance, **kwargs):
+    """
+    ``pre_delete`` handler.
+
+    Gets all dependent objects as pk lists and saves
+    them in thread local storage.
+    """
     # get the querysets as pk lists to hold them in storage
     # we have to get pks here since the queryset will be empty after deletion
     data = CFMT._querysets_for_update(sender, instance, pk_list=True)
@@ -29,6 +54,12 @@ def predelete_handler(sender, instance, **kwargs):
 
 
 def postdelete_handler(sender, instance, **kwargs):
+    """
+    ``post_delete`` handler.
+
+    Loads the dependent objects from the previously saved pk lists
+    and updates them.
+    """
     # after deletion we can update the associated computed fields
     updates = DELETES.pop(instance, {})
     for model, data in updates.items():
@@ -39,11 +70,21 @@ def postdelete_handler(sender, instance, **kwargs):
 
 
 def m2m_handler(sender, instance, **kwargs):
+    """
+    ``m2m_change`` handler.
+
+    Works like the other handlers but on the corresponding
+    m2m actions.
+
+    .. NOTE::
+        The handler triggers updates for both ends of the m2m
+        relation, which might lead to massive updates and thus
+        heavy time consuming database interaction.
+    """
     # since the graph does not handle the m2m through model
     # we have to trigger updates for both ends:
     #   - instance:   CFMT.update_dependent(instance, type(instance))
     #   - other side: CFMT.update_dependent(model.objects.filter(pk__in=pks), model)
-    # TODO: might lead to nonsense double updates - How to avoid? - Resolve through models?
     action = kwargs.get('action')
     model = kwargs['model']
 
@@ -56,13 +97,15 @@ def m2m_handler(sender, instance, **kwargs):
         data = OrderedDict()
 
         # instance updates
-        to_add = CFMT._querysets_for_update(type(instance), instance, pk_list=True)
+        to_add = CFMT._querysets_for_update(
+            type(instance), instance, pk_list=True)
         if to_add:
             data.update(to_add)
 
         # other side updates
         pks = kwargs['pk_set']
-        to_add = CFMT._querysets_for_update(model, model.objects.filter(pk__in=pks), pk_list=True)
+        to_add = CFMT._querysets_for_update(
+            model, model.objects.filter(pk__in=pks), pk_list=True)
         if to_add:
             data.update(to_add)
 

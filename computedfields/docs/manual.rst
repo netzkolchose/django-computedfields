@@ -76,8 +76,8 @@ the ``@computed`` decorator on a method:
             return u'%s, %s' % (self.surname, self.forename)
 
 ``combined`` will be turned into a real database field and can be accessed
-and searched like any other field. During saving the value gets calculated and
-written to the database. With the method ``compute('fieldname')`` you can
+and searched like any other database field. During saving the associated method gets called
+and it's result written to the database. With the method ``compute('fieldname')`` you can
 inspect the value that will be written, which is useful if you have pending
 changes:
 
@@ -104,7 +104,7 @@ The example above extended by a model ``Address``:
 .. code-block:: python
 
     class Address(ComputedFieldsModel):
-        person = models.ManyToManyField(Person)
+        person = models.ForeignKeyField(Person)
         street = models.CharField(max_length=32)
         postal = models.CharField(max_length=32)
         city = models.CharField(max_length=32)
@@ -122,8 +122,8 @@ and the field name separated by '#'. The field name is mandatory (due to the way
 the dependency resolver works) and can either point to another computed field or
 any ordinary database field. The relation name part can span serveral models,
 simply name the relation in python style with a dot (e.g. ``'a.b.c#field'``).
-A relation can be of any of django's relation types foreign keys, m2m
-and their back relations. One2one relations are not supported yet.
+A relation can be of any of foreign keys, m2m and their back relations.
+One2one relations are not supported yet.
 
 .. NOTE::
 
@@ -143,8 +143,8 @@ and their back relations. One2one relations are not supported yet.
     Generally you should avoid nested m2m relations in dependendies
     as much as possible since the update penalty will explode
     (grows exponentially). If you have complex aggregations with nested m2m
-    relations to calculate try to flatten your model layout by inserting
-    additional lookup models with computed fields.
+    relations try to flatten your model layout by inserting additional
+    lookup models with computed fields.
 
 .. CAUTION::
 
@@ -186,7 +186,7 @@ Todos & Future Plans
 
 - support one2one relations
 - better reducing of m2m dependency updates
-- cleanup map creation
+- cleanup messy dependency resolver map creation
 - advanced test cases with mixed dependencies
 - dependencies with Django's ``F`` objects
 - eval usage of stored procedures and complex annotations

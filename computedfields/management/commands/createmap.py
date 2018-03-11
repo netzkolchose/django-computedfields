@@ -42,7 +42,7 @@ class Command(BaseCommand):
 
         # build the map and save to file
         graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
-        graph.remove_redundant_paths()
+        graph.remove_redundant()
         map = graph.generate_lookup_map()
         with open(filename, 'w') as f:
             f.write(TMPL % dumps(map))

@@ -94,7 +94,7 @@ class ComputedFieldsModelType(ModelBase):
                     raise
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             # automatically checks for cycles
-            mcs._graph.remove_redundant_paths()
+            mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._map_loaded = True
 
@@ -200,7 +200,7 @@ class ComputedFieldsModelType(ModelBase):
         For completeness - ``instance`` can also be a single model instance.
         Since calling ``save`` on a model instance will trigger this function by
         the ``post_save`` signal it should not be invoked for single model
-        instances if they get saved explicitly.
+        instances if they get saved anyways.
         """
         if not model:
             if isinstance(instance, models.QuerySet):
@@ -297,8 +297,8 @@ def computed(field, **kwargs):
     ``field`` should be a model field suitable to hold the result
     of the decorated method. The decorator understands an optional
     keyword argument ``depends`` to indicate dependencies to
-    related model fields. Listed dependencies will be updated
-    automatically.
+    related model fields. Listed dependencies will automatically
+    update the computed field.
 
     Examples:
 
@@ -317,10 +317,9 @@ def computed(field, **kwargs):
             @computed(models.CharField(max_length=32), depends=['fk#name'])
             def ...
 
-    The format of the dependency strings is in the form
-    ``'rel_a.rel_b#fieldname'`` where the computed field gets
-    a value from a field ``fieldname``, which is accessible through
-    the relations ``rel_a`` --> ``rel_b``.
+    The dependency string is in the form ``'rel_a.rel_b#fieldname'``,
+    where the computed field gets a value from a field ``fieldname``,
+    which is accessible through the relations ``rel_a`` --> ``rel_b``.
     A relation can be any of the relation types foreign keys, m2m and their
     corresponding back relations. One2one is not yet implemented.
 
@@ -349,7 +348,7 @@ def computed(field, **kwargs):
 
     .. CAUTION::
 
-        With the auto resolving of the dependencies you can easily create
+        With the dependendy auto resolver you can easily create
         recursive dependencies by accident. Imagine the following:
 
         .. code-block:: python
@@ -367,7 +366,7 @@ def computed(field, **kwargs):
                     return a.comp
 
         Neither an object of ``A`` or ``B`` can be saved, since the
-        ``comp`` fields depend on each other. While this is quite easy
+        ``comp`` fields depend on each other. While it is quite easy
         to spot for this simple case it might get tricky for more
         complicated dependencies. Therefore the dependency resolver tries
         to detect cyclic dependencies and raises a ``CycleNodeException``
@@ -376,7 +375,7 @@ def computed(field, **kwargs):
         If you experience this in your project try to get in-depth cycle
         information, either by using the ``rendergraph`` management command or
         by accessing the graph object directly under ``your_model._graph``.
-        Also see the graph :ref:`documentation<graph>`.
+        Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):
         field._computed = {'func': f, 'kwargs': kwargs}
@@ -395,7 +394,7 @@ class ComputedModelManager(models.Manager):
 @python_2_unicode_compatible
 class ComputedFieldsAdminModel(ContentType):
     """
-    Proxy model to list all computed fields models with their
+    Proxy model to list all ``ComputedFieldsModel`` models with their
     field dependencies in admin. This might be useful during development.
     To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
     """

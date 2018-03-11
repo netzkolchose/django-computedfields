@@ -1,10 +1,36 @@
+"""
+Module containing the resolver for dependency strings. It basically does
+the transition from a given depends string to a list of functions,
+that, applied to a given instance, returns all dependent objects.
+
+Example:
+    Given a depends string on a computed field of a model ``MyModel``
+    is ``'a.b#field'``. Here changes to an instance of the model behind
+    ``b`` must update the computed field of instances of ``MyModel`` through
+    a model that resides behind ``a``.
+
+    Further given all relations above are foreign keys the resolver creates
+    roughly this function:
+
+    .. code:: python
+
+        lambda instance: MyModel.objects.filter(a__b=instance)
+
+    which, directly applied to an instance or a queryset of the
+    model behind ``b``, returns all ``MyModel`` objects that depend on
+    this instance or the objects in the queryset.
+
+For more complex dependency strings several functions will be returned,
+that must be applied in order. This is needed to resolve intermediate
+subqueries and attribute lookups correctly.
+"""
 from operator import attrgetter
 from django.db.models import QuerySet
 
 
 class QuerySetGenerator(object):
     """
-    Class for inserting a queryset in the dependency path.
+    Class for inserting a queryset into the dependency stack.
     Handles consecutive querysets as subqueries (translated to sub selects by django).
     Returns a queryset.
     """
@@ -28,7 +54,7 @@ class QuerySetGenerator(object):
 
 class AttrGenerator(object):
     """
-    Class for inserting an attribute lookup in the dependency path.
+    Class for inserting an attribute lookup into the dependency stack.
     Uses ``operator.attrgetter`` if the input is a model instance.
     For querysets it returns a flatted value list queryset.
     """
@@ -57,6 +83,7 @@ class AttrGenerator(object):
 class PathResolver(object):
     """
     Class to resolve dependency path segments into consecutive function calls.
+
     This works stream like where every function alters the input and outputs the
     result to the next function. First input is the initial instance
     (model instance or queryset), last output is the final dependent
@@ -66,10 +93,9 @@ class PathResolver(object):
 
         instance = func3(func2(func1(instance)))
 
-    The final resolve functions are the ``_value()`` methods of
-    ``QuerySetGenerator`` and ``AttrGenerator``,
-    which work either on model instances or querysets.
-    To lower the runtime penalty they are as slim as possible.
+    The inner resolve functions are the ``_value(instance)``
+    methods of the created ``QuerySetGenerator`` and ``AttrGenerator``
+    objects that handle the path segment transitions.
     """
     def __init__(self, model, data):
         self.model = model
@@ -79,8 +105,8 @@ class PathResolver(object):
         """
         Builds a stack of ``QuerySetGenerator`` and ``AttrGenerator``
         objects based on the dependencies data.
-        Returns the reversed stack of ``_value`` methods to be applied
-        later to a model instance or queryset.
+        Returns the reversed stack of ``_value(instance)`` methods
+        to be applied later to a model instance or queryset.
         """
         search = QuerySetGenerator()
         attrs = AttrGenerator()

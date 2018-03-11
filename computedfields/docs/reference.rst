@@ -31,3 +31,11 @@ resolver
 .. automodule:: computedfields.resolver
    :members:
    :show-inheritance:
+
+
+handlers
+--------
+
+.. automodule:: computedfields.handlers
+   :members:
+   :show-inheritance:

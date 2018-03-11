@@ -40,7 +40,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
         try:
-            graph.remove_redundant_paths()
+            graph.remove_redundant()
             graph.render(filename=options['filename'][0])
         except CycleException:
             # graph is not cycle free, get all cycles
