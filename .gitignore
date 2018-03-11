@@ -112,4 +112,4 @@ example/*.pdf
 computedfields/*.pdf
 _build/
 _static/
-_template/
+_templates/

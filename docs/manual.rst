@@ -184,6 +184,7 @@ Management Commands
 Todos & Future Plans
 --------------------
 
+- support Django 2.x
 - support one2one relations
 - better reducing of m2m dependency updates
 - cleanup messy dependency resolver map creation

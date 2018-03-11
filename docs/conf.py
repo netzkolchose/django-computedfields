@@ -17,9 +17,7 @@
 # sys.path.insert(0, os.path.abspath('.'))
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../../example'))
-#from django.conf import settings
-#settings.configure()
+sys.path.insert(0, os.path.abspath('../example'))
 import django
 os.environ['DJANGO_SETTINGS_MODULE'] = 'example.settings'
 django.setup()

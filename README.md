@@ -51,7 +51,7 @@ See the docs folder.
 
 #### TODO ####
 
-- support Django 2.X
+- support Django 2.x
 - support one2one relations
 - better reducing of m2m dependency updates
 - cleanup messy dependency resolver map creation
