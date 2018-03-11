@@ -33,6 +33,7 @@ ALLOWED_HOSTS = []
 INSTALLED_APPS = [
     'computedfields',
     'test_full',
+    'exampleapp',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -41,7 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
-COMPUTEDFIELDS_MAP = 'example.computedfieldsmap'
+#COMPUTEDFIELDS_MAP = os.path,join(BASE_DIR, 'map.pickle')
+COMPUTEDFIELDS_ADMIN = True
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
