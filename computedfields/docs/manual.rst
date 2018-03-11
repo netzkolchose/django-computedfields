@@ -122,8 +122,8 @@ and the field name separated by '#'. The field name is mandatory (due to the way
 the dependency resolver works) and can either point to another computed field or
 any ordinary database field. The relation name part can span serveral models,
 simply name the relation in python style with a dot (e.g. ``'a.b.c#field'``).
-A relation can be of any of django's relation type (foreign keys, m2m, one2one
-and their back relations are supported).
+A relation can be of any of django's relation types foreign keys, m2m
+and their back relations. One2one relations are not supported yet.
 
 .. NOTE::
 
@@ -139,6 +139,12 @@ and their back relations are supported).
             if not self.pk:  # no pk yet, access to .m2m will fail
                 return ''
             return ''.join(self.m2m.all().values_list('field', flat=True))
+
+    Generally you should avoid nested m2m relations in dependendies
+    as much as possible since the update penalty will explode
+    (grows exponentially). If you have complex aggregations with nested m2m
+    relations to calculate try to flatten your model layout by inserting
+    additional lookup models with computed fields.
 
 .. CAUTION::
 
@@ -173,3 +179,14 @@ Management Commands
 - ``updatedata``
     updates all computed fields of the project. Useful after tons of bulk changes,
     e.g. from fixtures.
+
+
+Todos & Future Plans
+--------------------
+
+- support one2one relations
+- better reducing of m2m dependency updates
+- cleanup map creation
+- advanced test cases with mixed dependencies
+- dependencies with Django's ``F`` objects
+- eval usage of stored procedures and complex annotations

@@ -321,8 +321,8 @@ def computed(field, **kwargs):
     ``'rel_a.rel_b#fieldname'`` where the computed field gets
     a value from a field ``fieldname``, which is accessible through
     the relations ``rel_a`` --> ``rel_b``.
-    A relation can be any of the relation types (foreign keys, m2m, one2one
-    and their corresponding back relations).
+    A relation can be any of the relation types foreign keys, m2m and their
+    corresponding back relations. One2one is not yet implemented.
 
     The fieldname at the end separated by '#' is mandatory for the
     dependency resolver to decide, whether the updates depend on other
