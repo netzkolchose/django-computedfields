@@ -87,7 +87,7 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a2.comp, 'a2c3')
         self.assertEqual(self.a3.comp, 'a3c3')
 
-    def test_create(self):
+    def test_create_reverse(self):
         # create new c in b1
         self.b1.bc_m.create(name='c4')
         self.b1.refresh_from_db()
@@ -103,7 +103,7 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a2.comp, 'a2c4')
         self.assertEqual(self.a3.comp, 'a3c4')
 
-    def test_set(self):
+    def test_set_reverse(self):
         # set new c4 c5 in b1
         new_c4 = self.models.C(name='c4')
         new_c4.save()
@@ -122,6 +122,20 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a1.comp, 'a1c5')
         self.assertEqual(self.a2.comp, 'a2c5')
         self.assertEqual(self.a3.comp, 'a3c5')
+
+    def test_set_normal(self):
+        # set new bs from c3 - should remove c3 from a.comp
+        new_b4 = self.models.B(name='b4')
+        new_b4.save()
+        new_b5 = self.models.B(name='b5')
+        new_b5.save()
+        self.c3.m_cb.set([new_b4, new_b5])
+        self.a1.refresh_from_db()
+        self.a2.refresh_from_db()
+        self.a3.refresh_from_db()
+        self.assertEqual(self.a1.comp, 'a1c2')
+        self.assertEqual(self.a2.comp, 'a2c2')
+        self.assertEqual(self.a3.comp, 'a3c2')
 
     def test_update(self):
         self.c1.name = 'C1'
@@ -180,7 +194,7 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a2.comp, 'a2c2')
         self.assertEqual(self.a3.comp, 'a3c2')
 
-    def test_removes(self):
+    def test_remove_reverse(self):
         # remove c2, c3 from b1
         self.b1.bc_m.remove(self.c2, self.c3)
         self.b1.refresh_from_db()
@@ -196,8 +210,20 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a2.comp, 'a2c1')
         self.assertEqual(self.a3.comp, 'a3c1')
 
-    def test_clear(self):
-        # clear b1
+    def test_remove_normal(self):
+        # remove a1 from all b1
+        # remove b2 from c3
+        self.b1.m_ba.remove(self.a1)
+        self.c3.m_cb.remove(self.b2)
+        self.a1.refresh_from_db()
+        self.a2.refresh_from_db()
+        self.a3.refresh_from_db()
+        self.assertEqual(self.a1.comp, 'a1c2')
+        self.assertEqual(self.a2.comp, 'a2c3')
+        self.assertEqual(self.a3.comp, 'a3c3')
+
+    def test_clear_reverse(self):
+        # clear cs in b1
         self.b1.bc_m.clear()
         self.b1.refresh_from_db()
         self.b2.refresh_from_db()
@@ -211,3 +237,19 @@ class M2MBackDependencies(GenericModelTestBase):
         self.assertEqual(self.a1.comp, 'a1+')
         self.assertEqual(self.a2.comp, 'a2+')
         self.assertEqual(self.a3.comp, 'a3+')
+
+    def test_clear_normal(self):
+        # clear bs in c3
+        self.c3.m_cb.clear()
+        self.b1.refresh_from_db()
+        self.b2.refresh_from_db()
+        self.b3.refresh_from_db()
+        self.assertEqual(self.b1.comp, 'b1c1c2')
+        self.assertEqual(self.b2.comp, 'b2c1c2')
+        self.assertEqual(self.b3.comp, 'b3c1c2')
+        self.a1.refresh_from_db()
+        self.a2.refresh_from_db()
+        self.a3.refresh_from_db()
+        self.assertEqual(self.a1.comp, 'a1c2')
+        self.assertEqual(self.a2.comp, 'a2c2')
+        self.assertEqual(self.a3.comp, 'a3c2')
