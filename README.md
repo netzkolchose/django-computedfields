@@ -9,7 +9,7 @@ Tested with Django 2.11 and 2.0.
 #### Example ####
 
 Just derive your model from `ComputedFieldsModel` and place
-the `@computed` at a method:
+the `@computed` decorator at a method:
 
 ```python
 from django.db import models
@@ -21,7 +21,7 @@ class MyModel(ComputedFieldsModel):
     
     @computed(models.CharField(max_length=32))
     def computed_field(self):
-        return 'My fancy name is %s.' % self.name
+        return self.name.upper()
 ```
 
 `computed_field` will be turned into a real database field
@@ -32,11 +32,11 @@ you can inspect the value that will be written, which is useful
 if you have pending changes:
 
 ```python
->>> person = MyModel(forename='Berty')
+>>> person = MyModel(forename='berty')
 >>> person.computed_field             # empty since not saved yet
->>> person.compute('computed_field')  # outputs 'My fancy name is Berty.'
+>>> person.compute('computed_field')  # outputs 'BERTY'
 >>> person.save()
->>> person.computed_field             # outputs 'My fancy name is Berty.'
+>>> person.computed_field             # outputs 'BERTY'
 ```
 
 The `computed` decorator supports a `depends` keyword argument
