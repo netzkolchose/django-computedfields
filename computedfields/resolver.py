@@ -26,6 +26,7 @@ subqueries and attribute lookups correctly.
 """
 from operator import attrgetter
 from django.db.models import QuerySet
+from functools import partial
 
 
 class QuerySetGenerator(object):
@@ -37,19 +38,22 @@ class QuerySetGenerator(object):
     def __init__(self):
         self.strings = []
         self.model = None
-        self._qs_string = None
 
     def add_string(self, string):
         self.strings.append(string)
 
-    def _value(self, instance):
-        if isinstance(instance, QuerySet):
-            return self.model.objects.filter(**{self._qs_string+'__in': instance})
-        return self.model.objects.filter(**{self._qs_string: instance})
-
     def finalize(self):
-        self._qs_string = '__'.join(self.strings)
-        return self._value
+        return partial(qs_value, self.model, '__'.join(self.strings))
+
+
+def qs_value(model, qs_string, instance):
+    """
+    Pickleable resolve function returned as
+    a partial from a ``QuerySetGenerator`` object.
+    """
+    if isinstance(instance, QuerySet):
+        return model.objects.filter(**{qs_string+'__in': instance})
+    return model.objects.filter(**{qs_string: instance})
 
 
 class AttrGenerator(object):
@@ -60,24 +64,26 @@ class AttrGenerator(object):
     """
     def __init__(self):
         self.strings = []
-        self._attrgetter = None
-        self._qs_string = None
 
     def add_string(self, string):
         self.strings.append(string)
 
-    def _value(self, instance):
-        if isinstance(instance, QuerySet):
-            return instance.values_list(self._qs_string, flat=True)
-        try:
-            return self._attrgetter(instance)
-        except AttributeError:
-            return None
-
     def finalize(self):
-        self._attrgetter = attrgetter('.'.join(reversed(self.strings)))
-        self._qs_string = '__'.join(reversed(self.strings))
-        return self._value
+        return partial(attr_value, '__'.join(reversed(self.strings)),
+                       '.'.join(reversed(self.strings)))
+
+
+def attr_value(qs_string, attr_string, instance):
+    """
+    Pickleable resolve function returned as
+    a partial from an ``AttrGenerator`` object.
+    """
+    if isinstance(instance, QuerySet):
+        return instance.values_list(qs_string, flat=True)
+    try:
+        return attrgetter(attr_string)(instance)
+    except AttributeError:
+        return None
 
 
 class PathResolver(object):
@@ -93,9 +99,8 @@ class PathResolver(object):
 
         instance = func3(func2(func1(instance)))
 
-    The inner resolve functions are the ``_value(instance)``
-    methods of the created ``QuerySetGenerator`` and ``AttrGenerator``
-    objects that handle the path segment transitions.
+    The inner resolve functions are function partials created by
+    ``QuerySetGenerator`` and ``AttrGenerator``.
     """
     def __init__(self, model, data):
         self.model = model
@@ -105,7 +110,7 @@ class PathResolver(object):
         """
         Builds a stack of ``QuerySetGenerator`` and ``AttrGenerator``
         objects based on the dependencies data.
-        Returns the reversed stack of ``_value(instance)`` methods
+        Returns the reversed stack of function partials
         to be applied later to a model instance or queryset.
         """
         search = QuerySetGenerator()

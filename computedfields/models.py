@@ -86,15 +86,14 @@ class ComputedFieldsModelType(ModelBase):
             from_map = hasattr(settings, 'COMPUTEDFIELDS_MAP') and not force and not _force
             if from_map:
                 try:
-                    from importlib import import_module
-                    module = import_module(settings.COMPUTEDFIELDS_MAP)
-                    mcs._map = module.map
-                    mcs._map_loaded = True
+                    from django.utils.six.moves import cPickle as pickle
+                    with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
+                        mcs._map = pickle.load(f)
+                        mcs._map_loaded = True
                     return
-                except (ImportError, AttributeError, Exception):
-                    raise
+                except Exception:
+                    pass
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
-            # automatically checks for cycles
             mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._map_loaded = True
