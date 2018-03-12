@@ -13,6 +13,11 @@ from computedfields.models import ComputedFieldsModelType as CFMT
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
 from collections import OrderedDict
+import django
+Django2 = False
+if django.VERSION[0] >= 2:
+    Django2 = True
+
 
 # thread local storage to hold
 # the pk lists for deletes
@@ -131,17 +136,24 @@ def m2m_handler(sender, instance, **kwargs):
 
         # other side updates
         # geez - have to get pks of other side ourself
+        inst_model = type(instance)
         if kwargs['reverse']:
-            inst_model = type(instance)
             rel = list(filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
                          inst_model._meta.get_fields()))[0]
             to_add = CFMT._querysets_for_update(
                 model, getattr(instance, rel.name).all(), pk_list=True)
         else:
-            field = list(filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                                model._meta.get_fields()))[0]
-            to_add = CFMT._querysets_for_update(
-                model, getattr(instance, field.remote_field.name).all(), pk_list=True)
+            if Django2:
+                field = list(filter(
+                    lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
+                        model._meta.get_fields()))[0]
+                to_add = CFMT._querysets_for_update(
+                    model, getattr(instance, field.remote_field.name).all(), pk_list=True)
+            else:
+                field = list(filter(
+                    lambda f: f.rel.through == sender, inst_model._meta.many_to_many))[0]
+                to_add = CFMT._querysets_for_update(
+                    model, getattr(instance, field.name).all(), pk_list=True)
         if to_add:
             data.update(to_add)
 

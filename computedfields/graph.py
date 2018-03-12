@@ -11,6 +11,10 @@ from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from computedfields.resolver import PathResolver
 from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computed_field
+import django
+Django2 = False
+if django.VERSION[0] >= 2:
+    Django2 = True
 
 
 class CycleException(Exception):
@@ -430,23 +434,26 @@ class ComputedModelsGraph(Graph):
                             pass
                         is_backrelation = False
                         try:
-                            rel = cls._meta.get_field(symbol)
+                            if Django2:
+                                rel = cls._meta.get_field(symbol)
+                            else:
+                                rel = cls._meta.get_field(symbol).rel
                             nd['model'] = cls
                             cls = cls._meta.get_field(symbol).related_model
                             nd['path'] = symbol
                         except (FieldDoesNotExist, AttributeError):
                             is_backrelation = True
-
-
                             field = getattr(cls, symbol).field
-                            rel = field
+                            if Django2:
+                                rel = field
+                            else:
+                                rel = field.rel
 
                             if reltype(rel) == 'm2m':
                                 nd['model'] = cls
                                 nd['path'] = symbol
 
-                            from django.db.models.fields.reverse_related import ManyToOneRel, ManyToManyRel
-                            if field.rel_class in (ManyToOneRel, ManyToManyRel):
+                            if Django2:
                                 cls = rel.model
                             else:
                                 cls = rel.related_model
