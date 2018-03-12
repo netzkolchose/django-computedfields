@@ -49,7 +49,7 @@ gets automatically updated upon changes of the related fields.
 
 #### Documentation ####
 
-See the documentation can be found [here](https://django-computedfields.readthedocs.io/en/latest/index.html).
+The documentation can be found [here](https://django-computedfields.readthedocs.io/en/latest/index.html).
 
 
 #### TODO ####

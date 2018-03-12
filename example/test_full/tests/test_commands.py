@@ -59,3 +59,6 @@ class CommandTests(GenericModelTestBase):
         # TODO: advanced test case
         self.models.A(name='a').save()
         call_command('updatedata', verbosity=0)
+
+    def test_createmap(self):
+        call_command('createmap', verbosity=0)

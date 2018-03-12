@@ -114,3 +114,4 @@ computedfields/*.pdf
 _build/
 _static/
 _templates/
+map.pickle
