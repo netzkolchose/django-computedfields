@@ -389,7 +389,6 @@ class ComputedModelManager(models.Manager):
         return ContentType.objects.filter(pk__in=pks)
 
 
-@python_2_unicode_compatible
 class ComputedFieldsAdminModel(ContentType):
     """
     Proxy model to list all ``ComputedFieldsModel`` models with their
