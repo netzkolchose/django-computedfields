@@ -14,4 +14,5 @@ script:
   - ./example/manage.py makemigrations
   - ./example/manage.py migrate
   - cd computedfields && coverage run --branch --source='.' ../example/manage.py test test_full
+  - coverage report
 after_success: coveralls
