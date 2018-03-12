@@ -430,23 +430,26 @@ class ComputedModelsGraph(Graph):
                             pass
                         is_backrelation = False
                         try:
-                            rel = cls._meta.get_field(symbol).rel
+                            rel = cls._meta.get_field(symbol)
                             nd['model'] = cls
                             cls = cls._meta.get_field(symbol).related_model
                             nd['path'] = symbol
                         except (FieldDoesNotExist, AttributeError):
                             is_backrelation = True
+
+
                             field = getattr(cls, symbol).field
-                            try:
-                                rel = field.rel  # not working Django 2.0
-                            except AttributeError:
-                                rel = field
+                            rel = field
 
                             if reltype(rel) == 'm2m':
                                 nd['model'] = cls
                                 nd['path'] = symbol
 
-                            cls = rel.related_model
+                            from django.db.models.fields.reverse_related import ManyToOneRel, ManyToManyRel
+                            if field.rel_class in (ManyToOneRel, ManyToManyRel):
+                                cls = rel.model
+                            else:
+                                cls = rel.related_model
 
                             if reltype(rel) != 'm2m':
                                 nd['model'] = cls

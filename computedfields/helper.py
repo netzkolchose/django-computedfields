@@ -1,9 +1,11 @@
 from itertools import tee
 from django.utils.six.moves import zip
 from django.db.models.fields.reverse_related import ManyToOneRel, OneToOneRel, ManyToManyRel
+from django.db.models import ManyToManyField, ForeignKey
 
 
-RELTYPES = {ManyToManyRel: 'm2m', OneToOneRel: 'o2o', ManyToOneRel: 'fk'}
+RELTYPES = {ManyToManyRel: 'm2m', OneToOneRel: 'o2o', ManyToOneRel: 'fk',
+            ManyToManyField: 'm2m', ForeignKey: 'fk'}
 
 
 def reltype(rel):
