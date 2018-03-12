@@ -6,15 +6,13 @@ from django.utils.six.moves import cPickle as pickle
 
 
 class Command(BaseCommand):
-    help = 'Create lookup map for computed fields.'
+    help = 'Pickle dependency lookup map for computed fields to file.'
 
     def handle(self, *args, **options):
         if not hasattr(settings, 'COMPUTEDFIELDS_MAP'):
             raise CommandError('COMPUTEDFIELDS_MAP is not set in settings.py, abort.')
 
-        mapfile = settings.COMPUTEDFIELDS_MAP
-        graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
-        graph.remove_redundant()
-        map = graph.generate_lookup_map()
-        with open(mapfile, 'w') as f:
-            pickle.dump(map, f, pickle.HIGHEST_PROTOCOL)
+        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
+            graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
+            graph.remove_redundant()
+            pickle.dump(graph.generate_lookup_map(), f, pickle.HIGHEST_PROTOCOL)
