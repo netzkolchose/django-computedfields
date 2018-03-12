@@ -13,6 +13,8 @@ class TestModels(TestCase):
     def setUp(self):
         # run tests with newly created map
         call_command('createmap', verbosity=0)
+        ComputedFieldsModelType._map_loaded = False
+        ComputedFieldsModelType._resolve_dependencies()
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
         self.baz = Baz.objects.create(name='baz1', bar=self.bar)
@@ -42,6 +44,8 @@ class TestModelClassesForAdmin(TestCase):
     def setUp(self):
         # run tests with newly created map
         call_command('createmap', verbosity=0)
+        ComputedFieldsModelType._map_loaded = False
+        ComputedFieldsModelType._resolve_dependencies()
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
         self.models = set(ComputedFieldsModelType._computed_models.keys())
