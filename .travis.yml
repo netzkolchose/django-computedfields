@@ -14,6 +14,9 @@ script:
   - ./example/manage.py makemigrations
   - ./example/manage.py migrate
   - cd docs && make html
-  - cd ../ && coverage run --branch --source='computedfields' ./example/manage.py test test_full
+  - cd ../
+  - coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
+  - coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
+  - coverage combine
   - coverage report
 after_success: coveralls
