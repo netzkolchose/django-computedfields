@@ -3,8 +3,6 @@ from __future__ import unicode_literals
 from django.test import TestCase
 import test_full.models as models_module
 from computedfields.models import ComputedFieldsModelType
-
-
 MODELS = models_module.MODELS
 
 
@@ -31,7 +29,6 @@ class GenericModelTestBase(TestCase):
                 MODELS[modelname]._computed_fields['comp']._computed['func'] = data.get('func')
         ComputedFieldsModelType._resolve_dependencies(_force=True)
         self.graph = ComputedFieldsModelType._graph
-        #self.graph.view()
 
     def resetDeps(self):
         """

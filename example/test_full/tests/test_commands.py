@@ -5,6 +5,9 @@ from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
 from django.utils.six.moves import cStringIO
+from django.utils.six.moves import cPickle as pickle
+from django.conf import settings
+import os
 
 
 class CommandTests(GenericModelTestBase):
@@ -35,6 +38,7 @@ class CommandTests(GenericModelTestBase):
         # TODO: test for output
         self.assertEqual(self.graph.is_cyclefree, True)
         call_command('rendergraph', 'output', verbosity=0)
+        os.remove('output.pdf')
 
     def test_rendergraph_with_cycle(self):
         import sys
@@ -60,5 +64,21 @@ class CommandTests(GenericModelTestBase):
         self.models.A(name='a').save()
         call_command('updatedata', verbosity=0)
 
-    def test_createmap(self):
+    def _test_createmap(self):
+        # save old value
+        old_map = None
+        map_set = hasattr(settings, 'COMPUTEDFIELDS_MAP')
+        if map_set:
+            old_map = settings.COMPUTEDFIELDS_MAP
+
+        # should not fail
+        settings.COMPUTEDFIELDS_MAP = os.path.join(settings.BASE_DIR, 'map.test')
         call_command('createmap', verbosity=0)
+        with open(os.path.join(settings.BASE_DIR, 'map.test'), 'rb') as f:
+            map = pickle.load(f)
+        os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
+
+        # restore old  value
+        if map_set:
+            settings.COMPUTEDFIELDS_MAP = old_map
+

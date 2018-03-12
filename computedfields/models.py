@@ -83,16 +83,14 @@ class ComputedFieldsModelType(ModelBase):
         with mcs._lock:
             if mcs._map_loaded and not _force:
                 return
-            from_map = hasattr(settings, 'COMPUTEDFIELDS_MAP') and not force and not _force
-            if from_map:
-                try:
-                    from django.utils.six.moves import cPickle as pickle
-                    with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
-                        mcs._map = pickle.load(f)
-                        mcs._map_loaded = True
-                    return
-                except Exception:
-                    pass
+            if (hasattr(settings, 'COMPUTEDFIELDS_MAP')
+                    and settings.COMPUTEDFIELDS_MAP
+                    and not force and not _force):
+                from django.utils.six.moves import cPickle as pickle
+                with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
+                    mcs._map = pickle.load(f)
+                    mcs._map_loaded = True
+                return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()

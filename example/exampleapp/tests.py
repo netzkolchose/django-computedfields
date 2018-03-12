@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-
 from django.test import TestCase
-from django.core.management import call_command
 from .models import Foo, Bar, Baz
 from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
 from computedfields.admin import ComputedModelsAdmin
@@ -11,18 +9,15 @@ from django.contrib.admin.sites import AdminSite
 
 class TestModels(TestCase):
     def setUp(self):
-        # run tests with newly created map
-        call_command('createmap', verbosity=0)
-        ComputedFieldsModelType._map_loaded = False
-        ComputedFieldsModelType._resolve_dependencies()
+        ComputedFieldsModelType._resolve_dependencies(_force=True)
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
         self.baz = Baz.objects.create(name='baz1', bar=self.bar)
+
+    def test_create(self):
         self.foo.refresh_from_db()
         self.bar.refresh_from_db()
         self.baz.refresh_from_db()
-
-    def test_create(self):
         self.assertEqual(self.foo.bazzes, 'baz1')
         self.assertEqual(self.bar.foo_bar, 'foo1bar1')
         self.assertEqual(self.baz.foo_bar_baz, 'foo1bar1baz1')
@@ -42,10 +37,7 @@ class TestModels(TestCase):
 
 class TestModelClassesForAdmin(TestCase):
     def setUp(self):
-        # run tests with newly created map
-        call_command('createmap', verbosity=0)
-        ComputedFieldsModelType._map_loaded = False
-        ComputedFieldsModelType._resolve_dependencies()
+        ComputedFieldsModelType._resolve_dependencies(_force=True)
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
         self.models = set(ComputedFieldsModelType._computed_models.keys())
