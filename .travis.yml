@@ -4,12 +4,14 @@ python:
   - "3.4"
   - "3.5"
   - "3.6"
-# command to install dependencies
+addons:
+  apt:
+    packages:
+    - graphviz
 install:
   - pip install -r example/requirements-dev.txt
-# command to run tests
 script:
   - ./example/manage.py makemigrations
   - ./example/manage.py migrate
   - cd computedfields && coverage run --branch --source='.' ../example/manage.py test test_full
-after_success: 'coveralls'
+after_success: coveralls
