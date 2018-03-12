@@ -105,6 +105,7 @@ venv.bak/
 
 migrations/
 !computedfields/migrations
+!example/exampleapp/migrations
 .idea/
 django-computedfields.iml
 example/Digraph.gv.pdf
