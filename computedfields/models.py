@@ -404,6 +404,3 @@ class ComputedFieldsAdminModel(ContentType):
         verbose_name = _('Computed Fields Model')
         verbose_name_plural = _('Computed Fields Models')
         ordering = ('app_label', 'model')
-
-    def __str__(self):
-        return self.model

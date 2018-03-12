@@ -4,11 +4,14 @@ from __future__ import unicode_literals
 from django.test import TestCase
 from django.core.management import call_command
 from .models import Foo, Bar, Baz
+from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
+from computedfields.admin import ComputedModelsAdmin
+from django.contrib.admin.sites import AdminSite
 
 
 class TestModels(TestCase):
     def setUp(self):
-        # run tests with created map
+        # run tests with newly created map
         call_command('createmap', verbosity=0)
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
@@ -33,3 +36,26 @@ class TestModels(TestCase):
         self.bar.refresh_from_db()
         self.assertEqual(self.foo.bazzes, '')
         self.assertEqual(self.bar.foo_bar, 'foo1bar1')
+
+
+class TestModelClassesForAdmin(TestCase):
+    def setUp(self):
+        # run tests with newly created map
+        call_command('createmap', verbosity=0)
+        self.site = AdminSite()
+        self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
+        self.models = set(ComputedFieldsModelType._computed_models.keys())
+
+    def test_models_listed(self):
+        models = [obj.model_class() for obj in ComputedFieldsAdminModel.objects.all()]
+        self.assertIn(Foo, models)
+        self.assertIn(Bar, models)
+        self.assertIn(Baz, models)
+        self.assertEqual(set(models), self.models)
+
+    def test_run_adminclass_methods(self):
+        for instance in ComputedFieldsAdminModel.objects.all():
+            self.adminobj.dependencies(instance)
+            self.adminobj.name(instance)
+        self.adminobj.get_urls()
+        self.adminobj.render_graph({})

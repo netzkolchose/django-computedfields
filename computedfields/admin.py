@@ -74,6 +74,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         if Digraph:
             error = ''
             graph = ComputedFieldsModelType._graph
+            if not graph:
+                # we are in map file mode - create new graph
+                from computedfields.graph import ComputedModelsGraph
+                graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
+                graph.remove_redundant()
             dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
