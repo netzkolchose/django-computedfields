@@ -2,8 +2,6 @@ language: python
 python:
   - "2.7"
   - "3.6"
-  - "pypy"
-  - "pypy3"
 env:
   matrix:
       # test only Django 1.10, 1.11 and 2.0 (PY3 only)

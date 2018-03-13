@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
-COMPUTEDFIELDS_MAP = os.path.join(BASE_DIR, 'map.pickle')
+#COMPUTEDFIELDS_MAP = os.path.join(BASE_DIR, 'map.pickle')
 COMPUTEDFIELDS_ADMIN = True
 
 MIDDLEWARE = [
