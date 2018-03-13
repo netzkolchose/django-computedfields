@@ -18,10 +18,8 @@ def pairwise(iterable):
     return zip(a, b)
 
 
-def is_computed_field(model, field):
-    if hasattr(model, '_computed_fields') and field in model._computed_fields:
-        return True
-    return False
+def is_computedfield(model, field):
+    return hasattr(model, '_computed_fields') and field in model._computed_fields
 
 
 def modelname(model):

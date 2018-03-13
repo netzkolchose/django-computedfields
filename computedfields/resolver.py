@@ -100,7 +100,7 @@ class PathResolver(object):
         self.model = model
         self.data = data
 
-    def _resolve_path_segments(self, dep):
+    def _resolve_path_segments(self, dependency):
         """
         Builds a stack of ``QuerySetGenerator`` and ``AttrGenerator``
         objects based on the dependencies data.
@@ -110,7 +110,7 @@ class PathResolver(object):
         search = QuerySetGenerator()
         attrs = AttrGenerator()
         stack = []
-        for relation in dep['relations']:
+        for relation in dependency['relations']:
             if ((relation['type'] == 'fk' and not relation['reverse'])
                     or relation['type'] == 'm2m'):
                 if attrs.strings:
@@ -138,7 +138,7 @@ class PathResolver(object):
         ``[['computed fieldname', [resolve functions]], ...]``.
         """
         result = []
-        for field, deps in self.data.items():
-            for dep in deps:
+        for field, dependencies in self.data.items():
+            for dep in dependencies:
                 result.append([field, self._resolve_path_segments(dep)])
         return result

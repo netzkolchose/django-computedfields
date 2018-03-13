@@ -10,7 +10,7 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from computedfields.resolver import PathResolver
-from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computed_field
+from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computedfield
 import django
 Django2 = False
 if django.VERSION[0] >= 2:
@@ -447,8 +447,7 @@ class ComputedModelsGraph(Graph):
                         rel_data['reverse'] = reverse
                         rel_data['type'] = rel_type
                         relations.append(rel_data)
-                        fieldentry.setdefault(cls, []).append({
-                            'depends': '', 'relations': relations[:]})
+                        fieldentry.setdefault(cls, []).append({'relations': relations[:]})
                     fieldentry[cls][-1]['depends'] = target_field
         return resolved
 
@@ -462,9 +461,10 @@ class ComputedModelsGraph(Graph):
                 for depmodel, relations in modeldata.items():
                     self.models[modelname(depmodel)] = depmodel
                     for dep in relations:
-                        depends = '#'
-                        if is_computed_field(depmodel, dep['depends']):
+                        if is_computedfield(depmodel, dep.get('depends')):
                             depends = dep['depends']
+                        else:
+                            depends = '#'
                         key = (modelname(depmodel), depends)
                         value = (modelname(model), field)
                         cleaned.setdefault(key, set()).add(value)
