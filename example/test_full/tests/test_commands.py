@@ -64,7 +64,7 @@ class CommandTests(GenericModelTestBase):
         self.models.A(name='a').save()
         call_command('updatedata', verbosity=0)
 
-    def _test_createmap(self):
+    def test_createmap(self):
         # save old value
         old_map = None
         map_set = hasattr(settings, 'COMPUTEDFIELDS_MAP')
@@ -76,6 +76,7 @@ class CommandTests(GenericModelTestBase):
         call_command('createmap', verbosity=0)
         with open(os.path.join(settings.BASE_DIR, 'map.test'), 'rb') as f:
             map = pickle.load(f)
+            self.assertDictEqual(map, ComputedFieldsModelType._map)
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value
