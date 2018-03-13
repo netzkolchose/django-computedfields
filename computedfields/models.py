@@ -147,7 +147,7 @@ class ComputedFieldsModelType(ModelBase):
                     # after deleting the instance in question
                     # since we need to interact with the db anyways
                     # we can already drop empty results here
-                    qs = list(qs.distinct().values_list('pk', flat=True))
+                    qs = set(qs.distinct().values_list('pk', flat=True))
                     if not qs:
                         continue
                 final[model] = [qs, fields]
@@ -175,7 +175,7 @@ class ComputedFieldsModelType(ModelBase):
             ...     Entry(headline='This is a test'),
             ...     Entry(headline='This is only a test'),
             ... ])
-            >>> pks = set((obj.pk for obj in objs))
+            >>> pks = set(obj.pk for obj in objs)
             >>> update_dependent(Entry.objects.filter(pk__in=pks))
 
         .. NOTE::
@@ -213,8 +213,55 @@ class ComputedFieldsModelType(ModelBase):
                 for el in qs.distinct():
                     el.save(update_fields=fields)
 
+    @classmethod
+    def update_dependent_multi(mcs, instances):
+        """
+        Updates all dependent computed fields model objects for multiple instances.
+
+        This function avoids redundant updates if consecutive ``update_dependent``
+        have intersections, example:
+
+            >>> update_dependent(Foo.objects.filter(i='x'))  # updates A, B, C
+            >>> update_dependent(Bar.objects.filter(j='y'))  # updates B, C, D
+            >>> update_dependent(Baz.objects.filter(k='z'))  # updates C, D, E
+
+        In the example the models ``B`` and ``D`` would be queried twice,
+        ``C`` even three times. It gets even worse if the queries contain record
+        intersections, those items would be queried and saved several times.
+
+        The updates can be rewritten as:
+
+            >>> update_dependent_multi([
+            ...     Foo.objects.filter(i='x'),
+            ...     Bar.objects.filter(j='y'),
+            ...     Baz.objects.filter(k='z')])
+
+        where all dependent model objects get queried and saved only once.
+        The underlying querysets are expanded accordingly.
+
+        .. NOTE::
+
+            ``instances`` can also contain model instances. Don't use
+            this function for model instances of the same type, instead
+            aggregate those to querysets and use ``update_dependent``
+            (as shown for ``bulk_create`` above).
+        """
+        final = {}
+        for instance in instances:
+            model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+            updates = mcs._querysets_for_update(model, instance, None)
+            for model, data in updates.items():
+                m = final.setdefault(model, [model.objects.none(), set()])
+                m[0] |= data[0]       # or'ed querysets
+                m[1].update(data[1])  # add fields
+        with transaction.atomic():
+            for qs, fields in final.values():
+                for el in qs.distinct():
+                    el.save(update_fields=fields)
+
 
 update_dependent = ComputedFieldsModelType.update_dependent
+update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
 
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):

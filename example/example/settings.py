@@ -43,6 +43,7 @@ INSTALLED_APPS = [
 ]
 
 COMPUTEDFIELDS_ADMIN = True
+# COMPUTEDFIELDS_MAP = os.path.join(BASE_DIR, 'map.pickle')
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

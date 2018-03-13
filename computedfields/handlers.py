@@ -12,7 +12,6 @@ in ``apps.ready``.
 from computedfields.models import ComputedFieldsModelType as CFMT
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
-from collections import OrderedDict
 import django
 Django2 = False
 if django.VERSION[0] >= 2:
@@ -74,6 +73,16 @@ def postdelete_handler(sender, instance, **kwargs):
             el.save(update_fields=fields)
 
 
+def merge_pk_maps(m1, m2):
+    # simply add m2 elements onto m1
+    for model, data in m2.items():
+        m2_pks, m2_fields = data
+        m1_pks, m1_fields = m1.setdefault(model, [set(), set()])
+        m1_pks.update(m2_pks)
+        m1_fields.update(m2_fields)
+    return m1
+
+
 def m2m_handler(sender, instance, **kwargs):
     """
     ``m2m_change`` handler.
@@ -87,33 +96,24 @@ def m2m_handler(sender, instance, **kwargs):
         heavy time consuming database interaction.
     """
     # since the graph does not handle the m2m through model
-    # we have to trigger updates for both ends:
-    #   - instance:   CFMT.update_dependent(instance, type(instance))
-    #   - other side: CFMT.update_dependent(model.objects.filter(pk__in=pks), model)
+    # we have to trigger updates for both ends
     action = kwargs.get('action')
     model = kwargs['model']
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        CFMT.update_dependent(instance, type(instance))
-        CFMT.update_dependent(model.objects.filter(pk__in=pks), model)
+        CFMT.update_dependent_multi([instance, model.objects.filter(pk__in=pks)])
 
     elif action == 'pre_remove':
-        data = OrderedDict()
-
         # instance updates
-        to_add = CFMT._querysets_for_update(
+        data = CFMT._querysets_for_update(
             type(instance), instance, pk_list=True)
-        if to_add:
-            data.update(to_add)
-
         # other side updates
         pks = kwargs['pk_set']
-        to_add = CFMT._querysets_for_update(
+        other = CFMT._querysets_for_update(
             model, model.objects.filter(pk__in=pks), pk_list=True)
-        if to_add:
-            data.update(to_add)
-
+        if other:
+            merge_pk_maps(data, other)
         # final
         if data:
             M2M_REMOVE[instance] = data
@@ -127,12 +127,8 @@ def m2m_handler(sender, instance, **kwargs):
                 el.save(update_fields=fields)
 
     elif action == 'pre_clear':
-        data = OrderedDict()
-
         # instance updates
-        to_add = CFMT._querysets_for_update(type(instance), instance, pk_list=True)
-        if to_add:
-            data.update(to_add)
+        data = CFMT._querysets_for_update(type(instance), instance, pk_list=True)
 
         # other side updates
         # geez - have to get pks of other side ourself
@@ -140,22 +136,22 @@ def m2m_handler(sender, instance, **kwargs):
         if kwargs['reverse']:
             rel = list(filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
                          inst_model._meta.get_fields()))[0]
-            to_add = CFMT._querysets_for_update(
+            other = CFMT._querysets_for_update(
                 model, getattr(instance, rel.name).all(), pk_list=True)
         else:
             if Django2:
                 field = list(filter(
                     lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
                         model._meta.get_fields()))[0]
-                to_add = CFMT._querysets_for_update(
+                other = CFMT._querysets_for_update(
                     model, getattr(instance, field.remote_field.name).all(), pk_list=True)
             else:
                 field = list(filter(
                     lambda f: f.rel.through == sender, inst_model._meta.many_to_many))[0]
-                to_add = CFMT._querysets_for_update(
+                other = CFMT._querysets_for_update(
                     model, getattr(instance, field.name).all(), pk_list=True)
-        if to_add:
-            data.update(to_add)
+        if other:
+            merge_pk_maps(data, other)
 
         # final
         if data:
