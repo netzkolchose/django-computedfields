@@ -9,8 +9,7 @@ the signal handlers.
 """
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
-from computedfields.resolver import PathResolver
-from computedfields.helper import pairwise, is_sublist, reltype, modelname, is_computedfield
+from computedfields.helper import pairwise, is_sublist, modelname, is_computedfield
 import django
 Django2 = False
 if django.VERSION[0] >= 2:
@@ -21,16 +20,14 @@ class CycleException(Exception):
     """
     Exception raised during path linearization, if a cycle was found.
     Contains the found cycle either as list of edges or nodes in
-    ``message``.
+    ``args``.
     """
-    def __init__(self, message):
-        self.message = message
 
 
 class CycleEdgeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the found cycle as list of edges in ``message``.
+    Contains the found cycle as list of edges in ``args``.
     """
     pass
 
@@ -38,7 +35,7 @@ class CycleEdgeException(CycleException):
 class CycleNodeException(CycleException):
     """
     Exception raised during path linearization, if a cycle was found.
-    Contains the found cycle as list of nodes in ``message``.
+    Contains the found cycle as list of nodes in ``args``.
     """
     pass
 
@@ -244,7 +241,7 @@ class Graph(object):
         try:
             paths = self.get_edgepaths()
         except CycleEdgeException as e:
-            raise CycleNodeException(self.edgepath_to_nodepath(e.message))
+            raise CycleNodeException(self.edgepath_to_nodepath(e.args[0]))
         node_paths = []
         for path in paths:
             node_paths.append(self.edgepath_to_nodepath(path))
@@ -391,7 +388,7 @@ class ComputedModelsGraph(Graph):
     - The graph does a cycle check and removes redundant edges
       to lower the database penalty.
     - In ``generate_lookup_map`` the path segments of remaining edges
-      are resolved to functions and collected into the final lookup map.
+      are collected into the final lookup map.
     """
     def __init__(self, computed_models):
         """
@@ -408,50 +405,39 @@ class ComputedModelsGraph(Graph):
         """
         Converts all depend strings into real model field lookups.
         """
-        # first resolve all stringified dependencies to real types
-        # walks every depends string for all models
         resolved = OrderedDict()
         for model, fields in computed_models.items():
             for field, depends in fields.items():
                 fieldentry = resolved.setdefault(model, {}).setdefault(field, {})
                 for value in depends:
-                    path, target_field = value.split('#')
+                    try:
+                        # depends on another computed field
+                        path, target_field = value.split('#')
+                    except ValueError:
+                        # simple dependency to other model
+                        path = value
+                        target_field = '#'
+                    path_segments = []
                     cls = model
-                    relations = []
                     for symbol in path.split('.'):
-                        rel_data = {}
                         try:
-                            # forward relations
-                            reverse = False
                             rel = cls._meta.get_field(symbol)
-                            rel_type = reltype(rel)
-                            rel_data['model'] = cls
-                            cls = cls._meta.get_field(symbol).related_model
                         except FieldDoesNotExist:
-                            # backward relations
-                            reverse = True
-                            rel = getattr(cls, symbol).field
-                            if not Django2:
-                                rel = rel.rel
-                            rel_type = reltype(rel)
-                            if rel_type == 'm2m':
-                                rel_data['model'] = cls
-                            else:
-                                symbol = rel.name
-                            cls = rel.model if Django2 else rel.related_model
-                            if rel_type != 'm2m':
-                                rel_data['model'] = cls
-                        rel_data['path'] = symbol
-                        rel_data['reverse'] = reverse
-                        rel_data['type'] = rel_type
-                        relations.append(rel_data)
-                        fieldentry.setdefault(cls, []).append({'relations': relations[:]})
+                            rel = getattr(cls, symbol).rel
+                            symbol = (rel.related_name
+                                      or rel.related_query_name
+                                      or rel.related_model._meta.model_name)
+                        path_segments.append(symbol)
+                        cls = rel.related_model
+                        fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments)})
                     fieldentry[cls][-1]['depends'] = target_field
         return resolved
 
     def _clean_data(self, data):
-        # create simplified adjacency list tree for easier graph handling
-        # models: maps modelname => model for back translation later
+        """
+        Converts the dependency data into an adjacency list tree
+        to be used with the underlying graph.
+        """
         cleaned = OrderedDict()
         for model, fielddata in data.items():
             self.models[modelname(model)] = model
@@ -485,31 +471,67 @@ class ComputedModelsGraph(Graph):
 
     def generate_lookup_map(self):
         """
-        Generates the final lookup map of resolver functions to get
-        all dependent objects for a given instance. The resolver functions
-        are created by ``PathResolver``.
+        Generates the final lookup map for queryset generation.
 
         Structure of the map is:
 
         .. code:: python
 
             {model: {
-                '#'      :  [[callback, ...], ...]
-                'fieldA' :  [[callback, ...], ...]
+                '#'      :  dependencies
+                'fieldA' :  dependencies
                 }
             }
 
-        ``model`` denotes the source model of a given instance. The callbacks
-        are specific for computed fields, any other field points to ``'#'``.
-        Therefore the ``'#'`` callbacks should to be used if there are no
-        ``update_fields`` set in a save handler or if it contains ordinary fields.
+        ``model`` denotes the source model of a given instance. ``'fieldA'`` points to
+        a computed field that was saved. The right side contains the dependencies
+        in the form
+
+        .. code:: python
+
+            {dependent_model: (fields, filter_strings)}
+
+        In ``update_dependent`` the information will be used to create a queryset
+        and save their elements (roughly):
+
+        .. code:: python
+
+            queryset = dependent_model.objects.filter(string1=instance)
+            queryset |= dependent_model.objects.filter(string2=instance)
+            for obj in queryset:
+                obj.save(update_fields=fields)
+
+        The ``'#'`` is a special placeholder to indicate, that a model object
+        was saved normally. It contains the plain and non computed field dependencies.
+
+        The separation of dependencies to computed fields and to other fields makes it
+        possible to create complex computed field dependencies, even multiple times
+        between the same objects without running into circular dependencies:
+
+        .. CODE:: python
+
+            class A(ComputedFieldsModel):
+                @computed(..., depends=['b_set#comp_b'])
+                def comp_a(self):
+                     ...
+
+            class B(ComputedFieldsModel):
+                a = ForeignKey(B)
+                @computed(..., depends=['a'])
+                def comp_b(self):
+                    ...
+
+        Here ``A.comp_a`` depends on ``b.com_b`` which itself somehow depends on ``A``.
+        If an instance of ``A`` gets saved, the corresponding objects in ``B``
+        will be updated, which triggers a final update of ``comp_a`` fields
+        on associated ``A`` objects.
 
         .. CAUTION::
 
-            If there are only known fields in ``update_fields`` always use
-            the specific callbacks, never the ``'#'`` callbacks. This is important
-            to ensure cycle free database updates. Any known field must call
-            it's corresponding callbacks to get properly updated.
+            If there are only computed fields in ``update_fields`` always use
+            those dependencies, never ``'#'``. This is important to ensure
+            cycle free database updates. For computed fields the corresponding
+            dependencies should always be used to get properly updated.
 
         .. NOTE::
             The created map is also used for the pickle file to circumvent
@@ -533,7 +555,15 @@ class ComputedModelsGraph(Graph):
         for lmodel, data in table.items():
             for lfield, ldata in data.items():
                 for rmodel, rdata in ldata.items():
-                    funcs = PathResolver(rmodel, rdata).resolve()
                     func_table.setdefault(lmodel, {})\
-                              .setdefault(lfield, {})[rmodel] = funcs
+                              .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
         return func_table
+
+    def _resolve(self, data):
+        fields = set()
+        strings = set()
+        for field, dependencies in data.items():
+            fields.add(field)
+            for dep in dependencies:
+                strings.add(dep['path'])
+        return fields, strings

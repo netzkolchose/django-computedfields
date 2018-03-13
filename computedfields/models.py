@@ -20,17 +20,17 @@ class ComputedFieldsModelType(ModelBase):
     graph calculations and dependency resolving.
 
     After startup the method ``_resolve_dependencies`` gets called by
-    ``app.ready`` to build the dependency resolver functions.
-    To avoid the expensive calculations in production mode the resolver
-    functions can be pickled into a map file by setting
-    ``COMPUTEDFIELDS_MAP`` in settings.py to a writable file path
-    and calling the management command ``createmap``.
+    ``app.ready`` to build the dependency resolving map.
+    To avoid the expensive calculations in production mode the map
+    can be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
+    in settings.py to a writable file path and calling the management
+    command ``createmap``.
 
     .. NOTE::
 
         The map file will not be updated automatically and therefore
         must be recreated by calling the management command
-        ``createmap`` after code changes.
+        ``createmap`` after model changes.
     """
     _graph = None
     _computed_models = OrderedDict()
@@ -97,27 +97,6 @@ class ComputedFieldsModelType(ModelBase):
             mcs._map_loaded = True
 
     @classmethod
-    def _get_dependent_queryset(mcs, instance, paths_resolved, model):
-        """
-        Returns a queryset containing all dependent objects of type ``model``
-        for ``instance``.
-        ``paths_resolved`` is a list of precalculated resolver functions.
-        """
-        for func in paths_resolved:
-            instance = func(instance)
-            # early exit for empty relation objects
-            # test for QuerySet type beforehand to avoid triggering db interaction
-            if not isinstance(instance, models.QuerySet) and not instance:
-                return model.objects.none()
-        # turn single model instance into a queryset
-        if not isinstance(instance, models.QuerySet):
-            return model.objects.filter(pk=instance.pk)
-        # we got a pk list queryset from values_list
-        if not instance.model == model:
-            return model.objects.filter(pk__in=instance)
-        return instance
-
-    @classmethod
     def _querysets_for_update(mcs, model, instance, update_fields=None, pk_list=False):
         """
         Returns a mapping of all dependent models, dependent fields and a
@@ -134,14 +113,13 @@ class ComputedFieldsModelType(ModelBase):
             for fieldname in update_fields:
                 if fieldname in modeldata:
                     updates.add(fieldname)
+        subquery = '__in' if isinstance(instance, models.QuerySet) else ''
         for update in updates:
-            for model, resolvers in modeldata[update].items():
+            for model, resolver in modeldata[update].items():
+                fields, paths = resolver
                 qs = model.objects.none()
-                fields = set()
-                for field, paths_resolved in resolvers:
-                    # join all queryets to a final one with all update fields
-                    qs |= mcs._get_dependent_queryset(instance, paths_resolved, model)
-                    fields.add(field)
+                for path in paths:
+                    qs |= model.objects.filter(**{path+subquery: instance})
                 if pk_list:
                     # need pks for post_delete since the real queryset will be empty
                     # after deleting the instance in question
@@ -158,11 +136,10 @@ class ComputedFieldsModelType(ModelBase):
         """
         Updates all dependent computed fields model objects.
 
-        This is needed if you have computed fields that depend on the model
-        you would like to update with ``QuerySet.update``. Simply call this
-        function after the update with the queryset containing the changed
-        objects. The queryset may not be finalized by ``distinct`` or
-        any other means.
+        This is needed if you have computed fields that depend on a model
+        changed by bulk actions. Simply call this function after the update
+        with the queryset containing the changed objects.
+        The queryset may not be finalized by ``distinct`` or any other means.
 
             >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
             >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
@@ -229,7 +206,7 @@ class ComputedFieldsModelType(ModelBase):
         ``C`` even three times. It gets even worse if the queries contain record
         intersections, those items would be queried and saved several times.
 
-        The updates can be rewritten as:
+        The updates above can be rewritten as:
 
             >>> update_dependent_multi([
             ...     Foo.objects.filter(i='x'),
@@ -244,7 +221,9 @@ class ComputedFieldsModelType(ModelBase):
             ``instances`` can also contain model instances. Don't use
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
-            (as shown for ``bulk_create`` above).
+            (as shown for ``bulk_create`` above), or
+            ``update_dependent_multi`` if you multiple of those
+            aggregated querysets.
         """
         final = {}
         for instance in instances:
@@ -256,8 +235,9 @@ class ComputedFieldsModelType(ModelBase):
                 m[1].update(data[1])  # add fields
         with transaction.atomic():
             for qs, fields in final.values():
-                for el in qs.distinct():
-                    el.save(update_fields=fields)
+                if qs.exists():
+                    for el in qs.distinct():
+                        el.save(update_fields=fields)
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
@@ -366,22 +346,20 @@ def computed(field, **kwargs):
     A relation can be any of the relation types foreign keys, m2m and their
     corresponding back relations. One2one is not yet implemented.
 
-    The fieldname at the end separated by '#' is mandatory for the
-    dependency resolver to decide, whether the updates depend on other
-    computed fields. For multiple dependencies to ordinary fields
-    of the same model you have to list only one fieldname:
+    The fieldname at the end separated by '#' is mandatory for other
+    computed fields and can be omitted for ordinary fields:
 
     .. code-block:: python
 
-        @computed(models.CharField(max_length=32), depends=['fk#name'])
+        @computed(models.CharField(max_length=32), depends=['fk'])
         def some_field(self):
             return self.fk.name + self.fk.field_xy
 
-    Here ``name`` and ``field_xy`` are ordinary fields. Listing one of them
-    in ``depends`` is sufficient to get the computed field properly updated.
+    Here ``name`` and ``field_xy`` are ordinary fields. Pointing to ``fk``
+    in the depends string is sufficient for a proper update handling.
 
-    On the contrary dependencies to other computed fields must always
-    be listed separately to make sure your computed field gets properly updated:
+    On the contrary dependencies to other computed fields should be listed
+    separately to get updated after changes:
 
     .. code-block:: python
 
@@ -391,7 +369,7 @@ def computed(field, **kwargs):
 
     .. CAUTION::
 
-        With the dependendy auto resolver you can easily create
+        With the dependency auto resolver you can easily create
         recursive dependencies by accident. Imagine the following:
 
         .. code-block:: python

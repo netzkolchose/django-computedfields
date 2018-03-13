@@ -25,14 +25,6 @@ graph
    :show-inheritance:
 
 
-resolver
---------
-
-.. automodule:: computedfields.resolver
-   :members:
-   :show-inheritance:
-
-
 handlers
 --------
 

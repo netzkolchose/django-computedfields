@@ -118,11 +118,11 @@ Now if the name of a person changes, the field ``full_address`` will be updated
 accordingly.
 
 Note the format of the depends string - it consists of the relation name
-and the field name separated by '#'. The field name is mandatory (due to the way
-the dependency resolver works) and can either point to another computed field or
-any ordinary database field. The relation name part can span serveral models,
-simply name the relation in python style with a dot (e.g. ``'a.b.c#field'``).
-A relation can be of any of foreign keys, m2m and their back relations.
+and the field name separated by '#'. The field name is mandatory for other
+computed fields and can be omitted for ordinary database fields.
+The relation name part can span serveral models, simply name the relation
+in python style with a dot (e.g. ``'a.b.c'``).
+A relation can be of any of foreign key, m2m and their back relations.
 One2one relations are not supported yet.
 
 .. NOTE::
@@ -141,10 +141,7 @@ One2one relations are not supported yet.
             return ''.join(self.m2m.all().values_list('field', flat=True))
 
     Generally you should avoid nested m2m relations in dependendies
-    as much as possible since the update penalty will explode
-    (grows exponentially). If you have complex aggregations with nested m2m
-    relations try to flatten your model layout by inserting additional
-    lookup models with computed fields.
+    as much as possible since the update penalty will explode.
 
 .. CAUTION::
 
@@ -163,6 +160,9 @@ fields directly by calling ``update_dependent``:
     >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
     >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
 
+After multiple bulk actions consider using ``update_dependent_multi``, which
+will avoid unnecessary multiplied updates.
+
 See API Reference for further details.
 
 
@@ -177,8 +177,8 @@ Management Commands
     renders the dependency graph to <filename>.
 
 - ``updatedata``
-    updates all computed fields of the project. Useful after tons of bulk changes,
-    e.g. from fixtures.
+    does a full update on all computed fields in the project. Only useful after
+    tons of bulk changes, e.g. from fixtures.
 
 
 Todos & Future Plans

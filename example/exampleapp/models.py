@@ -10,7 +10,7 @@ from django.utils.encoding import python_2_unicode_compatible
 class Foo(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32), depends=['bar_set.baz_set#name'])
+    @computed(models.CharField(max_length=32), depends=['bar_set.baz_set'])
     def bazzes(self):
         return ', '.join(Baz.objects.filter(
             bar__foo=self).values_list('name', flat=True))
@@ -24,7 +24,7 @@ class Bar(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     foo = models.ForeignKey(Foo, on_delete=models.CASCADE)
 
-    @computed(models.CharField(max_length=32), depends=['foo#name'])
+    @computed(models.CharField(max_length=32), depends=['foo'])
     def foo_bar(self):
         return self.foo.name + self.name
 

@@ -54,12 +54,12 @@ class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     fk = models.ForeignKey(SomeModel)
     
-    @computed(models.CharField(max_length=32), depends=['fk#fieldname'])
+    @computed(models.CharField(max_length=32), depends=['fk'])
     def computed_field(self):
         return self.name.upper() + self.fk.fieldname
 ```
 
-Changes to `fk` will now also update `computed_field`.
+Now changes to `fk` will now also update `computed_field`.
 
 
 #### Documentation ####
