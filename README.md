@@ -70,7 +70,6 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 #### TODO ####
 
 - support one2one relations
-- cleanup messy dependency resolver map creation
 - advanced test cases with mixed dependencies
 - dependencies with Django’s F objects
 - eval usage of stored procedures and complex annotations

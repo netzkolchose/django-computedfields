@@ -39,9 +39,6 @@ class QuerySetGenerator(object):
         self.strings = []
         self.model = None
 
-    def add_string(self, string):
-        self.strings.append(string)
-
     def finalize(self):
         return partial(qs_value, self.model, '__'.join(self.strings))
 
@@ -64,9 +61,6 @@ class AttrGenerator(object):
     """
     def __init__(self):
         self.strings = []
-
-    def add_string(self, string):
-        self.strings.append(string)
 
     def finalize(self):
         return partial(attr_value, '__'.join(reversed(self.strings)),
@@ -116,22 +110,22 @@ class PathResolver(object):
         search = QuerySetGenerator()
         attrs = AttrGenerator()
         stack = []
-        for rel in dep['nd']:
-            if ((rel['type'] in ['fk', 'm2m'] and not rel['backrel'])
-                  or (rel['type'] == 'm2m' and rel['backrel'])):
+        for relation in dep['relations']:
+            if ((relation['type'] == 'fk' and not relation['reverse'])
+                    or relation['type'] == 'm2m'):
                 if attrs.strings:
                     stack.append(attrs)
                     attrs = AttrGenerator()
                 if not search.strings:
-                    search.model = rel['model']
-                search.add_string(rel['path'])
-            elif rel['type'] == 'fk' and rel['backrel']:
+                    search.model = relation['model']
+                search.strings.append(relation['path'])
+            elif relation['type'] == 'fk' and relation['reverse']:
                 if search.strings:
                     stack.append(search)
                     search = QuerySetGenerator()
-                attrs.add_string(rel['path'])
+                attrs.strings.append(relation['path'])
             else:
-                raise NotImplemented([rel['type'], rel['backrel']])
+                raise NotImplemented('%s, %s' % (relation['type'], relation['reverse']))
         if attrs.strings:
             stack.append(attrs)
         if search.strings:

@@ -399,11 +399,10 @@ class ComputedModelsGraph(Graph):
         created during model initialization.
         """
         super(ComputedModelsGraph, self).__init__()
-        self.computed_models = computed_models
-        self.lookup_map = {}
-        self.data, self.cleaned, self.model_mapping = self.resolve_dependencies(
-            self.computed_models)
-        self._insert_data(self.cleaned)
+        self.models = {}
+        self.resolved = self.resolve_dependencies(computed_models)
+        self.cleaned_data = self._clean_data(self.resolved)
+        self._insert_data(self.cleaned_data)
 
     def resolve_dependencies(self, computed_models):
         """
@@ -411,91 +410,65 @@ class ComputedModelsGraph(Graph):
         """
         # first resolve all stringified dependencies to real types
         # walks every depends string for all models
-        # TODO: needs serious cleanup
-        # FIXME: do a real reltype check instead of try/error attribute access
-        store = OrderedDict()
+        resolved = OrderedDict()
         for model, fields in computed_models.items():
-            modelentry = store.setdefault(model, {})
             for field, depends in fields.items():
-                fieldentry = modelentry.setdefault(field, {})
-                count = 0
+                fieldentry = resolved.setdefault(model, {}).setdefault(field, {})
                 for value in depends:
                     path, target_field = value.split('#')
                     cls = model
-                    agg_path = []
-                    new_data = []
+                    relations = []
                     for symbol in path.split('.'):
-                        nd = {}
-                        agg_path.append(symbol)
+                        rel_data = {}
                         try:
-                            if fieldentry.get(cls):
-                                fieldentry[cls][count]['depends'] = symbol
-                        except IndexError:
-                            pass
-                        is_backrelation = False
-                        try:
-                            if Django2:
-                                rel = cls._meta.get_field(symbol)
-                            else:
-                                rel = cls._meta.get_field(symbol).rel
-                            nd['model'] = cls
+                            # forward relations
+                            reverse = False
+                            rel = cls._meta.get_field(symbol)
+                            if not Django2:
+                                rel = rel.rel
+                            rel_type = reltype(rel)
+                            rel_data['model'] = cls
                             cls = cls._meta.get_field(symbol).related_model
-                            nd['path'] = symbol
-                        except (FieldDoesNotExist, AttributeError):
-                            is_backrelation = True
-                            field = getattr(cls, symbol).field
-                            if Django2:
-                                rel = field
+                        except FieldDoesNotExist:
+                            # backward relations
+                            reverse = True
+                            rel = getattr(cls, symbol).field
+                            if not Django2:
+                                rel = rel.rel
+                            rel_type = reltype(rel)
+                            if rel_type == 'm2m':
+                                rel_data['model'] = cls
                             else:
-                                rel = field.rel
-
-                            if reltype(rel) == 'm2m':
-                                nd['model'] = cls
-                                nd['path'] = symbol
-
-                            if Django2:
-                                cls = rel.model
-                            else:
-                                cls = rel.related_model
-
-                            if reltype(rel) != 'm2m':
-                                nd['model'] = cls
-                                nd['path'] = field.name
-
-                        nd['backrel'] = is_backrelation
-                        nd['type'] = reltype(rel)
-                        new_data.append(nd)
+                                symbol = rel.name
+                            cls = rel.model if Django2 else rel.related_model
+                            if rel_type != 'm2m':
+                                rel_data['model'] = cls
+                        rel_data['path'] = symbol
+                        rel_data['reverse'] = reverse
+                        rel_data['type'] = rel_type
+                        relations.append(rel_data)
                         fieldentry.setdefault(cls, []).append({
-                            'depends': '', 'backrel': is_backrelation,
-                            'rel': reltype(rel), 'path': tuple(agg_path[:]),
-                            'nd': new_data[:]})
+                            'depends': '', 'relations': relations[:]})
                     fieldentry[cls][-1]['depends'] = target_field
-                    count += 1
+        return resolved
 
-        # reorder to adjacency list tree for easier graph handling
-        final = OrderedDict()
-        model_mapping = OrderedDict()
-        for model, fielddata in store.items():
-            model_mapping[modelname(model)] = model
+    def _clean_data(self, data):
+        # create simplified adjacency list tree for easier graph handling
+        # models: maps modelname => model for back translation later
+        cleaned = OrderedDict()
+        for model, fielddata in data.items():
+            self.models[modelname(model)] = model
             for field, modeldata in fielddata.items():
-                for depmodel, data in modeldata.items():
-                    model_mapping[modelname(depmodel)] = depmodel
-                    for comb in ((modelname(depmodel), dep['depends']
-                      if is_computed_field(depmodel, dep['depends']) else '#')
-                                 for dep in data):
-                        final.setdefault(comb, set()).add((modelname(model), field))
-
-        # fix tree: move all sub updates of field dependencies under '#'
-        # leads possibly to double paths (removed later if redundant)
-        for key, value in final.items():
-            model, field = key
-            if field == '#':
-                for skey, svalue in final.items():
-                    smodel, sfield = skey
-                    if model == smodel and field != sfield:
-                        value.update(svalue)
-
-        return store, final, model_mapping
+                for depmodel, relations in modeldata.items():
+                    self.models[modelname(depmodel)] = depmodel
+                    for dep in relations:
+                        depends = '#'
+                        if is_computed_field(depmodel, dep['depends']):
+                            depends = dep['depends']
+                        key = (modelname(depmodel), depends)
+                        value = (modelname(model), field)
+                        cleaned.setdefault(key, set()).add(value)
+        return cleaned
 
     def _insert_data(self, data):
         """
@@ -511,16 +484,6 @@ class ComputedModelsGraph(Graph):
             for right in value:
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
-
-    def _cleaned_data_from_edges(self):
-        """
-        Returns an adjacency mapping of the graph
-        as ``{left: set(right neighbours)}``.
-        """
-        map = {}
-        for edge in self.edges:
-            map.setdefault(edge.left.data, set()).add(edge.right.data)
-        return map
 
     def generate_lookup_map(self):
         """
@@ -554,33 +517,25 @@ class ComputedModelsGraph(Graph):
             The created map is also used for the pickle file to circumvent
             the computationally expensive graph and map creation in production mode.
         """
-        # TODO: cleanup and simplify code
-        # reorder full node information to
-        # {changed_model: {needs_update_model: {computed_field: dep_data}}}
-        final = OrderedDict()
-        for model, fielddata in self.data.items():
-            for field, modeldata in fielddata.items():
-                for depmodel, data in modeldata.items():
-                    final.setdefault(
-                        depmodel, {}).setdefault(model, {}).setdefault(field, data)
-
         # apply full node information to graph edges
         table = {}
-        for left_node, right_nodes in self._cleaned_data_from_edges().items():
-            lmodel, lfield = left_node
-            lmodel = self.model_mapping[lmodel]
-            rstore = table.setdefault(lmodel, {}).setdefault(lfield, {})
-            for right_node in right_nodes:
-                rmodel, rfield = right_node
-                rmodel = self.model_mapping[rmodel]
-                rstore.setdefault(rmodel, {}).setdefault(rfield, []).extend(
-                    final[lmodel][rmodel][rfield])
+        for edge in self.edges:
+            lmodel, lfield = edge.left.data
+            lmodel = self.models[lmodel]
+            rmodel, rfield = edge.right.data
+            rmodel = self.models[rmodel]
+            table.setdefault(lmodel, {})\
+                 .setdefault(lfield, {})\
+                 .setdefault(rmodel, {})\
+                 .setdefault(rfield, [])\
+                 .extend(self.resolved[rmodel][rfield][lmodel])
 
         # finally build functions table for the signal handler
         func_table = {}
         for lmodel, data in table.items():
-            for lfield, fielddata in data.items():
-                store = func_table.setdefault(lmodel, {}).setdefault(lfield, {})
-                for rmodel, rfielddata in fielddata.items():
-                    store[rmodel] = PathResolver(rmodel, rfielddata).resolve()
+            for lfield, ldata in data.items():
+                for rmodel, rdata in ldata.items():
+                    funcs = PathResolver(rmodel, rdata).resolve()
+                    func_table.setdefault(lmodel, {})\
+                              .setdefault(lfield, {})[rmodel] = funcs
         return func_table
