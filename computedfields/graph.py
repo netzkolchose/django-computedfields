@@ -424,8 +424,6 @@ class ComputedModelsGraph(Graph):
                             # forward relations
                             reverse = False
                             rel = cls._meta.get_field(symbol)
-                            if not Django2:
-                                rel = rel.rel
                             rel_type = reltype(rel)
                             rel_data['model'] = cls
                             cls = cls._meta.get_field(symbol).related_model
