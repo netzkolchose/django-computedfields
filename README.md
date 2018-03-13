@@ -19,7 +19,6 @@ the `@computed` decorator at a method:
 from django.db import models
 from computedfields.models import ComputedFieldsModel, computed
 
-
 class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     
@@ -45,7 +44,22 @@ if you have pending changes:
 
 The `computed` decorator supports a `depends` keyword argument
 to indicate dependencies to other model fields. If set, the computed field
-gets automatically updated upon changes of the related fields.
+gets automatically updated upon changes of the related fields:
+
+```python
+from django.db import models
+from computedfields.models import ComputedFieldsModel, computed
+
+class MyModel(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    fk = models.ForeignKey(SomeModel)
+    
+    @computed(models.CharField(max_length=32), depends=['fk#fieldname'])
+    def computed_field(self):
+        return self.name.upper() + self.fk.fieldname
+```
+
+Changes to `fk` will now also update `computed_field`.
 
 
 #### Documentation ####
