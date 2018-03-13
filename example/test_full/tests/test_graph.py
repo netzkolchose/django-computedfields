@@ -106,5 +106,5 @@ class GraphTests(TestCase):
         try:
             graph.get_nodepaths()
         except CycleNodeException as e:
-            self.assertIn(e.message, [[nodes[0], nodes[1], nodes[0]],
+            self.assertIn(e.args[0], [[nodes[0], nodes[1], nodes[0]],
                                       [nodes[1], nodes[0], nodes[1]]])
