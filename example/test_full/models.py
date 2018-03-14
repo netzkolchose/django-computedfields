@@ -76,8 +76,10 @@ class NoRelatedA(ComputedFieldsModel):
             res.append(b.name)
             for c in b.norelatedc_set.all():
                 res.append(c.name)
-                if c.norelatedd:
+                try:
                     res.append(c.norelatedd.comp)
+                except models.ObjectDoesNotExist:
+                    pass
         return '#'.join(res)
 
 
@@ -98,8 +100,10 @@ class NoRelatedD(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=['o_dc.m_cb.f_ba'])
     def comp(self):
         inner = []
-        if self.o_dc:
+        try:
             for b in self.o_dc.m_cb.all():
                 if b.f_ba:
                     inner.append(b.f_ba.name)
+        except models.ObjectDoesNotExist:
+            pass
         return self.name + '-a:' + '#'.join(inner)

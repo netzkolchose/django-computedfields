@@ -20,20 +20,20 @@ class TestNoReverse(TestCase):
         self.assertEqual(self.d.comp, 'd-a:a')
         self.assertEqual(self.a.comp, 'a#b#c#d-a:a')
 
-    def insert_a_b(self):
+    def test_insert_a_b(self):
         new_a = models.NoRelatedA.objects.create(name='A')
         new_b = models.NoRelatedB.objects.create(name='B', f_ba=new_a)
         self.c.m_cb.add(new_b)
         self.a.refresh_from_db()
         self.d.refresh_from_db()
-        self.assertEqual(self.d.comp, 'd-a:aA')
-        self.assertEqual(self.a.comp, 'a#b#c#d-a:aA')
+        self.assertEqual(self.d.comp, 'd-a:a#A')
+        self.assertEqual(self.a.comp, 'a#b#c#d-a:a#A')
         new_a.refresh_from_db()
-        self.assertEqual(new_a.comp, 'A#b#c#d-a:aA')
+        self.assertEqual(new_a.comp, 'A#B#c#d-a:a#A')
 
-    def delete_c(self):
+    def test_delete_c(self):
         self.c.delete()
         self.a.refresh_from_db()
-        self.d.refresh_from_db()
-        self.assertEqual(self.d.comp, 'd-a:')
+        # d got deleted as well
+        self.assertFalse(models.NoRelatedD.objects.all())
         self.assertEqual(self.a.comp, 'a#b')
