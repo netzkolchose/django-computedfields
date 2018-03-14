@@ -184,5 +184,3 @@ Todos & Future Plans
 --------------------
 
 - optimize update querysets with ``select_related`` and ``prefetch_related``
-- dependencies with Django's ``F`` objects
-- eval usage of stored procedures and complex annotations
