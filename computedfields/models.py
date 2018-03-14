@@ -343,8 +343,8 @@ def computed(field, **kwargs):
     The dependency string is in the form ``'rel_a.rel_b#fieldname'``,
     where the computed field gets a value from a field ``fieldname``,
     which is accessible through the relations ``rel_a`` --> ``rel_b``.
-    A relation can be any of the relation types foreign keys, m2m and their
-    corresponding back relations. One2one is not yet implemented.
+    A relation can be any of foreign key, m2m, o2o and their
+    corresponding back relations.
 
     The fieldname at the end separated by '#' is mandatory for other
     computed fields and can be omitted for ordinary fields:

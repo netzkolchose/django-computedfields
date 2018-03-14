@@ -122,8 +122,7 @@ and the field name separated by '#'. The field name is mandatory for other
 computed fields and can be omitted for ordinary database fields.
 The relation name part can span serveral models, simply name the relation
 in python style with a dot (e.g. ``'a.b.c'``).
-A relation can be of any of foreign key, m2m and their back relations.
-One2one relations are not supported yet.
+A relation can be of any of foreign key, m2m, o2o and their back relations.
 
 .. NOTE::
 
@@ -184,7 +183,7 @@ Management Commands
 Todos & Future Plans
 --------------------
 
-- support one2one relations
 - advanced test cases with mixed dependencies
+- optimize update querysets with ``select_related`` and ``prefetch_related``
 - dependencies with Django's ``F`` objects
 - eval usage of stored procedures and complex annotations
