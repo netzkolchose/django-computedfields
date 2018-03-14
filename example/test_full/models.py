@@ -64,6 +64,7 @@ MODELS = generate_models('abcdefgh')
 
 # test no related_name with complicated dependencies
 class NoRelatedA(ComputedFieldsModel):
+    _not_reset = True
     name = models.CharField(max_length=5)
 
     @computed(models.CharField(max_length=256), depends=[
@@ -85,7 +86,7 @@ class NoRelatedA(ComputedFieldsModel):
 
 class NoRelatedB(models.Model):
     name = models.CharField(max_length=5)
-    f_ba = models.ForeignKey(NoRelatedA, blank=True, null=True)
+    f_ba = models.ForeignKey(NoRelatedA, blank=True, null=True, on_delete=models.CASCADE)
 
 
 class NoRelatedC(models.Model):
@@ -94,8 +95,9 @@ class NoRelatedC(models.Model):
 
 
 class NoRelatedD(ComputedFieldsModel):
+    _not_reset = True
     name = models.CharField(max_length=5)
-    o_dc = models.OneToOneField(NoRelatedC, blank=True, null=True)
+    o_dc = models.OneToOneField(NoRelatedC, blank=True, null=True, on_delete=models.CASCADE)
 
     @computed(models.CharField(max_length=32), depends=['o_dc.m_cb.f_ba'])
     def comp(self):

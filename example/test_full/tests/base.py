@@ -36,6 +36,8 @@ class GenericModelTestBase(TestCase):
         """
         models = ComputedFieldsModelType._computed_models
         for model in models:
+            if hasattr(model, '_not_reset'):
+                continue
             models[model] = {}
             for fielddata in model._computed_fields.values():
                 fielddata._computed['func'] = lambda x: ''
