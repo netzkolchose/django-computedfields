@@ -12,7 +12,7 @@ def model_factory(name, keys):
         class A(ComputedFieldsModel):
             name = models.CharField(max_length=5)
             f_ab = models.ForeignKey('B', related_name='ba_f', blank=True, null=True)
-            m_ab = models.ManyToManyField('B', related_name='ba_m', blank=True, null=True)
+            m_ab = models.ManyToManyField('B', related_name='ba_m', blank=True)
             o_ab = models.OneToOneField('B', related_name='ba_o', blank=True, null=True)
 
             @computed(models.CharField(max_length=5), depends=[])
@@ -58,6 +58,48 @@ def generate_models(keys):
     return dict((key.upper(), model_factory(key, keys)) for key in keys)
 
 
-# generate models: A, B ... h for testing purpose
+# generate models: A, B ... H for testing purpose
 MODELS = generate_models('abcdefgh')
 
+
+# test no related_name with complicated dependencies
+class NoRelatedA(ComputedFieldsModel):
+    name = models.CharField(max_length=5)
+
+    @computed(models.CharField(max_length=256), depends=[
+        'norelatedb_set',
+        'norelatedb_set.norelatedc_set',
+        'norelatedb_set.norelatedc_set.norelatedd#comp'])
+    def comp(self):
+        res = [self.name]
+        for b in self.norelatedb_set.all():
+            res.append(b.name)
+            for c in b.norelatedc_set.all():
+                res.append(c.name)
+                if c.norelatedd:
+                    res.append(c.norelatedd.comp)
+        return '#'.join(res)
+
+
+class NoRelatedB(models.Model):
+    name = models.CharField(max_length=5)
+    f_ba = models.ForeignKey(NoRelatedA, blank=True, null=True)
+
+
+class NoRelatedC(models.Model):
+    name = models.CharField(max_length=5)
+    m_cb = models.ManyToManyField(NoRelatedB, blank=True)
+
+
+class NoRelatedD(ComputedFieldsModel):
+    name = models.CharField(max_length=5)
+    o_dc = models.OneToOneField(NoRelatedC, blank=True, null=True)
+
+    @computed(models.CharField(max_length=32), depends=['o_dc.m_cb.f_ba'])
+    def comp(self):
+        inner = []
+        if self.o_dc:
+            for b in self.o_dc.m_cb.all():
+                if b.f_ba:
+                    inner.append(b.f_ba.name)
+        return self.name + '-a:' + '#'.join(inner)
