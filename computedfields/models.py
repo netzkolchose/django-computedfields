@@ -83,8 +83,7 @@ class ComputedFieldsModelType(ModelBase):
         with mcs._lock:
             if mcs._map_loaded and not _force:
                 return
-            if (hasattr(settings, 'COMPUTEDFIELDS_MAP')
-                    and settings.COMPUTEDFIELDS_MAP
+            if (getattr(settings, 'COMPUTEDFIELDS_MAP', False)
                     and not force and not _force):
                 from django.utils.six.moves import cPickle as pickle
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:

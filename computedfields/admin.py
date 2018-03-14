@@ -83,5 +83,5 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
 
-if hasattr(settings, 'COMPUTEDFIELDS_ADMIN') and settings.COMPUTEDFIELDS_ADMIN:
+if getattr(settings, 'COMPUTEDFIELDS_ADMIN', False):
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
