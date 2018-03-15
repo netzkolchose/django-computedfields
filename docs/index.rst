@@ -7,7 +7,7 @@ Welcome to django-computedfields' documentation!
 ================================================
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Contents:
 
    manual
