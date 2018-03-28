@@ -33,10 +33,11 @@ class GenericModelTestBase(TestCase):
     def resetDeps(self):
         """
         Resets all depends and function values to initial dummies.
+        Only applied to auto generated models.
         """
         models = ComputedFieldsModelType._computed_models
         for model in models:
-            if hasattr(model, '_not_reset'):
+            if not hasattr(model, 'needs_reset'):
                 continue
             models[model] = {}
             for fielddata in model._computed_fields.values():
