@@ -45,6 +45,9 @@ def model_factory(name, keys):
     # comp field
     attrs['comp'] = computed(models.CharField(max_length=20), depends=[])(lambda self: '')
 
+    # needs reset in tests
+    attrs['needs_reset'] = True
+
     # create model class
     model_cls = type(name.upper(), (ComputedFieldsModel,), attrs)
     setattr(sys.modules[__name__], name.upper(), model_cls)
@@ -64,7 +67,6 @@ MODELS = generate_models('abcdefgh')
 
 # test no related_name with complicated dependencies
 class NoRelatedA(ComputedFieldsModel):
-    _not_reset = True
     name = models.CharField(max_length=5)
 
     @computed(models.CharField(max_length=256), depends=[
@@ -95,7 +97,6 @@ class NoRelatedC(models.Model):
 
 
 class NoRelatedD(ComputedFieldsModel):
-    _not_reset = True
     name = models.CharField(max_length=5)
     o_dc = models.OneToOneField(NoRelatedC, blank=True, null=True, on_delete=models.CASCADE)
 
@@ -109,3 +110,36 @@ class NoRelatedD(ComputedFieldsModel):
         except models.ObjectDoesNotExist:
             pass
         return self.name + '-a:' + '#'.join(inner)
+
+
+class MultipleCompSource(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32))
+    def upper(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32))
+    def lower(self):
+        return self.name.lower()
+
+
+class MultipleCompRef(ComputedFieldsModel):
+    a = models.ForeignKey(MultipleCompSource, related_name='a_set')
+    b = models.ForeignKey(MultipleCompSource, related_name='b_set')
+
+    @computed(models.CharField(max_length=32), depends=['a#upper'])
+    def upper_a(self):
+        return self.a.upper
+
+    @computed(models.CharField(max_length=32), depends=['a#lower'])
+    def lower_a(self):
+        return self.a.lower
+
+    @computed(models.CharField(max_length=32), depends=['b#upper'])
+    def upper_b(self):
+        return self.b.upper
+
+    @computed(models.CharField(max_length=32), depends=['b#lower'])
+    def lower_b(self):
+        return self.b.lower

@@ -113,21 +113,29 @@ class ComputedFieldsModelType(ModelBase):
                 if fieldname in modeldata:
                     updates.add(fieldname)
         subquery = '__in' if isinstance(instance, models.QuerySet) else ''
+        model_updates = OrderedDict()
         for update in updates:
+            # first aggregate fields and paths to cover
+            # multiple comp field dependencies
             for model, resolver in modeldata[update].items():
                 fields, paths = resolver
-                qs = model.objects.none()
-                for path in paths:
-                    qs |= model.objects.filter(**{path+subquery: instance})
-                if pk_list:
-                    # need pks for post_delete since the real queryset will be empty
-                    # after deleting the instance in question
-                    # since we need to interact with the db anyways
-                    # we can already drop empty results here
-                    qs = set(qs.distinct().values_list('pk', flat=True))
-                    if not qs:
-                        continue
-                final[model] = [qs, fields]
+                m_fields, m_paths = model_updates.setdefault(model, [set(), set()])
+                m_fields.update(fields)
+                m_paths.update(paths)
+        for model, data in model_updates.items():
+            fields, paths = data
+            qs = model.objects.none()
+            for path in paths:
+                qs |= model.objects.filter(**{path+subquery: instance})
+            if pk_list:
+                # need pks for post_delete since the real queryset will be empty
+                # after deleting the instance in question
+                # since we need to interact with the db anyways
+                # we can already drop empty results here
+                qs = set(qs.distinct().values_list('pk', flat=True))
+                if not qs:
+                    continue
+            final[model] = [qs, fields]
         return final
 
     @classmethod
