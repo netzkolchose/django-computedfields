@@ -125,8 +125,8 @@ class MultipleCompSource(ComputedFieldsModel):
 
 
 class MultipleCompRef(ComputedFieldsModel):
-    a = models.ForeignKey(MultipleCompSource, related_name='a_set')
-    b = models.ForeignKey(MultipleCompSource, related_name='b_set')
+    a = models.ForeignKey(MultipleCompSource, related_name='a_set', on_delete=models.CASCADE)
+    b = models.ForeignKey(MultipleCompSource, related_name='b_set', on_delete=models.CASCADE)
 
     @computed(models.CharField(max_length=32), depends=['a#upper'])
     def upper_a(self):
