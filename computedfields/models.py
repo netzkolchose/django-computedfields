@@ -91,7 +91,8 @@ class ComputedFieldsModelType(ModelBase):
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
-            mcs._graph.remove_redundant()
+            if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
+                mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._map_loaded = True
 
