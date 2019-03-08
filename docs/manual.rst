@@ -109,8 +109,10 @@ Now if the name of a person changes, the field ``full_address`` will be updated
 accordingly.
 
 Note the format of the depends string - it consists of the relation name
-and the field name separated by '#'. The field name is mandatory for other
-computed fields and can be omitted for ordinary database fields.
+and the field name separated by '#'. The field name is mandatory for any
+dependency to trigger a proper update. (In fact they can be omitted for normal
+fields if you never use ``.save`` with explicit setting ``update_fields``.
+But that is an implementation detail you should not rely on.)
 The relation name part can span serveral models, simply name the relation
 in python style with a dot (e.g. ``'a.b.c'``).
 A relation can be of any of foreign key, m2m, o2o and their back relations.

@@ -445,10 +445,12 @@ class ComputedModelsGraph(Graph):
                 for depmodel, relations in modeldata.items():
                     self.models[modelname(depmodel)] = depmodel
                     for dep in relations:
-                        if is_computedfield(depmodel, dep.get('depends')):
-                            depends = dep['depends']
-                        else:
-                            depends = '#'
+                        # normally we refer to the given model field
+                        # if none is given, set it to '#' which assumes
+                        # any chance to the model should trigger the update
+                        # Note: '#' is only triggered for `.save` without
+                        # setting update_fields!
+                        depends = dep.get('depends', '#')
                         key = (modelname(depmodel), depends)
                         value = (modelname(model), field)
                         cleaned.setdefault(key, set()).add(value)

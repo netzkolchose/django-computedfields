@@ -143,3 +143,17 @@ class MultipleCompRef(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=['b#lower'])
     def lower_b(self):
         return self.b.lower
+
+
+# test classes for partial updates with update_fields
+class PartialUpdateA(models.Model):
+    name = models.CharField(max_length=32)
+
+
+class PartialUpdateB(ComputedFieldsModel):
+    f_ba = models.ForeignKey(PartialUpdateA, related_name='a_set', on_delete=models.CASCADE)
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=['f_ba#name'])
+    def comp(self):
+        return self.f_ba.name + self.name
