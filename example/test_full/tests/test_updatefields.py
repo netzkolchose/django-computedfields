@@ -13,6 +13,5 @@ class UpdateFields(TestCase):
         self.assertEqual(self.b.comp, 'ab')
         self.a.name = 'A'
         self.a.save(update_fields=['name'])
-        #self.a.save()
         self.b.refresh_from_db()
         self.assertEqual(self.b.comp, 'Ab')

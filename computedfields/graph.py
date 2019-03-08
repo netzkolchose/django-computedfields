@@ -552,14 +552,14 @@ class ComputedModelsGraph(Graph):
                  .setdefault(rfield, [])\
                  .extend(self.resolved[rmodel][rfield][lmodel])
 
-        # finally build functions table for the signal handler
-        func_table = {}
+        # finally build map for the signal handler
+        lookup_map = {}
         for lmodel, data in table.items():
             for lfield, ldata in data.items():
                 for rmodel, rdata in ldata.items():
-                    func_table.setdefault(lmodel, {})\
+                    lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
-        return func_table
+        return lookup_map
 
     def _resolve(self, data):
         fields = set()
