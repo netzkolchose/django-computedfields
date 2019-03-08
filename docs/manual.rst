@@ -152,6 +152,24 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
     The dependency resolver tries to detect cycling dependencies and might
     raise a ``CycleNodeException``.
 
+.. NOTE::
+
+    Updates of computed fields from fields on the same model behave a little
+    different than dependencies to fields on related models. To ensure proper updates,
+    either call ``save`` without ``update_fields`` (full save) or
+    include the computed fields explicitly in ``update_fields``:
+
+    .. CODE:: python
+
+        address.city = 'New City'
+        address.save()                                          # also updates .full_address
+        address.save(update_fields=['city'])                    # does not update .full_address
+        address.save(update_fields=['city', 'full_address'])    # make it explicit
+
+    Note that there is currently no way to circumvent this slightly different behavior
+    due to the way the autoresolver works internally.
+    Future versions might allow declarations like ``self#fieldname`` and handle it transparently.
+
 
 Advanced Usage
 --------------
