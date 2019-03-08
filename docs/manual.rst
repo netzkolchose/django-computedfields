@@ -110,7 +110,7 @@ accordingly.
 
 Note the format of the depends string - it consists of the relation name
 and the field name separated by '#'. The field name is mandatory for any
-dependency to trigger a proper update. (In fact they can be omitted for normal
+dependency to trigger a proper update. (In fact it can be omitted for normal
 fields if you never use ``.save`` with explicit setting ``update_fields``.
 But that is an implementation detail you should not rely on.)
 The relation name part can span serveral models, simply name the relation
@@ -119,14 +119,25 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
 
 .. NOTE::
 
-    Computed fields directly depending on m2m relations cannot run the associated
-    method successfully on the first ``save`` if the instance was newly created
-    (due to Django's order of saving the instance and m2m relations). Therefore
-    you have to handle this case explicitly in the method code:
+    The computed method gets evaluated in the model instance save method. If you
+    allow relations to contain ``NULL`` values you have to handle this case explicitly:
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=500), depends=['m2m#field'])
+        @computed(models.CharField(max_length=32), depends=['nullable_relation#field'])
+        def compfield(self):
+            if not self.nullable_relation:          # special handling of NULL here
+                return 'something else'
+            return self.nullable_relation.field     # some code referring the correct field
+
+    Computed fields directly depending on m2m relations cannot run the associated
+    method successfully on the first ``save`` if the instance was newly created
+    (due to Django's order of saving the instance and m2m relations). Therefore
+    you have to handle this case explicitly as well:
+
+    .. CODE:: python
+
+        @computed(models.CharField(max_length=32), depends=['m2m#field'])
         def compfield(self):
             if not self.pk:  # no pk yet, access to .m2m will fail
                 return ''

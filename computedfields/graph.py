@@ -4,7 +4,7 @@ Module containing the graph logic for the dependency resolver.
 Upon application initialization a dependency graph of all project wide
 computed fields is created. The graph does a basic cycle check and
 removes redundant dependencies. Finally the dependencies are translated
-to resolver functions to be used later by ``update_dependent`` and in
+to the resolver map to be used later by ``update_dependent`` and in
 the signal handlers.
 """
 from collections import OrderedDict
@@ -486,7 +486,7 @@ class ComputedModelsGraph(Graph):
             }
 
         ``model`` denotes the source model of a given instance. ``'fieldA'`` points to
-        a computed field that was saved. The right side contains the dependencies
+        a field that was changed. The right side contains the dependencies
         in the form
 
         .. code:: python

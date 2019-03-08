@@ -27,13 +27,13 @@ django.setup()
 # -- Project information -----------------------------------------------------
 
 project = 'django-computedfields'
-copyright = '2018, netzkolchose'
+copyright = '2018, 2019, netzkolchose'
 author = 'netzkolchose'
 
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '0.0.1'
+release = '0.0.9'
 
 
 # -- General configuration ---------------------------------------------------
@@ -140,7 +140,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'django-computedfields.tex', 'django-computedfields Documentation',
-     'Joerg Breitbart', 'manual'),
+     author, 'manual'),
 ]
 
 

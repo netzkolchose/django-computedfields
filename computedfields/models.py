@@ -230,7 +230,7 @@ class ComputedFieldsModelType(ModelBase):
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
             (as shown for ``bulk_create`` above), or
-            ``update_dependent_multi`` if you multiple of those
+            ``update_dependent_multi`` if you have multiple of
             aggregated querysets.
         """
         final = {}
