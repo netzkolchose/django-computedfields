@@ -10,7 +10,7 @@ setup(
     name='django-computedfields',
     packages=find_packages(exclude=['example']),
     include_package_data=True,
-    version='0.0.9',
+    version='0.0.10',
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,
