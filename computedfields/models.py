@@ -230,7 +230,7 @@ class ComputedFieldsModelType(ModelBase):
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
             (as shown for ``bulk_create`` above), or
-            ``update_dependent_multi`` if you multiple of those
+            ``update_dependent_multi`` if you have multiple of
             aggregated querysets.
         """
         final = {}
@@ -353,27 +353,6 @@ def computed(field, **kwargs):
     which is accessible through the relations ``rel_a`` --> ``rel_b``.
     A relation can be any of foreign key, m2m, o2o and their
     corresponding back relations.
-
-    The fieldname at the end separated by '#' is mandatory for other
-    computed fields and can be omitted for ordinary fields:
-
-    .. code-block:: python
-
-        @computed(models.CharField(max_length=32), depends=['fk'])
-        def some_field(self):
-            return self.fk.name + self.fk.field_xy
-
-    Here ``name`` and ``field_xy`` are ordinary fields. Pointing to ``fk``
-    in the depends string is sufficient for a proper update handling.
-
-    On the contrary dependencies to other computed fields should be listed
-    separately to get updated after changes:
-
-    .. code-block:: python
-
-        @computed(models.CharField(max_length=32), depends=['fk#computed1', 'fk#computed2'])
-        def some_field(self):
-            return self.fk.computed1 + self.fk.computed2
 
     .. CAUTION::
 

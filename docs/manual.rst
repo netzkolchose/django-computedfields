@@ -109,22 +109,35 @@ Now if the name of a person changes, the field ``full_address`` will be updated
 accordingly.
 
 Note the format of the depends string - it consists of the relation name
-and the field name separated by '#'. The field name is mandatory for other
-computed fields and can be omitted for ordinary database fields.
+and the field name separated by '#'. The field name is mandatory for any
+dependency to trigger a proper update. (In fact it can be omitted for normal
+fields if you never use ``.save`` with explicit setting ``update_fields``.
+But that is an implementation detail you should not rely on.)
 The relation name part can span serveral models, simply name the relation
 in python style with a dot (e.g. ``'a.b.c'``).
 A relation can be of any of foreign key, m2m, o2o and their back relations.
 
 .. NOTE::
 
-    Computed fields directly depending on m2m relations cannot run the associated
-    method successfully on the first ``save`` if the instance was newly created
-    (due to Django's order of saving the instance and m2m relations). Therefore
-    you have to handle this case explicitly in the method code:
+    The computed method gets evaluated in the model instance save method. If you
+    allow relations to contain ``NULL`` values you have to handle this case explicitly:
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=500), depends=['m2m#field'])
+        @computed(models.CharField(max_length=32), depends=['nullable_relation#field'])
+        def compfield(self):
+            if not self.nullable_relation:          # special handling of NULL here
+                return 'something else'
+            return self.nullable_relation.field     # some code referring the correct field
+
+    Computed fields directly depending on m2m relations cannot run the associated
+    method successfully on the first ``save`` if the instance was newly created
+    (due to Django's order of saving the instance and m2m relations). Therefore
+    you have to handle this case explicitly as well:
+
+    .. CODE:: python
+
+        @computed(models.CharField(max_length=32), depends=['m2m#field'])
         def compfield(self):
             if not self.pk:  # no pk yet, access to .m2m will fail
                 return ''
@@ -138,6 +151,24 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
     With the depends strings you can easily end up with recursive updates.
     The dependency resolver tries to detect cycling dependencies and might
     raise a ``CycleNodeException``.
+
+.. NOTE::
+
+    Updates of computed fields from fields on the same model behave a little
+    different than dependencies to fields on related models. To ensure proper updates,
+    either call ``save`` without ``update_fields`` (full save) or
+    include the computed fields explicitly in ``update_fields``:
+
+    .. CODE:: python
+
+        address.city = 'New City'
+        address.save()                                          # also updates .full_address
+        address.save(update_fields=['city'])                    # does not update .full_address
+        address.save(update_fields=['city', 'full_address'])    # make it explicit
+
+    Note that there is currently no way to circumvent this slightly different behavior
+    due to the way the autoresolver works internally.
+    Future versions might allow declarations like ``self#fieldname`` and handle it transparently.
 
 
 Advanced Usage

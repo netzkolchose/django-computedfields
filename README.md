@@ -6,8 +6,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 1.10, 1.11 and 2.0 with Python 2.7, 3.5 and 3.6
-(Django 2.0 is Python 3 only).
+Tested with Django 1.10, 1.11 (Python 2.7, 3.5, 3.6) and Django 2.0, 2.1 (Python 3.5 and 3.6).
 
 
 #### Example ####
@@ -54,12 +53,12 @@ class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     fk = models.ForeignKey(SomeModel)
     
-    @computed(models.CharField(max_length=32), depends=['fk'])
+    @computed(models.CharField(max_length=32), depends=['fk#fieldname'])
     def computed_field(self):
         return self.name.upper() + self.fk.fieldname
 ```
 
-Now changes to `fk` will now also update `computed_field`.
+Now changes to `fk.fieldname` will now also update `computed_field`.
 
 
 #### Documentation ####

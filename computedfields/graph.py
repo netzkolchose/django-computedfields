@@ -4,7 +4,7 @@ Module containing the graph logic for the dependency resolver.
 Upon application initialization a dependency graph of all project wide
 computed fields is created. The graph does a basic cycle check and
 removes redundant dependencies. Finally the dependencies are translated
-to resolver functions to be used later by ``update_dependent`` and in
+to the resolver map to be used later by ``update_dependent`` and in
 the signal handlers.
 """
 from collections import OrderedDict
@@ -445,10 +445,12 @@ class ComputedModelsGraph(Graph):
                 for depmodel, relations in modeldata.items():
                     self.models[modelname(depmodel)] = depmodel
                     for dep in relations:
-                        if is_computedfield(depmodel, dep.get('depends')):
-                            depends = dep['depends']
-                        else:
-                            depends = '#'
+                        # normally we refer to the given model field
+                        # if none is given, set it to '#' which assumes
+                        # any chance to the model should trigger the update
+                        # Note: '#' is only triggered for `.save` without
+                        # setting update_fields!
+                        depends = dep.get('depends', '#')
                         key = (modelname(depmodel), depends)
                         value = (modelname(model), field)
                         cleaned.setdefault(key, set()).add(value)
@@ -484,7 +486,7 @@ class ComputedModelsGraph(Graph):
             }
 
         ``model`` denotes the source model of a given instance. ``'fieldA'`` points to
-        a computed field that was saved. The right side contains the dependencies
+        a field that was changed. The right side contains the dependencies
         in the form
 
         .. code:: python
@@ -550,14 +552,14 @@ class ComputedModelsGraph(Graph):
                  .setdefault(rfield, [])\
                  .extend(self.resolved[rmodel][rfield][lmodel])
 
-        # finally build functions table for the signal handler
-        func_table = {}
+        # finally build map for the signal handler
+        lookup_map = {}
         for lmodel, data in table.items():
             for lfield, ldata in data.items():
                 for rmodel, rdata in ldata.items():
-                    func_table.setdefault(lmodel, {})\
+                    lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
-        return func_table
+        return lookup_map
 
     def _resolve(self, data):
         fields = set()
