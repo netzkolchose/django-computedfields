@@ -5,11 +5,13 @@ from django.db import models, transaction
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
-from django.utils.encoding import python_2_unicode_compatible
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
-from django.utils import six
+try:
+    from django.utils import six
+except ImportError:
+    import six
 
 
 class ComputedFieldsModelType(ModelBase):

@@ -6,18 +6,23 @@ python:
 
 env:
   matrix:
-      # test only Django 1.10, 1.11 and 2.0 (PY3 only)
-    - DJANGO="Django<1.11"
-    - DJANGO="Django<1.12"
-    - DJANGO="Django<2.1"
-    - DJANGO="Django<2.2"
+    - DJANGO="Django~=1.10"
+    - DJANGO="Django~=1.11"
+    - DJANGO="Django~=2.0"
+    - DJANGO="Django~=2.1"
+    - DJANGO="Django~=2.2"
+    - DJANGO="Django~=3.0"
 
 matrix:
   exclude:
     - python: "2.7"
-      env: DJANGO="Django<2.1"
+      env: DJANGO="Django~=2.0"
     - python: "2.7"
-      env: DJANGO="Django<2.2"
+      env: DJANGO="Django~=2.1"
+    - python: "2.7"
+      env: DJANGO="Django~=2.2"
+    - python: "2.7"
+      env: DJANGO="Django~=3.0"
 
 addons:
   apt:
