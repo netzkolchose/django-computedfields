@@ -1,24 +1,22 @@
 from setuptools import setup, find_packages
 
-try:
-    import pypandoc
-    long_description = pypandoc.convert('README.md', 'rst')
-except(IOError, ImportError, RuntimeError):
-    long_description = ''
+with open('README.md', 'r') as f:
+    long_description = f.read()
 
 setup(
     name='django-computedfields',
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=['six'],
-    version='0.0.12',
+    version='0.0.13',
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,
+    long_description_content_type='text/markdown',
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.0.11.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.0.13.tar.gz',
     keywords=['django', 'method', 'decorator', 'autoupdate', 'persistent', 'field'],
     classifiers=[
         'Development Status :: 4 - Beta',
