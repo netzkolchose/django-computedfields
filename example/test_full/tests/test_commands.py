@@ -8,7 +8,7 @@ try:
     from django.utils.six.moves import cStringIO
     from django.utils.six.moves import cPickle as pickle
 except ImportError:
-    import io.StringIO as cStringIO
+    from io import StringIO as cStringIO
     import pickle
 from django.conf import settings
 import os
