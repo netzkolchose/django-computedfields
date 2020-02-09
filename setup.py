@@ -11,7 +11,7 @@ setup(
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=['six'],
-    version='0.0.11',
+    version='0.0.12',
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,
