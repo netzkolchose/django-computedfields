@@ -4,8 +4,12 @@ from .base import GenericModelTestBase
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
-from django.utils.six.moves import cStringIO
-from django.utils.six.moves import cPickle as pickle
+try:
+    from django.utils.six.moves import cStringIO
+    from django.utils.six.moves import cPickle as pickle
+except ImportError:
+    import io.StringIO as cStringIO
+    import pickle
 from django.conf import settings
 import os
 
