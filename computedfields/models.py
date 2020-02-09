@@ -5,11 +5,13 @@ from django.db import models, transaction
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
 from django.conf import settings
-from django.utils.encoding import python_2_unicode_compatible
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
-from django.utils import six
+try:
+    from django.utils import six
+except ImportError:
+    import six
 
 
 class ComputedFieldsModelType(ModelBase):
@@ -85,7 +87,10 @@ class ComputedFieldsModelType(ModelBase):
                 return
             if (getattr(settings, 'COMPUTEDFIELDS_MAP', False)
                     and not force and not _force):
-                from django.utils.six.moves import cPickle as pickle
+                try:
+                    from django.utils.six.moves import cPickle as pickle
+                except ImportError:
+                    import pickle
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
                     mcs._map = pickle.load(f)
                     mcs._map_loaded = True

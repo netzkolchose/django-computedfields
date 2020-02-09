@@ -6,7 +6,7 @@ from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelT
 from django.apps import apps
 from django.conf import settings
 from json import dumps
-from django.utils.html import escape, mark_safe
+from django.utils.html import escape, mark_safe, format_html
 from django.urls import reverse, NoReverseMatch
 from django.conf.urls import url
 from django.shortcuts import render
@@ -46,8 +46,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         if pygments:
             s = pygments.highlight(
                 s, JsonLexer(stripnl=False), HtmlFormatter(noclasses=True, nowrap=True))
-        return u'<pre>%s</pre>' % s
-    dependencies.allow_tags = True
+        return format_html(u'<pre>{}</pre>', s)
 
     def name(self, obj):
         name = escape(u'%s.%s' % (obj.app_label, obj.model))
@@ -55,8 +54,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             url = escape(reverse('admin:%s_%s_changelist' % (obj.app_label, obj.model)))
         except NoReverseMatch:
             return name
-        return u'<a href="%s">%s</a>' % (url, name)
-    name.allow_tags = True
+        return format_html(u'<a href="{}">{}</a>', url, name)
 
     def get_urls(self):
         urls = super(ComputedModelsAdmin, self).get_urls()

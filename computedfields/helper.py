@@ -1,5 +1,8 @@
 from itertools import tee
-from django.utils.six.moves import zip
+try:
+    from django.utils.six.moves import zip
+except ImportError:
+    pass
 
 
 def pairwise(iterable):

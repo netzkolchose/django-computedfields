@@ -2,7 +2,10 @@ from django.core.management.base import BaseCommand, CommandError
 from computedfields.models import ComputedFieldsModelType
 from django.conf import settings
 from computedfields.graph import ComputedModelsGraph
-from django.utils.six.moves import cPickle as pickle
+try:
+    from django.utils.six.moves import cPickle as pickle
+except ImportError:
+    import pickle
 
 
 class Command(BaseCommand):
