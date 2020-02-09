@@ -44,8 +44,9 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         deps = ComputedFieldsModelType._computed_models
         s = dumps(deps.get(model), indent=4, sort_keys=True)
         if pygments:
-            s = pygments.highlight(
-                s, JsonLexer(stripnl=False), HtmlFormatter(noclasses=True, nowrap=True))
+            s = mark_safe(
+                    pygments.highlight(s, JsonLexer(stripnl=False),
+                        HtmlFormatter(noclasses=True, nowrap=True)))
         return format_html(u'<pre>{}</pre>', s)
 
     def name(self, obj):
