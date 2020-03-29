@@ -55,8 +55,12 @@ class ComputedFieldsModelType(ModelBase):
                         dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         if name != 'ComputedFieldsModel':
-            cls._computed_fields = computed_fields
-            mcs._computed_models[cls] = dependent_fields or {}
+            if hasattr(cls, '_computed_fields'):
+                cls._computed_fields.update(computed_fields)
+            else:
+                cls._computed_fields = computed_fields
+            if not cls._meta.abstract:
+                mcs._computed_models[cls] = dependent_fields or {}
         return cls
 
     @classmethod

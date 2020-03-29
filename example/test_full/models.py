@@ -232,3 +232,20 @@ class DepSub2(ComputedFieldsModel):
 class DepSubFinal(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     sub2 = models.ForeignKey(DepSub2, related_name='subfinal', on_delete=models.CASCADE)
+
+
+# Test classes for abstract model support
+class Abstract(ComputedFieldsModel):
+    class Meta:
+        abstract = True
+
+    a = models.IntegerField(default=0)
+    b = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0))
+    def c(self):
+        return self.a + self.b
+
+
+class Concrete(Abstract):
+    d = models.IntegerField(default=0)
