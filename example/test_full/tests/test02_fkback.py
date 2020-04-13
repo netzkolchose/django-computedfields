@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 from .base import GenericModelTestBase, MODELS
-from ..models import Parent, Child
+from ..models import Parent, Child, Subchild
 from computedfields.models import update_dependent, preupdate_dependent
 
 
@@ -126,7 +126,6 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         # Move the child to another parent
         c2.parent = p1
         c2.save()
-        # p2.save()
 
         p1.refresh_from_db()
         p2.refresh_from_db()
@@ -152,3 +151,70 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.children_count, 0)
         self.assertEqual(p2.children_count, 10)
+
+    def test_move_subchildren(self):
+        p1 = Parent.objects.create()
+        p2 = Parent.objects.create()
+        c1 = Child.objects.create(parent=p1)
+        c2 = Child.objects.create(parent=p2)
+        s11 = Subchild.objects.create(subparent=c1)
+        s12 = Subchild.objects.create(subparent=c1)
+        s21 = Subchild.objects.create(subparent=c2)
+        s22 = Subchild.objects.create(subparent=c2)
+
+        # One child per parent
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 2)
+        self.assertEqual(p2.subchildren_count, 2)
+
+        # Move the child to another parent
+        c2.parent = p1
+        c2.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 4)
+        self.assertEqual(p2.subchildren_count, 0)
+
+        # move child back
+        c2.parent = p2
+        c2.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 2)
+        self.assertEqual(p2.subchildren_count, 2)
+
+        # move one subchild
+        s22.subparent = c1
+        s22.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 3)
+        self.assertEqual(p2.subchildren_count, 1)
+
+    def test_move_bulk_subchildren(self):
+        p1 = Parent.objects.create()
+        p2 = Parent.objects.create()
+        c1 = Child.objects.create(parent=p1)
+        c2 = Child.objects.create(parent=p2)
+        s11 = Subchild.objects.create(subparent=c1)
+        s12 = Subchild.objects.create(subparent=c1)
+        s21 = Subchild.objects.create(subparent=c2)
+        s22 = Subchild.objects.create(subparent=c2)
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 2)
+        self.assertEqual(p2.subchildren_count, 2)
+
+        dirty = preupdate_dependent(Subchild.objects.all())
+        Subchild.objects.all().update(subparent=c2)
+        update_dependent(Subchild.objects.all(), dirty=dirty)
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.subchildren_count, 0)
+        self.assertEqual(p2.subchildren_count, 4)

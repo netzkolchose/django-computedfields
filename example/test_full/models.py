@@ -165,5 +165,15 @@ class Parent(ComputedFieldsModel):
     def children_count(self):
         return self.children.all().count()
 
+    @computed(models.IntegerField(default=0), depends=['children.subchildren#subparent'])
+    def subchildren_count(self):
+        count = 0
+        for child in self.children.all():
+            count += child.subchildren.all().count()
+        return count
+
 class Child(ComputedFieldsModel):
     parent = models.ForeignKey(Parent, related_name='children', on_delete=models.CASCADE)
+
+class Subchild(models.Model):
+    subparent = models.ForeignKey(Child, related_name='subchildren', on_delete=models.CASCADE)

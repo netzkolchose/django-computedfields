@@ -148,11 +148,7 @@ class ComputedFieldsModelType(ModelBase):
     @classmethod
     def preupdate_dependent(mcs, instance, model=None, update_fields=None):
         if not model:
-            if isinstance(instance, models.QuerySet):
-                model = instance.model
-            else:
-                model = type(instance)
-        # FIXME: further reduce this to only local fk fields
+            model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
         return mcs._querysets_for_update(model, instance, pk_list=True)
 
     @classmethod
@@ -199,7 +195,7 @@ class ComputedFieldsModelType(ModelBase):
         For completeness - ``instance`` can also be a single model instance.
         Since calling ``save`` on a model instance will trigger this function by
         the ``post_save`` signal it should not be invoked for single model
-        instances if they get saved anyways.
+        instances, if they get saved anyways.
         """
         if not model:
             if isinstance(instance, models.QuerySet):
