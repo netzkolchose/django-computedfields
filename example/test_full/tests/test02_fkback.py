@@ -194,6 +194,8 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.subchildren_count, 3)
         self.assertEqual(p2.subchildren_count, 1)
+        self.assertEqual(p1.subchildren_count_proxy, 3)
+        self.assertEqual(p2.subchildren_count_proxy, 1)
 
     def test_move_bulk_subchildren(self):
         p1 = Parent.objects.create()
@@ -218,3 +220,5 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.subchildren_count, 0)
         self.assertEqual(p2.subchildren_count, 4)
+        self.assertEqual(p1.subchildren_count_proxy, 0)
+        self.assertEqual(p2.subchildren_count_proxy, 4)

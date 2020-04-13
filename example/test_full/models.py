@@ -172,8 +172,18 @@ class Parent(ComputedFieldsModel):
             count += child.subchildren.all().count()
         return count
 
+    @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
+    def subchildren_count_proxy(self):
+        from six.moves import reduce
+        from operator import add
+        return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
+
 class Child(ComputedFieldsModel):
     parent = models.ForeignKey(Parent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=['subchildren#subparent'])
+    def subchildren_count(self):
+        return self.subchildren.all().count()
 
 class Subchild(models.Model):
     subparent = models.ForeignKey(Child, related_name='subchildren', on_delete=models.CASCADE)
