@@ -10,6 +10,7 @@ in ``apps.ready``.
     commands ``makemigrations``, ``migrate`` and ``help``.
 """
 from computedfields.models import ComputedFieldsModelType as CFMT
+from computedfields.helper import get_fk_fields_for_update
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
 import django
@@ -32,12 +33,6 @@ M2M_CLEAR = STORAGE.M2M_CLEAR
 SAVE_UPDATE = STORAGE.SAVE_UPDATE
 
 
-def get_fk_fields_for_update(update_fields, model):
-    # FIXME: this is an expensive operation if done excessively, maybe precalc the fk map as well?
-    from django.db.models import ForeignKey
-    fks = set(f.name for f in filter(lambda f: isinstance(f, ForeignKey), model._meta.get_fields()))
-    return fks & update_fields if update_fields else fks
-
 def update_dirty_handler(sender, instance, **kwargs):
     """
     ``update_dirty_handler`` handler.
@@ -58,8 +53,9 @@ def update_dirty_handler(sender, instance, **kwargs):
     if instance.pk is None:
         return
     # calc possibly dirty fk fields after save, exit early if there are none
+    # FIXME: precalc dirty fk field contributions to computed fields in field map
     dirty_candidates = get_fk_fields_for_update(kwargs.get('update_fields'), sender)
-    if not dirty_candidates:
+    if not dirty_candidates or not dirty_candidates & set(modeldata.keys()):
         return
     # we got an update instance with possibly dirty fk fields
     # to decide whether we actually end up with dirty DB entries,
