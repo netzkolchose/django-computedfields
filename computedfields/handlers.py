@@ -24,10 +24,56 @@ STORAGE = local()
 STORAGE.DELETES = {}
 STORAGE.M2M_REMOVE = {}
 STORAGE.M2M_CLEAR = {}
+STORAGE.SAVE_UPDATE = {}
 
 DELETES = STORAGE.DELETES
 M2M_REMOVE = STORAGE.M2M_REMOVE
 M2M_CLEAR = STORAGE.M2M_CLEAR
+SAVE_UPDATE = STORAGE.SAVE_UPDATE
+
+
+def get_fk_fields_for_update(update_fields, model):
+    # FIXME: this is an expensive operation if done excessively, maybe precalc the fk map as well?
+    from django.db.models import ForeignKey
+    fks = set(f.name for f in filter(lambda f: isinstance(f, ForeignKey), model._meta.get_fields()))
+    return fks & update_fields if update_fields else fks
+
+def update_dirty_handler(sender, instance, **kwargs):
+    """
+    ``update_dirty_handler`` handler.
+
+    ``pre_save`` signal handler to spot incoming fk relation changes.
+    This is needed to correctly update old relations after fk changes,
+    that contain dirty computed field values after a save.
+    The actual dirty updates are done during ``post_save``.
+    """
+    # do not handle fixtures
+    if kwargs.get('raw'):
+        return
+    modeldata = CFMT._map.get(sender)
+    # exit early if model is not part of any computed field depends chain
+    if not modeldata:
+        return
+    # exit early if save is a create
+    if instance.pk is None:
+        return
+    # calc possibly dirty fk fields after save, exit early if there are none
+    dirty_candidates = get_fk_fields_for_update(kwargs.get('update_fields'), sender)
+    if not dirty_candidates:
+        return
+    # we got an update instance with possibly dirty fk fields
+    # to decide whether we actually end up with dirty DB entries,
+    # we have to compare the old andthe new values for dirty fields
+    # FIXME: we simply refetch the old data from DB for now
+    old_instance = sender.objects.get(pk=instance.pk)
+    dirty = []
+    for candidate in dirty_candidates:
+        old_value = getattr(old_instance, candidate)
+        new_value = getattr(instance, candidate)
+        if old_value and old_value != new_value:
+            dirty.append(old_value)
+    if dirty:
+        SAVE_UPDATE[instance] = dirty
 
 
 def postsave_handler(sender, instance, **kwargs):
@@ -39,6 +85,9 @@ def postsave_handler(sender, instance, **kwargs):
     """
     # do not update for fixtures
     if not kwargs.get('raw'):
+        updates = SAVE_UPDATE.pop(instance, [])
+        for el in updates:
+            el.save()
         CFMT.update_dependent(
             instance, sender, kwargs.get('update_fields'))
 

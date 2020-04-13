@@ -20,9 +20,11 @@ class ComputedfieldsConfig(AppConfig):
 
         # connect signals
         from computedfields.handlers import (
-            postsave_handler, predelete_handler, postdelete_handler, m2m_handler)
-        from django.db.models.signals import post_save, m2m_changed, pre_delete, post_delete
+            postsave_handler, predelete_handler, postdelete_handler, m2m_handler, update_dirty_handler)
+        from django.db.models.signals import post_save, m2m_changed, pre_delete, post_delete, pre_save
 
+        pre_save.connect(
+            update_dirty_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PRESAVE')
         post_save.connect(
             postsave_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD')
         pre_delete.connect(

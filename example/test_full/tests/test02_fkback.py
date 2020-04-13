@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 from .base import GenericModelTestBase, MODELS
+from ..models import Parent, Child
 
 
 class ForeignKeyBackDependencies(GenericModelTestBase):
@@ -108,3 +109,25 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         # deleting g should not update c
         self.c.refresh_from_db()
         self.assertEqual(self.c.comp, 'ce')
+
+    def test_move_children(self):
+        p1 = Parent.objects.create()
+        p2 = Parent.objects.create()
+        c1 = Child.objects.create(parent=p1)
+        c2 = Child.objects.create(parent=p2)
+
+        # One child per parent
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.children_count, 1)
+        self.assertEqual(p2.children_count, 1)
+
+        # Move the child to another parent
+        c2.parent = p1
+        c2.save()
+        # p2.save()
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.children_count, 2)  # Fine
+        self.assertEqual(p2.children_count, 0)  # Assertion error : 1 != 0
