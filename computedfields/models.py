@@ -208,12 +208,12 @@ class ComputedFieldsModelType(ModelBase):
                 for qs, fields in updates:
                     for el in qs.distinct():
                         el.save(update_fields=fields)
-        if dirty:
-            for model, data in dirty.items():
-                pks, fields = data
-                qs = model.objects.filter(pk__in=pks)
-                for el in qs.distinct():
-                    el.save(update_fields=fields)
+                if dirty:
+                    for model, data in dirty.items():
+                        pks, fields = data
+                        qs = model.objects.filter(pk__in=pks)
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
 
     @classmethod
     def update_dependent_multi(mcs, instances):
