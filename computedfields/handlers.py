@@ -25,12 +25,12 @@ STORAGE = local()
 STORAGE.DELETES = {}
 STORAGE.M2M_REMOVE = {}
 STORAGE.M2M_CLEAR = {}
-STORAGE.SAVE_UPDATE = {}
+STORAGE.UPDATE_DIRTY = {}
 
 DELETES = STORAGE.DELETES
 M2M_REMOVE = STORAGE.M2M_REMOVE
 M2M_CLEAR = STORAGE.M2M_CLEAR
-SAVE_UPDATE = STORAGE.SAVE_UPDATE
+UPDATE_DIRTY = STORAGE.UPDATE_DIRTY
 
 
 def update_dirty_handler(sender, instance, **kwargs):
@@ -69,7 +69,7 @@ def update_dirty_handler(sender, instance, **kwargs):
         if old_value and old_value != new_value:
             dirty.append(old_value)
     if dirty:
-        SAVE_UPDATE[instance] = dirty
+        UPDATE_DIRTY[instance] = dirty
 
 
 def postsave_handler(sender, instance, **kwargs):
@@ -81,7 +81,7 @@ def postsave_handler(sender, instance, **kwargs):
     """
     # do not update for fixtures
     if not kwargs.get('raw'):
-        updates = SAVE_UPDATE.pop(instance, [])
+        updates = UPDATE_DIRTY.pop(instance, [])
         for el in updates:
             el.save()
         CFMT.update_dependent(

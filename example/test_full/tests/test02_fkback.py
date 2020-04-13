@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 from .base import GenericModelTestBase, MODELS
 from ..models import Parent, Child
+from computedfields.models import update_dependent, preupdate_dependent
 
 
 class ForeignKeyBackDependencies(GenericModelTestBase):
@@ -131,3 +132,23 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.children_count, 2)  # Fine
         self.assertEqual(p2.children_count, 0)  # Assertion error : 1 != 0
+
+    def test_move_bulk(self):
+        p1 = Parent.objects.create()
+        p2 = Parent.objects.create()
+        for i in range(10):
+            Child.objects.create(parent=p1)
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.children_count, 10)
+        self.assertEqual(p2.children_count, 0)
+
+        dirty = preupdate_dependent(Child.objects.all())
+        Child.objects.all().update(parent=p2)
+        update_dependent(Child.objects.all(), dirty=dirty)
+
+        p1.refresh_from_db()
+        p2.refresh_from_db()
+        self.assertEqual(p1.children_count, 0)
+        self.assertEqual(p2.children_count, 10)

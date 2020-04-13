@@ -4,6 +4,7 @@ from django.db.models.base import ModelBase
 from django.db import models, transaction
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
+from computedfields.helper import get_fk_fields_for_update
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
@@ -145,7 +146,17 @@ class ComputedFieldsModelType(ModelBase):
         return final
 
     @classmethod
-    def update_dependent(mcs, instance, model=None, update_fields=None):
+    def preupdate_dependent(mcs, instance, model=None, update_fields=None):
+        if not model:
+            if isinstance(instance, models.QuerySet):
+                model = instance.model
+            else:
+                model = type(instance)
+        # FIXME: further reduce this to only local fk fields
+        return mcs._querysets_for_update(model, instance, pk_list=True)
+
+    @classmethod
+    def update_dependent(mcs, instance, model=None, update_fields=None, dirty=None):
         """
         Updates all dependent computed fields model objects.
 
@@ -196,10 +207,15 @@ class ComputedFieldsModelType(ModelBase):
             else:
                 model = type(instance)
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
-        if not updates:
-            return
-        with transaction.atomic():
-            for qs, fields in updates:
+        if updates:
+            with transaction.atomic():
+                for qs, fields in updates:
+                    for el in qs.distinct():
+                        el.save(update_fields=fields)
+        if dirty:
+            for model, data in dirty.items():
+                pks, fields = data
+                qs = model.objects.filter(pk__in=pks)
                 for el in qs.distinct():
                     el.save(update_fields=fields)
 
@@ -255,6 +271,7 @@ class ComputedFieldsModelType(ModelBase):
 
 update_dependent = ComputedFieldsModelType.update_dependent
 update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
+preupdate_dependent = ComputedFieldsModelType.preupdate_dependent
 
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):
