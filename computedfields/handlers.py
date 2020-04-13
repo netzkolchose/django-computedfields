@@ -59,7 +59,7 @@ def update_dirty_handler(sender, instance, **kwargs):
         return
     # we got an update instance with possibly dirty fk fields
     # to decide whether we actually end up with dirty DB entries,
-    # we have to compare the old andthe new values for dirty fields
+    # we have to compare the old and the new values for dirty fields
     # FIXME: we simply refetch the old data from DB for now
     old_instance = sender.objects.get(pk=instance.pk)
     dirty = []
@@ -81,11 +81,11 @@ def postsave_handler(sender, instance, **kwargs):
     """
     # do not update for fixtures
     if not kwargs.get('raw'):
-        updates = UPDATE_DIRTY.pop(instance, [])
-        for el in updates:
-            el.save()
         CFMT.update_dependent(
             instance, sender, kwargs.get('update_fields'))
+        dirty = UPDATE_DIRTY.pop(instance, [])
+        for el in dirty:
+            el.save()
 
 
 def predelete_handler(sender, instance, **kwargs):
