@@ -54,8 +54,8 @@ def update_dirty_handler(sender, instance, **kwargs):
         return
     # calc possibly dirty fk fields after save, exit early if there are none
     # FIXME: precalc dirty fk field contributions to computed fields in field map
-    dirty_candidates = get_fk_fields_for_update(kwargs.get('update_fields'), sender)
-    if not dirty_candidates or not dirty_candidates & set(modeldata.keys()):
+    dirty_candidates = get_fk_fields_for_update(kwargs.get('update_fields'), sender) & set(modeldata.keys())
+    if not dirty_candidates:
         return
     # we got an update instance with possibly dirty fk fields
     # to decide whether we actually end up with dirty DB entries,
