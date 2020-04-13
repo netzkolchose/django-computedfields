@@ -49,8 +49,8 @@ def update_dirty_handler(sender, instance, **kwargs):
     # exit early if model is not part of any computed field depends chain
     if not modeldata:
         return
-    # exit early if save is a create
-    if instance.pk is None:
+    # exit early if instance is new
+    if instance._state.adding:
         return
     # calc possibly dirty fk fields after save, exit early if there are none
     # FIXME: precalc dirty fk field contributions to computed fields in field map
