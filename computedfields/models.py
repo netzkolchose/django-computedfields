@@ -92,14 +92,16 @@ class ComputedFieldsModelType(ModelBase):
                 except ImportError:
                     import pickle
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
-                    mcs._map = pickle.load(f)
+                    pickled_data = pickle.load(f)
+                    mcs._map = pickled_data['lookup_map']
+                    mcs._vulnerable_fk_map = pickled_data['fk_map']
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
-            mcs._vulnerable_fk_map = mcs._graph._vulnerable_fk_map # FIXME: needs pickle pendant and handler fix
+            mcs._vulnerable_fk_map = mcs._graph._vulnerable_fk_map
             mcs._map_loaded = True
 
     @classmethod
