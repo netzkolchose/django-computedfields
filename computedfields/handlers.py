@@ -10,7 +10,6 @@ in ``apps.ready``.
     commands ``makemigrations``, ``migrate`` and ``help``.
 """
 from computedfields.models import ComputedFieldsModelType as CFMT
-from computedfields.helper import get_fk_fields_for_update
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
 import django
@@ -20,7 +19,7 @@ if django.VERSION[0] >= 2:
 
 
 # thread local storage to hold
-# the pk lists for deletes
+# the pk lists for deletes/updates
 STORAGE = local()
 STORAGE.DELETES = {}
 STORAGE.M2M_REMOVE = {}
@@ -45,16 +44,17 @@ def update_dirty_handler(sender, instance, **kwargs):
     # do not handle fixtures
     if kwargs.get('raw'):
         return
-    modeldata = CFMT._map.get(sender)
-    # exit early if model is not part of any computed field depends chain
-    if not modeldata:
-        return
     # exit early if instance is new
     if instance._state.adding:
         return
-    # calc possibly dirty fk fields after save, exit early if there are none
-    # FIXME: precalc dirty fk field contributions to computed fields in field map
-    dirty_candidates = get_fk_fields_for_update(kwargs.get('update_fields'), sender) & set(modeldata.keys())
+    vulnerable_fks = CFMT._vulnerable_fk_map.get(sender)
+    # exit early if model contains no vulnerable fk fields
+    if not vulnerable_fks:
+        return
+    dirty_candidates = set(vulnerable_fks)
+    if kwargs.get('update_fields'):
+        dirty_candidates &= kwargs.get('update_fields')
+    # exit early if no vulnerable field will be updated
     if not dirty_candidates:
         return
     # we got an update instance with possibly dirty fk fields

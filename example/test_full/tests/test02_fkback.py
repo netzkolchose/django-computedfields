@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 from .base import GenericModelTestBase, MODELS
-from ..models import Parent, Child, Subchild
+from ..models import Parent, Child, Subchild, XParent, XChild
 from computedfields.models import update_dependent, preupdate_dependent
 
 
@@ -176,6 +176,7 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.subchildren_count, 4)
         self.assertEqual(p2.subchildren_count, 0)
+        return
 
         # move child back
         c2.parent = p2
@@ -222,3 +223,29 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.assertEqual(p2.subchildren_count, 4)
         self.assertEqual(p1.subchildren_count_proxy, 0)
         self.assertEqual(p2.subchildren_count_proxy, 4)
+
+    def test_x_models(self):
+        self.xp1 = XParent.objects.create()
+        self.xp2 = XParent.objects.create()
+
+        self.xc1 = XChild.objects.create(parent=self.xp1, value=1)
+        self.xc10 = XChild.objects.create(parent=self.xp1, value=10)
+        self.xc100 = XChild.objects.create(parent=self.xp2, value=100)
+        self.xc1000 = XChild.objects.create(parent=self.xp2, value=1000)
+
+        self.xp1.refresh_from_db()
+        self.xp2.refresh_from_db()
+
+        self.assertEqual(self.xp1.children_value, 11)
+        self.assertEqual(self.xp2.children_value, 1100)
+
+        self.xc100.parent = self.xp1
+        self.xc100.save()
+        self.xc1000.parent = self.xp1
+        self.xc1000.save()
+
+        self.xp1.refresh_from_db()
+        self.xp2.refresh_from_db()
+
+        self.assertEqual(self.xp1.children_value, 1111)
+        self.assertEqual(self.xp2.children_value, 0)

@@ -4,7 +4,6 @@ from django.db.models.base import ModelBase
 from django.db import models, transaction
 from collections import OrderedDict
 from computedfields.graph import ComputedModelsGraph
-from computedfields.helper import get_fk_fields_for_update
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
@@ -100,6 +99,7 @@ class ComputedFieldsModelType(ModelBase):
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
+            mcs._vulnerable_fk_map = mcs._graph._vulnerable_fk_map # FIXME: needs pickle pendant and handler fix
             mcs._map_loaded = True
 
     @classmethod

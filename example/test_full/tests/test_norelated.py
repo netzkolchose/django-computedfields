@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 from django.test import TestCase
-from test_full import models
+from .. import models
 
 
 class TestNoReverse(TestCase):

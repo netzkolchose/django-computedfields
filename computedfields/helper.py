@@ -34,10 +34,3 @@ def is_sublist(needle, haystack):
             return True
         k += 1
     return False
-
-
-def get_fk_fields_for_update(update_fields, model):
-    # FIXME: to be precalc'ed and removed
-    from django.db.models import ForeignKey
-    fks = set(f.name for f in filter(lambda f: isinstance(f, ForeignKey), model._meta.get_fields()))
-    return fks & update_fields if update_fields else fks
