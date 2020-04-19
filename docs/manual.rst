@@ -227,7 +227,8 @@ before doing the bulk change to correctly update the old relations as well after
     if the bulk action does not involve any relation updates at all. It can also be skipped,
     if the foreign key fields to be updated are not part of any computed fields dependency chain.
     Since this is sometimes hard to spot, :mod:`django-computedfields` provides a convenient listing
-    of vulnerable foreign key fields accessible by .......TODO: cmdline access, admin view........
+    of vulnerable foreign key fields accessible by ``models.get_vulnerable_fk_fields()`` or as admin view
+    (``COMPUTEDFIELDS_ADMIN`` must be set).
 
 
 For multiple bulk actions consider using ``update_dependent_multi`` in conjunction with

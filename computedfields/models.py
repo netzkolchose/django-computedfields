@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
+from django.core.exceptions import AppRegistryNotReady
 try:
     from django.utils import six
 except ImportError:
@@ -317,6 +318,21 @@ update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
 preupdate_dependent = ComputedFieldsModelType.preupdate_dependent
 preupdate_dependent_multi = ComputedFieldsModelType.preupdate_dependent_multi
 
+def get_vulnerable_fk_fields():
+    """
+    Get a mapping of models and their local fk fields,
+    that are part of a computed fields dependency chain.
+
+    Whenever a bulk action changes one of the fields listed here, you have to create
+    a dirty record listing with ``preupdate_dependent`` and, after doing the bulk change,
+    feed the dirty records back to ``update_dependent``.
+
+    This mapping can also be inspected as admin view,
+    if ``COMPUTEDFIELDS_ADMIN`` is set to ``True``.
+    """
+    if not ComputedFieldsModelType._map_loaded:
+        raise AppRegistryNotReady
+    return ComputedFieldsModelType._vulnerable_fk_map
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):
     """
@@ -478,4 +494,30 @@ class ComputedFieldsAdminModel(ContentType):
         managed = False
         verbose_name = _('Computed Fields Model')
         verbose_name_plural = _('Computed Fields Models')
+        ordering = ('app_label', 'model')
+
+
+class ModelsWithVulnerableFkFieldsManager(models.Manager):
+    def get_queryset(self):
+        objs = ContentType.objects.get_for_models(
+            *ComputedFieldsModelType._vulnerable_fk_map.keys()).values()
+        pks = [model.pk for model in objs]
+        return ContentType.objects.filter(pk__in=pks)
+
+
+class VulnerableModelsModel(ContentType):
+    """
+    Proxy model to list all models that contains vulnerable fk fields in admin.
+    This might be useful during development.
+    To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
+    An fk field is considered vulnerable, if it is part of a computed field dependency,
+    thus a change to it would impact a computed field.
+    """
+    objects = ModelsWithVulnerableFkFieldsManager()
+
+    class Meta:
+        proxy = True
+        managed = False
+        verbose_name = _('Model with vulnerable Fk Fields')
+        verbose_name_plural = _('Models with vulnerable Fk Fields')
         ordering = ('app_label', 'model')
