@@ -171,20 +171,69 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
     Future versions might allow declarations like ``self#fieldname`` and handle it transparently.
 
 
+How does it work internally?
+----------------------------
+
+``ComputedFieldsModel`` is based on its own metaclass derived from django's model metaclass.
+The metaclass collects methods annotated by ``@computed`` and creates the needed database fields
+during model construction. Once all project-wide models are constructed and available (on ``app.ready``)
+the collected dependency strings are resolved into model and field endpoints with a certain query access string.
+
+In the next step the depend endpoints and computed fields are converted into an adjacency list and inserted
+into a directed graph. The graph does a cycle check during path linearization and removes redundant subpaths.
+The remaining edges are finally converted into a reverse lookup map containing source models and computed fields
+to be updated with their queryset access string. The expensive graph sanitizing process can be skipped
+in production by using a precalculated lookup map (see above).
+
+During runtime certain signal handlers in ``handlers.py`` hook into model instance actions and trigger
+the needed additional changes on associated computed fields given by the lookup map.
+The signal handlers itself call into ``update_dependent``, which creates querysets for all needed
+computed fields updates. A computed field finally gets updated in the database by calling the instance's save method,
+which itself calls the method associated with the computed field name and places the result in the database.
+Currently this is done on individual instance basis (room for improvement). If a computed field depends on other
+computed fields the process repeats until all computed fields have been updated.
+
+.. NOTE::
+
+    The computed field updates are guarded by transactions and get triggered by post signal handlers.
+    The database values of computed fields are always in sync between two database relevant
+    model instance actions in Python, unless a transaction error occured.
+
+
 Advanced Usage
 --------------
 
-For bulk creation and updates you can trigger the update of dependent computed
-fields directly by calling ``update_dependent``:
+The runtime model described above does not work with bulk actions.
+:mod:`django-computedfields` still can be used in combination with bulk actions,
+but you have to trigger the needed updates yourself by calling ``update_dependent``, example:
 
     >>> from computedfields.models import update_dependent
     >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
     >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
 
-After multiple bulk actions consider using ``update_dependent_multi``, which
-will avoid unnecessary multiplied updates.
+Special care is needed, if the bulk changes involve foreign key fields itself,
+that are part of a dependency chain. Here related computed model instances have to be collected
+before doing the bulk change to correctly update the old relations as well after the action took place:
 
-See API Reference for further details.
+    >>> # given: some computed fields model depends somehow on Entry.fk_field
+    >>> from computedfields.models import update_dependent, preupdate_dependent
+    >>> dirty = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
+    >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
+    >>> update_dependent(Entry.objects.filter(pub_date__year=2010), dirty=dirty)
+
+.. NOTE::
+
+    The dirty handling triples the needed database interactions and should not be used,
+    if the bulk action does not involve any relation updates at all. It can also be skipped,
+    if the foreign key fields to be updated are not part of any computed fields dependency chain.
+    Since this is sometimes hard to spot, :mod:`django-computedfields` provides a convenient listing
+    of vulnerable foreign key fields accessible by .......TODO: cmdline access, admin view........
+
+
+For multiple bulk actions consider using ``update_dependent_multi`` in conjunction with
+``preupdate_dependent_multi``, which will avoid unnecessary multiplied updates across the database tables.
+
+See method description in the API Reference for further details.
 
 
 Management Commands
@@ -202,20 +251,40 @@ Management Commands
     tons of bulk changes, e.g. from fixtures.
 
 
-Todos & Future Plans
---------------------
+General Usage Notes
+-------------------
 
-- optimize update querysets with ``select_related`` and ``prefetch_related``
+:mod:`django-computedfields` provides an easy way to denormalize database data with Django in an automated fashion.
+As with any denormalization it should only be used as a last resort to optimize certain query bottlenecks for otherwise
+highly normalized data.
+
+Best Practices
+^^^^^^^^^^^^^^
+
+- always start highly normalized
+- cover needed field calculations with field annotations where possible
+- do other calculations, that cannot be covered in field annotations, in normal methods/properties
+
+These steps should always be followed, as they guarantee low to no redundancy of the data if properly done,
+before resorting to any denormalization trickery. Of course complicated field calculations create
+additional workload either on the database or in Python, which might turn into serious query bottlenecks in your project.
+
+That is the point where :mod:`django-computedfields` can help by creating (pre-) computed fields.
+It can greatly lower recurring query workload by providing a precalculated value instead of recalculating it everytime.
+Please keep in mind, that this comes to a price:
+
+- additional space in database needed
+- redundant data (as any denormalization)
+- higher project complexity (different model metaclass, signal hooks, ``app.ready`` hook)
+- higher insert/update costs, which might create new bottlenecks if carelessly used
+
+If your project suffers from query bottlenecks created by recurring field calculations and
+you have ruled out worse negative side effects from the list above,
+:mod:`django-computedfields` certainly can help to speed up some parts of your Django project.
 
 
 Motivation
 ----------
 
-:mod:`django-computedfields` tries to be a solution to a common problem in Djangoland -
-you have some neat methods on your models and want to make the results persistent
-in the database for faster reads or the possibility to search over those results.
-The simple approach to save the results in additional lookup fields along the model
-has a big drawback - changes in related data are not reflected until the model instance
-gets saved again and suddenly you find yourself in the middle of signal dispatching hell
-to keep the data halfway in sync.
-Suffering from this myself and inspired by odoo's computed fields I ended up writing this module.
+:mod:`django-computedfields` is highly inspired by odoo's computed fields and the lack of
+a similar feature in Django's ORM.

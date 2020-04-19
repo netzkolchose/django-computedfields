@@ -149,9 +149,34 @@ class ComputedFieldsModelType(ModelBase):
 
     @classmethod
     def preupdate_dependent(mcs, instance, model=None, update_fields=None):
+        """
+        Create a map of currently associated computed fields records,
+        that would turn dirty by a follow-up bulk action.
+
+        Feed the dirty map back to ``update_dependent`` as ``dirty`` argument
+        after your bulk action to update deassociated computed field records as well. 
+        """
         if not model:
             model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
         return mcs._querysets_for_update(model, instance, pk_list=True)
+    
+    @classmethod
+    def preupdate_dependent_multi(mcs, instances):
+        """
+        Same as ``preupdate_dependent``, but for multiple bulk actions at once.
+
+        After done with the bulk actions, feed the dirty map back to ``update_dependent_multi``
+        as ``dirty`` argument to update deassociated computed field records as well.
+        """
+        final = {}
+        for instance in instances:
+            model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+            updates = mcs._querysets_for_update(model, instance, pk_list=True)
+            for model, data in updates.items():
+                m = final.setdefault(model, [model.objects.none(), set()])
+                m[0] |= data[0]       # or'ed querysets
+                m[1].update(data[1])  # add fields
+        return final
 
     @classmethod
     def update_dependent(mcs, instance, model=None, update_fields=None, dirty=None):
@@ -193,11 +218,21 @@ class ComputedFieldsModelType(ModelBase):
                 ...     obj.save()
 
             (This behavior might change with future versions.)
+        
+        Special care is needed, if a bulk action contains foreign key changes,
+        that are part of a computed field dependency chain. To correctly handle that case,
+        provide the result of ``preupdate_dependent`` as ``dirty`` argument like this:
+
+                >>> # given: some computed fields model depends somehow on Entry.fk_field
+                >>> dirty = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
+                >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
+                >>> update_dependent(Entry.objects.filter(pub_date__year=2010), dirty=dirty)
+
 
         For completeness - ``instance`` can also be a single model instance.
         Since calling ``save`` on a model instance will trigger this function by
         the ``post_save`` signal it should not be invoked for single model
-        instances, if they get saved anyways.
+        instances, if they get saved anyway.
         """
         if not model:
             if isinstance(instance, models.QuerySet):
@@ -218,7 +253,7 @@ class ComputedFieldsModelType(ModelBase):
                             el.save(update_fields=fields)
 
     @classmethod
-    def update_dependent_multi(mcs, instances):
+    def update_dependent_multi(mcs, instances, dirty=None):
         """
         Updates all dependent computed fields model objects for multiple instances.
 
@@ -248,9 +283,12 @@ class ComputedFieldsModelType(ModelBase):
             ``instances`` can also contain model instances. Don't use
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
-            (as shown for ``bulk_create`` above), or
-            ``update_dependent_multi`` if you have multiple of
-            aggregated querysets.
+            (as shown for ``bulk_create`` above).
+        
+        Again special care is needed, if the bulk actions involve foreign key changes,
+        that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
+        to create a dirty record mapping and after your bulk changes feed it back as
+        ``dirty`` argument to this function.
         """
         final = {}
         for instance in instances:
@@ -260,16 +298,24 @@ class ComputedFieldsModelType(ModelBase):
                 m = final.setdefault(model, [model.objects.none(), set()])
                 m[0] |= data[0]       # or'ed querysets
                 m[1].update(data[1])  # add fields
-        with transaction.atomic():
-            for qs, fields in final.values():
-                if qs.exists():
-                    for el in qs.distinct():
-                        el.save(update_fields=fields)
+        if final:
+            with transaction.atomic():
+                for qs, fields in final.values():
+                    if qs.exists():
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
+                if dirty:
+                    for model, data in dirty.items():
+                        pks, fields = data
+                        qs = model.objects.filter(pk__in=pks)
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
 update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
 preupdate_dependent = ComputedFieldsModelType.preupdate_dependent
+preupdate_dependent_multi = ComputedFieldsModelType.preupdate_dependent_multi
 
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):

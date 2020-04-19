@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 from django.test import TestCase
 from ..models import DepBaseA, DepBaseB, DepSub1, DepSub2, DepSubFinal
-from computedfields.models import update_dependent, update_dependent_multi, preupdate_dependent
+from computedfields.models import update_dependent, update_dependent_multi, preupdate_dependent, preupdate_dependent_multi
 
 
 class TestUpdateDependency(TestCase):
@@ -139,14 +139,22 @@ class TestUpdateDependency(TestCase):
         self.assertEqual(self.bb2.final_proxy, '')
 
     def test_update_bulk_multi(self):
-        # TODO: not ready yet
-        dirty_s1 = preupdate_dependent(DepSub1.objects.filter(b=self.bb2))
-        DepSub1.objects.filter(b=self.bb2).update(b=self.bb1)
-        update_dependent(DepSub1.objects.filter(b=self.bb1), dirty=dirty_s1)
+        # get initial currently related cf records
+        dirty = preupdate_dependent_multi([
+            DepSub1.objects.filter(b=self.bb2),
+            DepSub2.objects.filter(sub1=self.s11)
+        ])
 
-        dirty_s2 = preupdate_dependent(DepSub2.objects.filter(sub1=self.s11))
+        # do multiple bulk updates
+        DepSub1.objects.filter(b=self.bb2).update(b=self.bb1)
         DepSub2.objects.filter(sub1=self.s11).update(sub1=self.s12)
-        update_dependent(DepSub2.objects.filter(sub1=self.s12), dirty=dirty_s2)
+
+        # fix cf records
+        # Note: new querysets shifted shape, since they moved, old records are covered by dirty
+        update_dependent_multi([
+            DepSub1.objects.filter(b=self.bb1),
+            DepSub2.objects.filter(sub1=self.s12)
+        ], dirty=dirty)
 
 
         self.ba1.refresh_from_db()
