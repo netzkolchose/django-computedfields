@@ -6,7 +6,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 1.11 (Python 2.7, 3.5, 3.6), Django 2.2 (Python 3.5 to 3.8) and Django 3.0 (Python 3.6 to 3.8).
+Tested with Django 1.11, 2.2 and 3.0 (Python 3.6 to 3.8, also Python 2.7 where possible).
 
 
 #### Example ####
@@ -64,8 +64,3 @@ Now changes to `fk.fieldname` will now also update `computed_field`.
 #### Documentation ####
 
 The documentation can be found [here](https://django-computedfields.readthedocs.io/en/latest/index.html).
-
-
-#### TODO ####
-
-- optimize update querysets with ``select_related`` and ``prefetch_related``

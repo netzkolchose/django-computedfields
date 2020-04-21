@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 
 from django.contrib import admin
-from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
+from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType, ContributingModelsModel
 from django.apps import apps
 from django.conf import settings
 from json import dumps
@@ -82,5 +82,41 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
 
+class ContributingModelsAdmin(admin.ModelAdmin):
+    """
+    Shows models with cf contributing local fk fields.
+    """
+    actions = None
+    list_display = ('name', 'vulerable_fk_fields')
+    list_display_links = None
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+    
+    def vulerable_fk_fields(self, inst):
+        model = apps.get_model(inst.app_label, inst.model)
+        vul = ComputedFieldsModelType._fk_map.get(model)
+        if vul:
+            vul = list(vul)
+        vul = dumps(vul, indent=4, sort_keys=True)
+        if pygments:
+            vul = mark_safe(
+                    pygments.highlight(vul, JsonLexer(stripnl=False),
+                        HtmlFormatter(noclasses=True, nowrap=True)))
+        return format_html(u'<pre>{}</pre>', vul)
+
+    def name(self, obj):
+        name = escape(u'%s.%s' % (obj.app_label, obj.model))
+        try:
+            url = escape(reverse('admin:%s_%s_changelist' % (obj.app_label, obj.model)))
+        except NoReverseMatch:
+            return name
+        return format_html(u'<a href="{}">{}</a>', url, name)
+
+
 if getattr(settings, 'COMPUTEDFIELDS_ADMIN', False):
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
+    admin.site.register(ContributingModelsModel, ContributingModelsAdmin)

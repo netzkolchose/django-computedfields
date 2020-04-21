@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
+from django.core.exceptions import AppRegistryNotReady
 try:
     from django.utils import six
 except ImportError:
@@ -92,13 +93,16 @@ class ComputedFieldsModelType(ModelBase):
                 except ImportError:
                     import pickle
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
-                    mcs._map = pickle.load(f)
+                    pickled_data = pickle.load(f)
+                    mcs._map = pickled_data['lookup_map']
+                    mcs._fk_map = pickled_data['fk_map']
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
+            mcs._fk_map = mcs._graph._fk_map
             mcs._map_loaded = True
 
     @classmethod
@@ -145,7 +149,38 @@ class ComputedFieldsModelType(ModelBase):
         return final
 
     @classmethod
-    def update_dependent(mcs, instance, model=None, update_fields=None):
+    def preupdate_dependent(mcs, instance, model=None, update_fields=None):
+        """
+        Create a mapping of currently associated computed fields records,
+        that would turn dirty by a follow-up bulk action.
+
+        Feed the mapping back to ``update_dependent`` as ``old`` argument
+        after your bulk action to update deassociated computed field records as well. 
+        """
+        if not model:
+            model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+        return mcs._querysets_for_update(model, instance, pk_list=True)
+    
+    @classmethod
+    def preupdate_dependent_multi(mcs, instances):
+        """
+        Same as ``preupdate_dependent``, but for multiple bulk actions at once.
+
+        After done with the bulk actions, feed the mapping back to ``update_dependent_multi``
+        as ``old`` argument to update deassociated computed field records as well.
+        """
+        final = {}
+        for instance in instances:
+            model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+            updates = mcs._querysets_for_update(model, instance, pk_list=True)
+            for model, data in updates.items():
+                m = final.setdefault(model, [model.objects.none(), set()])
+                m[0] |= data[0]       # or'ed querysets
+                m[1].update(data[1])  # add fields
+        return final
+
+    @classmethod
+    def update_dependent(mcs, instance, model=None, update_fields=None, old=None):
         """
         Updates all dependent computed fields model objects.
 
@@ -184,11 +219,21 @@ class ComputedFieldsModelType(ModelBase):
                 ...     obj.save()
 
             (This behavior might change with future versions.)
+        
+        Special care is needed, if a bulk action contains foreign key changes,
+        that are part of a computed field dependency chain. To correctly handle that case,
+        provide the result of ``preupdate_dependent`` as ``old`` argument like this:
+
+                >>> # given: some computed fields model depends somehow on Entry.fk_field
+                >>> old_relations = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
+                >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
+                >>> update_dependent(Entry.objects.filter(pub_date__year=2010), old=old_relations)
+
 
         For completeness - ``instance`` can also be a single model instance.
         Since calling ``save`` on a model instance will trigger this function by
         the ``post_save`` signal it should not be invoked for single model
-        instances if they get saved anyways.
+        instances, if they get saved anyway.
         """
         if not model:
             if isinstance(instance, models.QuerySet):
@@ -196,15 +241,20 @@ class ComputedFieldsModelType(ModelBase):
             else:
                 model = type(instance)
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
-        if not updates:
-            return
-        with transaction.atomic():
-            for qs, fields in updates:
-                for el in qs.distinct():
-                    el.save(update_fields=fields)
+        if updates:
+            with transaction.atomic():
+                for qs, fields in updates:
+                    for el in qs.distinct():
+                        el.save(update_fields=fields)
+                if old:
+                    for model, data in old.items():
+                        pks, fields = data
+                        qs = model.objects.filter(pk__in=pks)
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
 
     @classmethod
-    def update_dependent_multi(mcs, instances):
+    def update_dependent_multi(mcs, instances, old=None):
         """
         Updates all dependent computed fields model objects for multiple instances.
 
@@ -234,9 +284,12 @@ class ComputedFieldsModelType(ModelBase):
             ``instances`` can also contain model instances. Don't use
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
-            (as shown for ``bulk_create`` above), or
-            ``update_dependent_multi`` if you have multiple of
-            aggregated querysets.
+            (as shown for ``bulk_create`` above).
+        
+        Again special care is needed, if the bulk actions involve foreign key changes,
+        that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
+        to create a record mapping of the current state and after your bulk changes feed it back as
+        ``old`` argument to this function.
         """
         final = {}
         for instance in instances:
@@ -246,16 +299,40 @@ class ComputedFieldsModelType(ModelBase):
                 m = final.setdefault(model, [model.objects.none(), set()])
                 m[0] |= data[0]       # or'ed querysets
                 m[1].update(data[1])  # add fields
-        with transaction.atomic():
-            for qs, fields in final.values():
-                if qs.exists():
-                    for el in qs.distinct():
-                        el.save(update_fields=fields)
+        if final:
+            with transaction.atomic():
+                for qs, fields in final.values():
+                    if qs.exists():
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
+                if old:
+                    for model, data in old.items():
+                        pks, fields = data
+                        qs = model.objects.filter(pk__in=pks)
+                        for el in qs.distinct():
+                            el.save(update_fields=fields)
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
 update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
+preupdate_dependent = ComputedFieldsModelType.preupdate_dependent
+preupdate_dependent_multi = ComputedFieldsModelType.preupdate_dependent_multi
 
+def get_contributing_fks():
+    """
+    Get a mapping of models and their local fk fields,
+    that are part of a computed fields dependency chain.
+
+    Whenever a bulk action changes one of the fields listed here, you have to create
+    a listing of the currently associated  records with ``preupdate_dependent`` and,
+    after doing the bulk change, feed the listing back to ``update_dependent``.
+
+    This mapping can also be inspected as admin view,
+    if ``COMPUTEDFIELDS_ADMIN`` is set to ``True``.
+    """
+    if not ComputedFieldsModelType._map_loaded:
+        raise AppRegistryNotReady
+    return ComputedFieldsModelType._fk_map
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):
     """
@@ -417,4 +494,30 @@ class ComputedFieldsAdminModel(ContentType):
         managed = False
         verbose_name = _('Computed Fields Model')
         verbose_name_plural = _('Computed Fields Models')
+        ordering = ('app_label', 'model')
+
+
+class ModelsWithContributingFkFieldsManager(models.Manager):
+    def get_queryset(self):
+        objs = ContentType.objects.get_for_models(
+            *ComputedFieldsModelType._fk_map.keys()).values()
+        pks = [model.pk for model in objs]
+        return ContentType.objects.filter(pk__in=pks)
+
+
+class ContributingModelsModel(ContentType):
+    """
+    Proxy model to list all models in admin, that contain fk fields contributing to computed fields.
+    This might be useful during development.
+    To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
+    An fk field is considered contributing, if it is part of a computed field dependency,
+    thus a change to it would impact a computed field.
+    """
+    objects = ModelsWithContributingFkFieldsManager()
+
+    class Meta:
+        proxy = True
+        managed = False
+        verbose_name = _('Model with contributing Fk Fields')
+        verbose_name_plural = _('Models with contributing Fk Fields')
         ordering = ('app_label', 'model')

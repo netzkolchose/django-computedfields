@@ -18,4 +18,7 @@ class Command(BaseCommand):
         with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
             graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
             graph.remove_redundant()
-            pickle.dump(graph.generate_lookup_map(), f, pickle.HIGHEST_PROTOCOL)
+            pickle.dump({
+                'lookup_map': graph.generate_lookup_map(),
+                'fk_map': graph._fk_map
+            }, f, pickle.HIGHEST_PROTOCOL)

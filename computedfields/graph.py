@@ -9,6 +9,7 @@ the signal handlers.
 """
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
+from django.db.models import ForeignKey
 from computedfields.helper import pairwise, is_sublist, modelname, is_computedfield
 import django
 Django2 = False
@@ -400,6 +401,7 @@ class ComputedModelsGraph(Graph):
         self.resolved = self.resolve_dependencies(computed_models)
         self.cleaned_data = self._clean_data(self.resolved)
         self._insert_data(self.cleaned_data)
+        self._fk_map = self._generate_fk_map()
 
     def resolve_dependencies(self, computed_models):
         """
@@ -470,6 +472,69 @@ class ComputedModelsGraph(Graph):
             for right in value:
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
+
+    def _get_fk_fields(self, model, paths):
+        """
+        Reduce field name dependencies in paths to reverse real local fk fields.
+        """
+        candidates = set(el.split('__')[-1] for el in paths)
+        result = set()
+        for f in filter(lambda f: isinstance(f, ForeignKey), model._meta.get_fields()):
+            if f.related_query_name() in candidates:
+                result.add(f.name)
+        return result
+
+    def _generate_fk_map(self):
+        """
+        Generate a map of local dependent fk field.
+        This must be done before any graph path reduction to avoid loosing track
+        of fk fields, that are removed by the reduction.
+        The fk map is later on needed to do cf updates of old relations
+        after relation changes, that would otherwise turn dirty.
+        Note: An update of old relations must always trigger the '#' action on the model instances.
+        """
+        # build full node information from edges
+        table = {}
+        for edge in self.edges:
+            lmodel, lfield = edge.left.data
+            lmodel = self.models[lmodel]
+            rmodel, rfield = edge.right.data
+            rmodel = self.models[rmodel]
+            table.setdefault(lmodel, {})\
+                 .setdefault(lfield, {})\
+                 .setdefault(rmodel, {})\
+                 .setdefault(rfield, [])\
+                 .extend(self.resolved[rmodel][rfield][lmodel])
+
+        # extract all field paths for model dependencies
+        path_map = {}
+        for lmodel, data in table.items():
+            path_map[lmodel] = set()
+            for lfield, ldata in data.items():
+                for rmodel, rdata in ldata.items():
+                    for rfield, deps in rdata.items():
+                        for dep in deps:
+                            path_map[lmodel].add(dep['path'])
+
+        # translate paths to model local fields and filter for fk fields
+        final = {}
+        for model, paths in path_map.items():
+            v = self._get_fk_fields(model, paths)
+            if v:
+                final[model] = v
+        return final
+
+    def _resolve(self, data):
+        """
+        Helper to merge querystring paths for lookup map.
+        """
+        fields = set()
+        strings = set()
+        for field, dependencies in data.items():
+            fields.add(field)
+            for dep in dependencies:
+                strings.add(dep['path'])
+        return fields, strings
 
     def generate_lookup_map(self):
         """
@@ -560,12 +625,3 @@ class ComputedModelsGraph(Graph):
                     lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
         return lookup_map
-
-    def _resolve(self, data):
-        fields = set()
-        strings = set()
-        for field, dependencies in data.items():
-            fields.add(field)
-            for dep in dependencies:
-                strings.add(dep['path'])
-        return fields, strings

@@ -157,3 +157,78 @@ class PartialUpdateB(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=['f_ba#name'])
     def comp(self):
         return self.f_ba.name + self.name
+
+
+# moving related objects
+class Parent(ComputedFieldsModel):
+    @computed(models.IntegerField(default=0), depends=['children#parent'])
+    def children_count(self):
+        return self.children.all().count()
+
+    @computed(models.IntegerField(default=0), depends=['children.subchildren#subparent'])
+    def subchildren_count(self):
+        count = 0
+        for child in self.children.all():
+            count += child.subchildren.all().count()
+        return count
+
+    @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
+    def subchildren_count_proxy(self):
+        from six.moves import reduce
+        from operator import add
+        return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
+
+class Child(ComputedFieldsModel):
+    parent = models.ForeignKey(Parent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=['subchildren#subparent'])
+    def subchildren_count(self):
+        return self.subchildren.all().count()
+
+class Subchild(models.Model):
+    subparent = models.ForeignKey(Child, related_name='subchildren', on_delete=models.CASCADE)
+
+# example from #15
+class XParent(ComputedFieldsModel):
+    @computed(models.IntegerField(default=0), depends=['children#value'])
+    def children_value(self):
+        return self.children.all().aggregate(sum=models.Sum('value'))['sum'] or 0
+
+class XChild(ComputedFieldsModel):
+    parent = models.ForeignKey(XParent, related_name='children', on_delete=models.CASCADE)
+    value = models.IntegerField()
+
+
+# update_dependent/update_dependent_multi tests
+class DepBaseA(ComputedFieldsModel):
+    @computed(models.CharField(max_length=256), depends=['sub1.sub2.subfinal#name'])
+    def final_proxy(self):
+        s = ''
+        for s1 in self.sub1.all():
+            for s2 in s1.sub2.all():
+                for sf in s2.subfinal.all():
+                    s += sf.name
+        return s
+
+class DepBaseB(ComputedFieldsModel):
+    @computed(models.CharField(max_length=256), depends=['sub1.sub2.subfinal#name'])
+    def final_proxy(self):
+        s = ''
+        for s1 in self.sub1.all():
+            for s2 in s1.sub2.all():
+                for sf in s2.subfinal.all():
+                    s += sf.name
+        return s
+
+class DepSub1(ComputedFieldsModel):
+    a = models.ForeignKey(DepBaseA, related_name='sub1', on_delete=models.CASCADE)
+    b = models.ForeignKey(DepBaseB, related_name='sub1', on_delete=models.CASCADE)
+
+
+class DepSub2(ComputedFieldsModel):
+    sub1 = models.ForeignKey(DepSub1, related_name='sub2', on_delete=models.CASCADE)
+
+
+class DepSubFinal(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    sub2 = models.ForeignKey(DepSub2, related_name='subfinal', on_delete=models.CASCADE)

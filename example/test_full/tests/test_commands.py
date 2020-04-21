@@ -79,8 +79,11 @@ class CommandTests(GenericModelTestBase):
         settings.COMPUTEDFIELDS_MAP = os.path.join(settings.BASE_DIR, 'map.test')
         call_command('createmap', verbosity=0)
         with open(os.path.join(settings.BASE_DIR, 'map.test'), 'rb') as f:
-            map = pickle.load(f)
+            pickled_data = pickle.load(f)
+            map = pickled_data['lookup_map']
+            fk_map = pickled_data['fk_map']
             self.assertDictEqual(map, ComputedFieldsModelType._map)
+            self.assertDictEqual(fk_map, ComputedFieldsModelType._fk_map)
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value
