@@ -401,7 +401,7 @@ class ComputedModelsGraph(Graph):
         self.resolved = self.resolve_dependencies(computed_models)
         self.cleaned_data = self._clean_data(self.resolved)
         self._insert_data(self.cleaned_data)
-        self._vulnerable_fk_map = self._generate_fk_map()
+        self._fk_map = self._generate_fk_map()
 
     def resolve_dependencies(self, computed_models):
         """
@@ -473,7 +473,7 @@ class ComputedModelsGraph(Graph):
                 edge = Edge(Node(left), Node(right))
                 self.add_edge(edge)
 
-    def _get_vulnerable_fk_fields(self, model, paths):
+    def _get_fk_fields(self, model, paths):
         """
         Reduce field name dependencies in paths to reverse real local fk fields.
         """
@@ -491,7 +491,7 @@ class ComputedModelsGraph(Graph):
         of fk fields, that are removed by the reduction.
         The fk map is later on needed to do cf updates of old relations
         after relation changes, that would otherwise turn dirty.
-        Note: A dirty update must always trigger the '#' action on the model instances.
+        Note: An update of old relations must always trigger the '#' action on the model instances.
         """
         # build full node information from edges
         table = {}
@@ -519,7 +519,7 @@ class ComputedModelsGraph(Graph):
         # translate paths to model local fields and filter for fk fields
         final = {}
         for model, paths in path_map.items():
-            v = self._get_vulnerable_fk_fields(model, paths)
+            v = self._get_fk_fields(model, paths)
             if v:
                 final[model] = v
         return final

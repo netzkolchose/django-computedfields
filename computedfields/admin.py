@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 
 from django.contrib import admin
-from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType, VulnerableModelsModel
+from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType, ContributingModelsModel
 from django.apps import apps
 from django.conf import settings
 from json import dumps
@@ -82,9 +82,9 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
 
-class VulnerableModelsAdmin(admin.ModelAdmin):
+class ContributingModelsAdmin(admin.ModelAdmin):
     """
-    Shows models with vulnerable local fk fields.
+    Shows models with cf contributing local fk fields.
     """
     actions = None
     list_display = ('name', 'vulerable_fk_fields')
@@ -98,7 +98,7 @@ class VulnerableModelsAdmin(admin.ModelAdmin):
     
     def vulerable_fk_fields(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        vul = ComputedFieldsModelType._vulnerable_fk_map.get(model)
+        vul = ComputedFieldsModelType._fk_map.get(model)
         if vul:
             vul = list(vul)
         vul = dumps(vul, indent=4, sort_keys=True)
@@ -119,4 +119,4 @@ class VulnerableModelsAdmin(admin.ModelAdmin):
 
 if getattr(settings, 'COMPUTEDFIELDS_ADMIN', False):
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
-    admin.site.register(VulnerableModelsModel, VulnerableModelsAdmin)
+    admin.site.register(ContributingModelsModel, ContributingModelsAdmin)

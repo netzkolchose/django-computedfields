@@ -24,22 +24,22 @@ STORAGE = local()
 STORAGE.DELETES = {}
 STORAGE.M2M_REMOVE = {}
 STORAGE.M2M_CLEAR = {}
-STORAGE.UPDATE_DIRTY = {}
+STORAGE.UPDATE_OLD = {}
 
 DELETES = STORAGE.DELETES
 M2M_REMOVE = STORAGE.M2M_REMOVE
 M2M_CLEAR = STORAGE.M2M_CLEAR
-UPDATE_DIRTY = STORAGE.UPDATE_DIRTY
+UPDATE_OLD = STORAGE.UPDATE_OLD
 
 
-def update_dirty_handler(sender, instance, **kwargs):
+def get_old_handler(sender, instance, **kwargs):
     """
-    ``update_dirty_handler`` handler.
+    ``get_old_handler`` handler.
 
     ``pre_save`` signal handler to spot incoming fk relation changes.
     This is needed to correctly update old relations after fk changes,
-    that contain dirty computed field values after a save.
-    The actual dirty updates are done during ``post_save``.
+    that would contain dirty computed field values after a save.
+    The actual updates on old relations are done during ``post_save``.
     """
     # do not handle fixtures
     if kwargs.get('raw'):
@@ -47,15 +47,15 @@ def update_dirty_handler(sender, instance, **kwargs):
     # exit early if instance is new
     if instance._state.adding:
         return
-    vulnerable_fks = CFMT._vulnerable_fk_map.get(sender)
-    # exit early if model contains no vulnerable fk fields
-    if not vulnerable_fks:
+    contributing_fks = CFMT._fk_map.get(sender)
+    # exit early if model contains no contributing fk fields
+    if not contributing_fks:
         return
-    dirty_candidates = set(vulnerable_fks)
+    candidates = set(contributing_fks)
     if kwargs.get('update_fields'):
-        dirty_candidates &= kwargs.get('update_fields')
-    # exit early if no vulnerable field will be updated
-    if not dirty_candidates:
+        candidates &= kwargs.get('update_fields')
+    # exit early if no contributing fk field will be updated
+    if not candidates:
         return
     # we got an update instance with possibly dirty fk fields
     # we do simply a full update on all old related fk records for now
@@ -63,7 +63,7 @@ def update_dirty_handler(sender, instance, **kwargs):
     #        filter by individual field changes instead? (tests are ~10% slower)
     data = CFMT.preupdate_dependent(instance, sender)
     if data:
-        UPDATE_DIRTY[instance] = data
+        UPDATE_OLD[instance] = data
     return
 
 
@@ -77,7 +77,7 @@ def postsave_handler(sender, instance, **kwargs):
     # do not update for fixtures
     if not kwargs.get('raw'):
         CFMT.update_dependent(
-            instance, sender, kwargs.get('update_fields'), dirty=UPDATE_DIRTY.pop(instance, []))
+            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []))
 
 
 def predelete_handler(sender, instance, **kwargs):

@@ -80,7 +80,7 @@ class TestUpdateDependency(TestCase):
         self.assertEqual(self.bb2.final_proxy, '')
 
     def test_update_bulk_final_name(self):
-        # here dirty is not needed, since the QS is stable itself (only endpoint data changed),
+        # here old is not needed, since the QS is stable itself (only endpoint data changed),
         # thus all data changes correctly trigger updates
         DepSubFinal.objects.filter(sub2=self.s21).update(name='X')
         update_dependent(DepSubFinal.objects.filter(sub2=self.s21))
@@ -95,11 +95,11 @@ class TestUpdateDependency(TestCase):
         self.assertEqual(self.bb2.final_proxy, 'f6f7f8f9f0')
     
     def test_update_bulk_final_sub2(self):
-        # this needs dirty handling - seems a good indicator for this is whether the QS changes itself
+        # this needs old handling - seems a good indicator for this is whether the QS changes itself
         # here: filter(sub2=self.s21) before vs. filter(sub2=self.s22) after the update
-        dirty = preupdate_dependent(DepSubFinal.objects.filter(sub2=self.s21))
+        old_relations = preupdate_dependent(DepSubFinal.objects.filter(sub2=self.s21))
         DepSubFinal.objects.filter(sub2=self.s21).update(sub2=self.s22)
-        update_dependent(DepSubFinal.objects.filter(sub2=self.s22), dirty=dirty)
+        update_dependent(DepSubFinal.objects.filter(sub2=self.s22), old=old_relations)
 
         self.ba1.refresh_from_db()
         self.ba2.refresh_from_db()
@@ -111,9 +111,9 @@ class TestUpdateDependency(TestCase):
         self.assertEqual(self.bb2.final_proxy, 'f1f2f3f4f5f6f7f8f9f0')
 
     def test_update_bulk_s2(self):
-        dirty = preupdate_dependent(DepSub2.objects.filter(sub1=self.s12))
+        old_relations = preupdate_dependent(DepSub2.objects.filter(sub1=self.s12))
         DepSub2.objects.filter(sub1=self.s12).update(sub1=self.s11)
-        update_dependent(DepSub2.objects.filter(sub1=self.s11), dirty=dirty)
+        update_dependent(DepSub2.objects.filter(sub1=self.s11), old=old_relations)
 
         self.ba1.refresh_from_db()
         self.ba2.refresh_from_db()
@@ -125,9 +125,9 @@ class TestUpdateDependency(TestCase):
         self.assertEqual(self.bb2.final_proxy, '')
 
     def test_update_bulk_s1(self):
-        dirty = preupdate_dependent(DepSub1.objects.filter(b=self.bb2))
+        old_relations = preupdate_dependent(DepSub1.objects.filter(b=self.bb2))
         DepSub1.objects.filter(b=self.bb2).update(b=self.bb1)
-        update_dependent(DepSub1.objects.filter(b=self.bb1), dirty=dirty)
+        update_dependent(DepSub1.objects.filter(b=self.bb1), old=old_relations)
 
         self.ba1.refresh_from_db()
         self.ba2.refresh_from_db()
@@ -140,7 +140,7 @@ class TestUpdateDependency(TestCase):
 
     def test_update_bulk_multi(self):
         # get initial currently related cf records
-        dirty = preupdate_dependent_multi([
+        old_relations = preupdate_dependent_multi([
             DepSub1.objects.filter(b=self.bb2),
             DepSub2.objects.filter(sub1=self.s11)
         ])
@@ -150,11 +150,12 @@ class TestUpdateDependency(TestCase):
         DepSub2.objects.filter(sub1=self.s11).update(sub1=self.s12)
 
         # fix cf records
-        # Note: new querysets shifted shape, since they moved, old records are covered by dirty
+        # Note: new querysets shifted shape, since they moved
+        # old records are covered by old_relations
         update_dependent_multi([
             DepSub1.objects.filter(b=self.bb1),
             DepSub2.objects.filter(sub1=self.s12)
-        ], dirty=dirty)
+        ], old=old_relations)
 
 
         self.ba1.refresh_from_db()

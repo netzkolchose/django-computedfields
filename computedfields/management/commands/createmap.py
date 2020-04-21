@@ -20,5 +20,5 @@ class Command(BaseCommand):
             graph.remove_redundant()
             pickle.dump({
                 'lookup_map': graph.generate_lookup_map(),
-                'fk_map': graph._vulnerable_fk_map
+                'fk_map': graph._fk_map
             }, f, pickle.HIGHEST_PROTOCOL)

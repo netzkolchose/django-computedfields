@@ -143,9 +143,9 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.assertEqual(p1.children_count, 10)
         self.assertEqual(p2.children_count, 0)
 
-        dirty = preupdate_dependent(Child.objects.all())
+        old_relations = preupdate_dependent(Child.objects.all())
         Child.objects.all().update(parent=p2)
-        update_dependent(Child.objects.all(), dirty=dirty)
+        update_dependent(Child.objects.all(), old=old_relations)
 
         p1.refresh_from_db()
         p2.refresh_from_db()
@@ -213,9 +213,9 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         self.assertEqual(p1.subchildren_count, 2)
         self.assertEqual(p2.subchildren_count, 2)
 
-        dirty = preupdate_dependent(Subchild.objects.all())
+        old_relations = preupdate_dependent(Subchild.objects.all())
         Subchild.objects.all().update(subparent=c2)
-        update_dependent(Subchild.objects.all(), dirty=dirty)
+        update_dependent(Subchild.objects.all(), old=old_relations)
 
         p1.refresh_from_db()
         p2.refresh_from_db()

@@ -95,14 +95,14 @@ class ComputedFieldsModelType(ModelBase):
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
                     pickled_data = pickle.load(f)
                     mcs._map = pickled_data['lookup_map']
-                    mcs._vulnerable_fk_map = pickled_data['fk_map']
+                    mcs._fk_map = pickled_data['fk_map']
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
-            mcs._vulnerable_fk_map = mcs._graph._vulnerable_fk_map
+            mcs._fk_map = mcs._graph._fk_map
             mcs._map_loaded = True
 
     @classmethod
@@ -151,10 +151,10 @@ class ComputedFieldsModelType(ModelBase):
     @classmethod
     def preupdate_dependent(mcs, instance, model=None, update_fields=None):
         """
-        Create a map of currently associated computed fields records,
+        Create a mapping of currently associated computed fields records,
         that would turn dirty by a follow-up bulk action.
 
-        Feed the dirty map back to ``update_dependent`` as ``dirty`` argument
+        Feed the mapping back to ``update_dependent`` as ``old`` argument
         after your bulk action to update deassociated computed field records as well. 
         """
         if not model:
@@ -166,8 +166,8 @@ class ComputedFieldsModelType(ModelBase):
         """
         Same as ``preupdate_dependent``, but for multiple bulk actions at once.
 
-        After done with the bulk actions, feed the dirty map back to ``update_dependent_multi``
-        as ``dirty`` argument to update deassociated computed field records as well.
+        After done with the bulk actions, feed the mapping back to ``update_dependent_multi``
+        as ``old`` argument to update deassociated computed field records as well.
         """
         final = {}
         for instance in instances:
@@ -180,7 +180,7 @@ class ComputedFieldsModelType(ModelBase):
         return final
 
     @classmethod
-    def update_dependent(mcs, instance, model=None, update_fields=None, dirty=None):
+    def update_dependent(mcs, instance, model=None, update_fields=None, old=None):
         """
         Updates all dependent computed fields model objects.
 
@@ -222,12 +222,12 @@ class ComputedFieldsModelType(ModelBase):
         
         Special care is needed, if a bulk action contains foreign key changes,
         that are part of a computed field dependency chain. To correctly handle that case,
-        provide the result of ``preupdate_dependent`` as ``dirty`` argument like this:
+        provide the result of ``preupdate_dependent`` as ``old`` argument like this:
 
                 >>> # given: some computed fields model depends somehow on Entry.fk_field
-                >>> dirty = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
+                >>> old_relations = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
                 >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
-                >>> update_dependent(Entry.objects.filter(pub_date__year=2010), dirty=dirty)
+                >>> update_dependent(Entry.objects.filter(pub_date__year=2010), old=old_relations)
 
 
         For completeness - ``instance`` can also be a single model instance.
@@ -246,15 +246,15 @@ class ComputedFieldsModelType(ModelBase):
                 for qs, fields in updates:
                     for el in qs.distinct():
                         el.save(update_fields=fields)
-                if dirty:
-                    for model, data in dirty.items():
+                if old:
+                    for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks)
                         for el in qs.distinct():
                             el.save(update_fields=fields)
 
     @classmethod
-    def update_dependent_multi(mcs, instances, dirty=None):
+    def update_dependent_multi(mcs, instances, old=None):
         """
         Updates all dependent computed fields model objects for multiple instances.
 
@@ -288,8 +288,8 @@ class ComputedFieldsModelType(ModelBase):
         
         Again special care is needed, if the bulk actions involve foreign key changes,
         that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
-        to create a dirty record mapping and after your bulk changes feed it back as
-        ``dirty`` argument to this function.
+        to create a record mapping of the current state and after your bulk changes feed it back as
+        ``old`` argument to this function.
         """
         final = {}
         for instance in instances:
@@ -305,8 +305,8 @@ class ComputedFieldsModelType(ModelBase):
                     if qs.exists():
                         for el in qs.distinct():
                             el.save(update_fields=fields)
-                if dirty:
-                    for model, data in dirty.items():
+                if old:
+                    for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks)
                         for el in qs.distinct():
@@ -318,21 +318,21 @@ update_dependent_multi = ComputedFieldsModelType.update_dependent_multi
 preupdate_dependent = ComputedFieldsModelType.preupdate_dependent
 preupdate_dependent_multi = ComputedFieldsModelType.preupdate_dependent_multi
 
-def get_vulnerable_fk_fields():
+def get_contributing_fks():
     """
     Get a mapping of models and their local fk fields,
     that are part of a computed fields dependency chain.
 
     Whenever a bulk action changes one of the fields listed here, you have to create
-    a dirty record listing with ``preupdate_dependent`` and, after doing the bulk change,
-    feed the dirty records back to ``update_dependent``.
+    a listing of the currently associated  records with ``preupdate_dependent`` and,
+    after doing the bulk change, feed the listing back to ``update_dependent``.
 
     This mapping can also be inspected as admin view,
     if ``COMPUTEDFIELDS_ADMIN`` is set to ``True``.
     """
     if not ComputedFieldsModelType._map_loaded:
         raise AppRegistryNotReady
-    return ComputedFieldsModelType._vulnerable_fk_map
+    return ComputedFieldsModelType._fk_map
 
 class ComputedFieldsModel(six.with_metaclass(ComputedFieldsModelType, models.Model)):
     """
@@ -497,27 +497,27 @@ class ComputedFieldsAdminModel(ContentType):
         ordering = ('app_label', 'model')
 
 
-class ModelsWithVulnerableFkFieldsManager(models.Manager):
+class ModelsWithContributingFkFieldsManager(models.Manager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
-            *ComputedFieldsModelType._vulnerable_fk_map.keys()).values()
+            *ComputedFieldsModelType._fk_map.keys()).values()
         pks = [model.pk for model in objs]
         return ContentType.objects.filter(pk__in=pks)
 
 
-class VulnerableModelsModel(ContentType):
+class ContributingModelsModel(ContentType):
     """
-    Proxy model to list all models that contains vulnerable fk fields in admin.
+    Proxy model to list all models in admin, that contain fk fields contributing to computed fields.
     This might be useful during development.
     To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
-    An fk field is considered vulnerable, if it is part of a computed field dependency,
+    An fk field is considered contributing, if it is part of a computed field dependency,
     thus a change to it would impact a computed field.
     """
-    objects = ModelsWithVulnerableFkFieldsManager()
+    objects = ModelsWithContributingFkFieldsManager()
 
     class Meta:
         proxy = True
         managed = False
-        verbose_name = _('Model with vulnerable Fk Fields')
-        verbose_name_plural = _('Models with vulnerable Fk Fields')
+        verbose_name = _('Model with contributing Fk Fields')
+        verbose_name_plural = _('Models with contributing Fk Fields')
         ordering = ('app_label', 'model')
