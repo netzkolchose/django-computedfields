@@ -33,7 +33,7 @@ author = 'netzkolchose'
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '0.0.10'
+release = '0.0.16'
 
 
 # -- General configuration ---------------------------------------------------
