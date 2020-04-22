@@ -232,3 +232,107 @@ class DepSub2(ComputedFieldsModel):
 class DepSubFinal(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     sub2 = models.ForeignKey(DepSub2, related_name='subfinal', on_delete=models.CASCADE)
+
+
+# Test classes for abstract model support
+class Abstract(ComputedFieldsModel):
+    class Meta:
+        abstract = True
+
+    a = models.IntegerField(default=0)
+    b = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0))
+    def c(self):
+        return self.a + self.b
+
+
+class Concrete(Abstract):
+    d = models.IntegerField(default=0)
+
+
+class ParentOfAbstract(ComputedFieldsModel):
+    @computed(models.IntegerField(default=0), depends=['children#parent'])
+    def children_count(self):
+        return self.children.all().count()
+
+    @computed(models.IntegerField(default=0), depends=['children.subchildren#subparent'])
+    def subchildren_count(self):
+        count = 0
+        for child in self.children.all():
+            count += child.subchildren.all().count()
+        return count
+
+    @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
+    def subchildren_count_proxy(self):
+        from six.moves import reduce
+        from operator import add
+        return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
+
+
+class AbstractChild(ComputedFieldsModel):
+    class Meta:
+        abstract = True
+
+    parent = models.ForeignKey(ParentOfAbstract, related_name='children', on_delete=models.CASCADE)
+
+
+class ConcreteChild(AbstractChild):
+    @computed(models.IntegerField(default=0), depends=['subchildren#subparent'])
+    def subchildren_count(self):
+        return self.subchildren.all().count()
+
+
+class AbstractSubchild(models.Model):
+    class Meta:
+        abstract = True
+
+    subparent = models.ForeignKey(ConcreteChild, related_name='subchildren', on_delete=models.CASCADE)
+
+
+class ConcreteSubchild(AbstractSubchild):
+    pass
+
+
+class AbstractWithForeignKey(ComputedFieldsModel):
+    target = models.ForeignKey(Concrete, related_name="abstract_with_foreign_key", on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=['target#d'])
+    def target_d(self):
+        return self.target.d
+
+    @computed(models.IntegerField(default=0), depends=['target#a', 'target#b'])
+    def target_c(self):
+        return self.target.a + self.target.b
+
+    @computed(models.IntegerField(default=0), depends=['target#c'])
+    def target_c_proxy(self):
+        return self.target.c
+
+
+class ConcreteWithForeignKey(AbstractWithForeignKey):
+    concrete_target = models.ForeignKey(Concrete, related_name="concrete_with_foreign_key", on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=['target#d'])
+    def d(self):
+        return self.target.d
+
+    @computed(models.IntegerField(default=0), depends=['target#a', 'target#b'])
+    def c(self):
+        return self.target.a + self.target.b
+
+    @computed(models.IntegerField(default=0), depends=['target#c'])
+    def c_proxy(self):
+        return self.target.c
+
+    @computed(models.IntegerField(default=0), depends=['concrete_target#d'])
+    def concrete_d(self):
+        return self.concrete_target.d
+
+    @computed(models.IntegerField(default=0), depends=['concrete_target#a', 'concrete_target#b'])
+    def concrete_c(self):
+        return self.concrete_target.a + self.concrete_target.b
+
+    @computed(models.IntegerField(default=0), depends=['concrete_target#c'])
+    def concrete_c_proxy(self):
+        return self.concrete_target.c
