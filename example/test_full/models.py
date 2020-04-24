@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from django.db import models
 import sys
 from computedfields.models import ComputedFieldsModel, computed
@@ -174,7 +173,7 @@ class Parent(ComputedFieldsModel):
 
     @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
     def subchildren_count_proxy(self):
-        from six.moves import reduce
+        from functools import reduce
         from operator import add
         return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
 
@@ -265,7 +264,7 @@ class ParentOfAbstract(ComputedFieldsModel):
 
     @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
     def subchildren_count_proxy(self):
-        from six.moves import reduce
+        from functools import reduce
         from operator import add
         return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
 

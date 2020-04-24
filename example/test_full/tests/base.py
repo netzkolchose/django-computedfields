@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from django.test import TestCase
-import test_full.models as models_module
+from .. import models as models_module
 from computedfields.models import ComputedFieldsModelType
 MODELS = models_module.MODELS
 

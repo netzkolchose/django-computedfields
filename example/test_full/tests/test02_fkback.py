@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from .base import GenericModelTestBase, MODELS
 from ..models import Parent, Child, Subchild, XParent, XChild
 from computedfields.models import update_dependent, preupdate_dependent

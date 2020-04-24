@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from django.test import TestCase
-from test_full.models import Concrete, ParentOfAbstract, ConcreteChild, ConcreteSubchild, ConcreteWithForeignKey
+from ..models import Concrete, ParentOfAbstract, ConcreteChild, ConcreteSubchild, ConcreteWithForeignKey
 
 
 class AbstractModel(TestCase):

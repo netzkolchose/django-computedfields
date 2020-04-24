@@ -1,15 +1,9 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from .base import GenericModelTestBase
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
-try:
-    from django.utils.six.moves import cStringIO
-    from django.utils.six.moves import cPickle as pickle
-except ImportError:
-    from io import StringIO as cStringIO
-    import pickle
+from io import StringIO
+import pickle
 from django.conf import settings
 import os
 
@@ -57,7 +51,7 @@ class CommandTests(GenericModelTestBase):
         )
         self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
         stdout = sys.stdout
-        sys.stdout = cStringIO()
+        sys.stdout = StringIO()
         call_command('rendergraph', 'output', verbosity=0)
         # should have printed cycle info on stdout
         self.assertIn('Warning -  1 cycles in dependencies found:', sys.stdout.getvalue())
