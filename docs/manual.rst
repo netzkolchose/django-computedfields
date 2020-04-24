@@ -329,3 +329,10 @@ Motivation
 
 :mod:`django-computedfields` is inspired by odoo's computed fields and the lack of
 a similar feature in Django's ORM.
+
+
+Changelog
+---------
+
+- 0.0.17
+    - Dropped Python 2.7 and Django 1.11 support.

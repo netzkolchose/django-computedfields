@@ -107,6 +107,7 @@ migrations/
 !computedfields/migrations
 !example/exampleapp/migrations
 .idea/
+.vscode/
 django-computedfields.iml
 example/Digraph.gv.pdf
 example/db.sqlite3

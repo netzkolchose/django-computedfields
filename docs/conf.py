@@ -27,13 +27,13 @@ django.setup()
 # -- Project information -----------------------------------------------------
 
 project = 'django-computedfields'
-copyright = '2018, 2019, netzkolchose'
+copyright = '2018, 2019, 2020 netzkolchose'
 author = 'netzkolchose'
 
 # The short X.Y version
 version = ''
 # The full version, including alpha/beta/rc tags
-release = '0.0.16'
+release = '0.0.17'
 
 
 # -- General configuration ---------------------------------------------------
