@@ -82,7 +82,7 @@ class ComputedFieldsModelType(ModelBase):
         will break loose. You have been warned ;)
         """
         with mcs._lock:
-            if mcs._map_loaded and not _force:
+            if mcs._map_loaded and not _force:  # pragma: no cover
                 return
             if (getattr(settings, 'COMPUTEDFIELDS_MAP', False)
                     and not force and not _force):
@@ -325,7 +325,7 @@ def get_contributing_fks():
     This mapping can also be inspected as admin view,
     if ``COMPUTEDFIELDS_ADMIN`` is set to ``True``.
     """
-    if not ComputedFieldsModelType._map_loaded:
+    if not ComputedFieldsModelType._map_loaded:  # pragma: no cover
         raise AppRegistryNotReady
     return ComputedFieldsModelType._fk_map
 
