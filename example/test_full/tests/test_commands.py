@@ -2,6 +2,7 @@ from .base import GenericModelTestBase
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from io import StringIO
 import pickle
 from django.conf import settings
@@ -84,3 +85,18 @@ class CommandTests(GenericModelTestBase):
         if map_set:
             settings.COMPUTEDFIELDS_MAP = old_map
 
+    def test_createmap_without_setting(self):
+        # save old value
+        old_map = None
+        map_set = hasattr(settings, 'COMPUTEDFIELDS_MAP')
+        if map_set:
+            old_map = settings.COMPUTEDFIELDS_MAP
+
+        # this should fail
+        delattr(settings, 'COMPUTEDFIELDS_MAP')
+        self.assertRaisesMessage(CommandError, 'COMPUTEDFIELDS_MAP is not set in settings.py, abort.',
+            lambda : call_command('createmap', verbosity=0))
+
+        # restore old  value
+        if map_set:
+            settings.COMPUTEDFIELDS_MAP = old_map
