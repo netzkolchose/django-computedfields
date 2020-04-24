@@ -1,15 +1,10 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from .base import GenericModelTestBase
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
-try:
-    from django.utils.six.moves import cStringIO
-    from django.utils.six.moves import cPickle as pickle
-except ImportError:
-    from io import StringIO as cStringIO
-    import pickle
+from django.core.management.base import CommandError
+from io import StringIO
+import pickle
 from django.conf import settings
 import os
 
@@ -57,7 +52,7 @@ class CommandTests(GenericModelTestBase):
         )
         self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
         stdout = sys.stdout
-        sys.stdout = cStringIO()
+        sys.stdout = StringIO()
         call_command('rendergraph', 'output', verbosity=0)
         # should have printed cycle info on stdout
         self.assertIn('Warning -  1 cycles in dependencies found:', sys.stdout.getvalue())
@@ -90,3 +85,18 @@ class CommandTests(GenericModelTestBase):
         if map_set:
             settings.COMPUTEDFIELDS_MAP = old_map
 
+    def test_createmap_without_setting(self):
+        # save old value
+        old_map = None
+        map_set = hasattr(settings, 'COMPUTEDFIELDS_MAP')
+        if map_set:
+            old_map = settings.COMPUTEDFIELDS_MAP
+
+        # this should fail
+        delattr(settings, 'COMPUTEDFIELDS_MAP')
+        self.assertRaisesMessage(CommandError, 'COMPUTEDFIELDS_MAP is not set in settings.py, abort.',
+            lambda : call_command('createmap', verbosity=0))
+
+        # restore old  value
+        if map_set:
+            settings.COMPUTEDFIELDS_MAP = old_map

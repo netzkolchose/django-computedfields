@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from django.test import TestCase
 from computedfields.graph import Node, Edge, Graph, CycleNodeException, CycleEdgeException
 from computedfields.helper import pairwise

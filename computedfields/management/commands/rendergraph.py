@@ -1,4 +1,3 @@
-from __future__ import print_function
 from django.core.management.base import BaseCommand
 from computedfields.models import ComputedFieldsModelType
 from computedfields.graph import ComputedModelsGraph, CycleException

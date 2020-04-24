@@ -11,10 +11,6 @@ from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
 from computedfields.helper import pairwise, is_sublist, modelname, is_computedfield
-import django
-Django2 = False
-if django.VERSION[0] >= 2:
-    Django2 = True
 
 
 class CycleException(Exception):

@@ -1,12 +1,7 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
 from django.db import models
 from computedfields.models import ComputedFieldsModel, computed
-from six import python_2_unicode_compatible
 
 
-@python_2_unicode_compatible
 class Foo(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
@@ -19,7 +14,6 @@ class Foo(ComputedFieldsModel):
         return self.name
 
 
-@python_2_unicode_compatible
 class Bar(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     foo = models.ForeignKey(Foo, on_delete=models.CASCADE)
@@ -32,7 +26,6 @@ class Bar(ComputedFieldsModel):
         return self.name
 
 
-@python_2_unicode_compatible
 class Baz(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     bar = models.ForeignKey(Bar, on_delete=models.CASCADE)

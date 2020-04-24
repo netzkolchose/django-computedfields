@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
 from django.test import TestCase
 from ..models import DepBaseA, DepBaseB, DepSub1, DepSub2, DepSubFinal
 from computedfields.models import update_dependent, update_dependent_multi, preupdate_dependent, preupdate_dependent_multi
