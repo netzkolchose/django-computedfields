@@ -238,15 +238,60 @@ class ComputedFieldsModelType(ModelBase):
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
+                pks_updated = {}
                 for qs, fields in updates:
-                    for el in qs.distinct():
-                        el.save(update_fields=fields)
+                    # FIXME: apply select_related here, prefetch is much more complicated to get done right
+                    #qs = qs.select_related('parent__parent')
+                    #qs = qs.prefetch_related('children__subchildren')
+                    pks_updated[qs.model] = mcs.bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks)
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
+                        mcs.bulker(qs, fields)
+
+    @classmethod
+    def bulker(mcs, qs, fields, return_pks=False):
+        # FIXME: integrate into update_dependent_multi
+
+        qs = qs.distinct()
+
+        # FIXME: old way to compare, to be removed
+        # across all tests the old way is slightly faster
+        # prolly due to high insert/single instance actions (~5% faster),
+        # but gets outperformed by bulk_update for more than 5 records
+        #
+        # speedup for bulk_update compared to single instance save in benchmark.tests.CountQueriesFk:
+        #   10 records +5%
+        #   100 records +25%
+        #   >1000 records +37%
+        if False:
+            for el in qs:
+                el.save(update_fields=fields)
+            if return_pks:
+                return set(el.pk for el in qs)
+            return
+
+        change = set()
+        for el in qs:
+            has_changed = False
+            for comp_field in fields:
+                new_value = el.compute(comp_field)
+                if new_value != getattr(el, comp_field):
+                    has_changed = True
+                    setattr(el, comp_field, new_value)
+            if has_changed:
+                change.add(el)
+        # batch in 100ths, otherwise query construction
+        # in python explodes and eats the perf gain again
+        # FIXME: make this customizable somehow
+        qs.model.objects.bulk_update(change, fields, batch_size=100)
+
+        # trigger dependent comp field updates on all records
+        update_dependent(qs, qs.model, fields)
+        if return_pks:
+            return set(el.pk for el in qs)
+        return
 
     @classmethod
     def update_dependent_multi(mcs, instances, old=None):
