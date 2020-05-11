@@ -45,8 +45,12 @@ class ComputedFieldsModelType(ModelBase):
                     v.editable = False
                     v._computed.update({'attr': k})
                     depends = v._computed['kwargs'].get('depends')
-                    if depends:
-                        dependent_fields[k] = depends
+                    # if depends:
+                    #     dependent_fields[k] = depends
+                    # for downward compat we always have to add depends
+                    # an empty depends gets filled up with local concrete fields
+                    # FIXME: make this field mandatory listing all dep fields incl. local
+                    dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         if name != 'ComputedFieldsModel':
             if hasattr(cls, '_computed_fields'):
@@ -108,6 +112,7 @@ class ComputedFieldsModelType(ModelBase):
         """
         final = OrderedDict()
         modeldata = mcs._map.get(model)
+        #print(modeldata)
         if not modeldata:
             return final
         if not update_fields:
@@ -117,6 +122,8 @@ class ComputedFieldsModelType(ModelBase):
             for fieldname in update_fields:
                 if fieldname in modeldata:
                     updates.add(fieldname)
+            #if not updates:
+            #    updates.add('#')
         subquery = '__in' if isinstance(instance, models.QuerySet) else ''
         model_updates = OrderedDict()
         for update in updates:
