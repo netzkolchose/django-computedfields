@@ -66,10 +66,10 @@ class SelfRef(ComputedFieldsModel):
     def c6(self):
         return 'c6' + str(self.xy)
 
-    @computed(models.CharField(max_length=32, default=''), depends=(('self', ('c8',)),))
+    @computed(models.CharField(max_length=32, default=''), depends=(('self', ('c8',)),)) # new notation
     def c7(self):
         return 'c7' + self.c8
 
-    @computed(models.CharField(max_length=32, default=''), depends=None)
+    @computed(models.CharField(max_length=32, default=''), depends=[]) # FIXME: None vs. [] needs explanation in docs
     def c8(self):
         return 'c8'

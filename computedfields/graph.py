@@ -402,10 +402,12 @@ class ComputedModelsGraph(Graph):
         self.cleaned_data = self._clean_data(self.resolved['global'])
         self._insert_data(self.cleaned_data)
         self._fk_map = self._generate_fk_map()
+        self.modelgraphs = {}
+        self.union = None
 
     # FIXME: remove once transition to new depends format is done
     def _is_old_depends(self, depends):
-        if not depends:
+        if depends is None:
             return True
         return any(isinstance(el, str) for el in depends)
 
@@ -721,10 +723,30 @@ class ComputedModelsGraph(Graph):
     def generate_local_lookup_map(self):
         data = self.resolved['local']
         for model, local_deps in data.items():
-            gg = ModelGraph(local_deps)
-            cp = gg.cleaned_paths()
-            sp = gg.topological_sort(cp)
-            gg.generate_local_mapping(sp)
+            if model._meta.model_name != 'selfref':
+                continue
+            self.modelgraphs[model] = ModelGraph(local_deps)
+            g = self.modelgraphs[model]
+            g.remove_redundant()
+            cp = g.cleaned_paths()
+            sp = g.topological_sort(cp)
+            # g.generate_local_mapping(sp)
+
+        # FIXME: do final cycle check on union graph of all modelgraphs and global graph
+        # This needed, since modelgraph edges might short-circuit update paths.
+        # proof: A.comp updates B.comp, which updates B.comp2, which updates A.comp
+        #   global dep graph (acyclic):  A.comp --> B.comp, B.comp2 --> A.comp          passes global cycle check
+        #   modelgraph of B  (acyclic):  B.comp --> B.comp2                             passes local cycle check
+        #   --> union        (cyclic) :  A.comp --> B.comp --> B.comp2 --> A.comp ...   but its still recursive
+        #
+        #     for edge in gg.edges:
+        #         left = Node((modelname(model), edge.left.data))
+        #         right = Node((modelname(model), edge.right.data))
+        #         self.add_node(left)
+        #         self.add_node(right)
+        #         self.add_edge(Edge(left, right)
+        # if not self.is_cyclefree:
+        #     raise Exception('boom')
 
 class ModelGraph(Graph):
     """
@@ -746,7 +768,6 @@ class ModelGraph(Graph):
         """
         Remove redundant paths. Returns a mapping of ``{update_field: [cf paths to be updated]}``.
         """
-        self.remove_redundant()
         paths = {}
         left_nodes = [edge.left for edge in self.edges]
         for path in self.get_nodepaths():
@@ -778,7 +799,6 @@ class ModelGraph(Graph):
         """
         Generates the final model local update table to be used during ``ComputedFieldsModel.save``.
         """
-        # TODO ...
         for entry, path in sorted.items():
             spath = set(path)
             for entry2, path2 in sorted.items():
@@ -786,5 +806,55 @@ class ModelGraph(Graph):
                     continue
                 if set(path2) == spath:
                     sorted[entry2] = path
+
+        final = {}
+        for field, path in sorted.items():
+            final[field.data] = []
+            for cf in path:
+                final[field.data].append(cf.data)
+
         import pprint
-        pprint.pprint(sorted)
+        pprint.pprint(final)
+
+        # FIXME: create mro keymaps from combination of update_fields
+        # watch out for growing: sum of binomial coefficient ~2^n --> 4: 16, 8: 256 ...
+        # --> maybe another settings options:
+        #
+        # COMPUTEDFIELDS_PREMAPPED_KEYS = {
+        #   full: [modelA, modelB],         --> generates full keymaps (concrete + cf)
+        #   computed: [modelC, modelD]      --> generates keymaps from cf only (default?)
+        #   none: [modelE]                  --> no premapping (mro done during runtime, useful for very big models)
+        #   map: [modelF, [fieldA, fieldB]] --> ultimate customization, determine which fields end up in mro keymap
+        #                                       (useful for big models with certain bulk actions)
+        # }
+        # COMPUTEDFIELDS_PREMAPPED_KEYS_LIMIT = 256 --> bailout to runtime mro calculation if limit is hit?
+        #
+        # Warning: settings is tricky to communicate, in general mro keymaps are only useful,
+        #          if update_fields gets used often (not the default in ORM actions,
+        #          only done by cf updates itself, thus `computed` might be the best default here)
+        # Overall this is still ugly and complicated, make it more comprehensible...
+
+        # try to resolve during save:
+        # what to do during save with None?
+        update_fields = None
+        self.cf_mro(final, update_fields)
+
+        # single comp field is easy?
+        update_fields = ['c8', 'c7', 'c3', 'c1']
+        self.cf_mro(final, update_fields)
+
+        # what about mixed?
+        update_fields = ['c2', 'name']
+        self.cf_mro(final, update_fields)
+
+    def cf_mro(self, deps, update_fields=None):
+        # should no given update_fields update all cfs?
+        if not update_fields: # FIXME: needs prev mapping of all locals to ordered cfs
+            update_fields = ['name', 'xy']
+        # calc longest path?
+        up = []
+        while update_fields:
+            candidate = deps.get(update_fields.pop(), [])
+            if not is_sublist(candidate, up):
+                up.extend(candidate)
+        print(up)
