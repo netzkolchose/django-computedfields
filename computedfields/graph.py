@@ -399,7 +399,7 @@ class ComputedModelsGraph(Graph):
         super(ComputedModelsGraph, self).__init__()
         self.models = {}
         self.resolved = self.resolve_dependencies(computed_models)
-        self.cleaned_data = self._clean_data(self.resolved)
+        self.cleaned_data = self._clean_data(self.resolved['global'])
         self._insert_data(self.cleaned_data)
         self._fk_map = self._generate_fk_map()
 
@@ -410,13 +410,13 @@ class ComputedModelsGraph(Graph):
         return any(isinstance(el, str) for el in depends)
 
     # FIXME: remove once transition to new depends format is done
-    def _generate_local_fields(self, model):
+    def _get_local_non_cf_fields(self, model):
         # get all local fields of a model that are:
         # - concrete
         # - not a relation
         # - not primary key
         # - not a computed field
-        cfields = model._computed_fields.keys() if hasattr(model, '_computed_fields') else []
+        cfields = getattr(model, '_computed_fields', {}).keys()
         return {f.name
             for f in model._meta.get_fields()
                 if f.concrete
@@ -438,7 +438,7 @@ class ComputedModelsGraph(Graph):
                           or rel.related_query_name
                           or rel.related_model._meta.model_name)
             cls = rel.related_model
-        return self._generate_local_fields(cls)
+        return self._get_local_non_cf_fields(cls)
 
     # FIXME: remove once transition to new depends format is done
     def _convert_depends(self, local_fields, depends, model):
@@ -468,28 +468,39 @@ class ComputedModelsGraph(Graph):
 
     def resolve_dependencies(self, computed_models):
         """
-        Converts all depend strings into real model field lookups.
+        Converts field dependencies into lookups and checks the fields' existance.
+        Also expands the old depends notation into the new format:
+            - ``'relA.relB'`` --> ``['relA.relB', local_fieldnames_on_B]``
+            - ``'relA#xy'`` --> ``['relA', ['xy']]``
+            - plus model local non computed fields, e.g. ``['self', ['fieldA', 'fieldB']]``
+
+        .. warning::
+            Dont use the old `depends` notation anymore, as it is underdetermined leading to ambiguity and
+            will be removed by a later version.
         """
-        resolved = OrderedDict()
-        selfdeps = {}
+        global_deps = OrderedDict()
+        local_deps = {}
         for model, fields in computed_models.items():
             local_fields = None
             for field, depends in fields.items():
-                fieldentry = resolved.setdefault(model, {}).setdefault(field, {})
+                fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
 
                 if self._is_old_depends(depends):
                     # translate old depends listing into new format
+                    # note that this pulls all model local fields of underdetemined depends
+                    # declarations:   depends=['relA'] => (('relA', local_fields_on_A),)
                     if not local_fields:
-                        local_fields = self._generate_local_fields(model)
+                        local_fields = self._get_local_non_cf_fields(model)
                     depends = self._convert_depends(local_fields, depends, model)
-                    #print(field, depends)
 
-                # new depends resolver
                 for path, fieldnames in depends:
                     if path == 'self':
-                        # skip selfdeps in graph handling
-                        # we handle it instead on individual model level
-                        selfdeps.setdefault(model, {}).setdefault(field, set()).update(fieldnames)
+                        # skip selfdeps in global graph handling
+                        # we handle it instead on model graph level
+                        # do at least an existance check here to provide an early error
+                        for fieldname in fieldnames:
+                            self._check_concrete_field(model, fieldname)
+                        local_deps.setdefault(model, {}).setdefault(field, set()).update(fieldnames)
                         continue
                     path_segments = []
                     cls = model
@@ -510,22 +521,11 @@ class ComputedModelsGraph(Graph):
                     for target_field in fieldnames:
                         self._check_concrete_field(cls, target_field)
                         fieldentry[cls].append({'path': '__'.join(path_segments), 'depends': target_field})
-        # TODO: better return here and handle selfdeps explicit
-        if selfdeps:
-            self._selfdeps_mro(selfdeps)
-        return resolved
-
-    def _selfdeps_mro(self, selfdeps):
-        for model, local_deps in selfdeps.items():
-            gg = ModelGraph(local_deps)
-            cp = gg.cleaned_paths()
-            sp = gg.topological_sort(cp)
-            gg.generate_local_mapping(sp)
-            # TODO: integrate final mapping into .save on model side, also needs pickle option
+        return {'global': global_deps, 'local': local_deps}
 
     def _clean_data(self, data):
         """
-        Converts the dependency data into an adjacency list tree
+        Converts the global dependency data into an adjacency list tree
         to be used with the underlying graph.
         """
         cleaned = OrderedDict()
@@ -594,7 +594,7 @@ class ComputedModelsGraph(Graph):
                  .setdefault(lfield, {})\
                  .setdefault(rmodel, {})\
                  .setdefault(rfield, [])\
-                 .extend(self.resolved[rmodel][rfield][lmodel])
+                 .extend(self.resolved['global'][rmodel][rfield][lmodel])
 
         # extract all field paths for model dependencies
         path_map = {}
@@ -705,7 +705,7 @@ class ComputedModelsGraph(Graph):
                  .setdefault(lfield, {})\
                  .setdefault(rmodel, {})\
                  .setdefault(rfield, [])\
-                 .extend(self.resolved[rmodel][rfield][lmodel])
+                 .extend(self.resolved['global'][rmodel][rfield][lmodel])
 
         # finally build map for the signal handler
         lookup_map = {}
@@ -714,8 +714,17 @@ class ComputedModelsGraph(Graph):
                 for rmodel, rdata in ldata.items():
                     lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
+        # FIXME: needs outer interface
+        self.generate_local_lookup_map()
         return lookup_map
 
+    def generate_local_lookup_map(self):
+        data = self.resolved['local']
+        for model, local_deps in data.items():
+            gg = ModelGraph(local_deps)
+            cp = gg.cleaned_paths()
+            sp = gg.topological_sort(cp)
+            gg.generate_local_mapping(sp)
 
 class ModelGraph(Graph):
     """
