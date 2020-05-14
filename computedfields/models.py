@@ -36,7 +36,7 @@ class ComputedFieldsModelType(ModelBase):
     _lock = RLock()
 
     def __new__(mcs, name, bases, attrs):
-        computed_fields = {}
+        computed_fields = OrderedDict()
         dependent_fields = {}
         if name != 'ComputedFieldsModel':
             for k, v in attrs.items():

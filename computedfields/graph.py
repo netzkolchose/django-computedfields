@@ -725,12 +725,12 @@ class ComputedModelsGraph(Graph):
         for model, local_deps in data.items():
             if model._meta.model_name != 'selfref':
                 continue
-            self.modelgraphs[model] = ModelGraph(local_deps)
+            self.modelgraphs[model] = ModelGraph(model, local_deps)
             g = self.modelgraphs[model]
             g.remove_redundant()
             cp = g.cleaned_paths()
             sp = g.topological_sort(cp)
-            # g.generate_local_mapping(sp)
+            g.generate_local_mapping(sp)
 
         # FIXME: do final cycle check on union graph of all modelgraphs and global graph
         # This needed, since modelgraph edges might short-circuit update paths.
@@ -752,8 +752,9 @@ class ModelGraph(Graph):
     """
     Graph to resolve model local computed field dependencies in right calculation order.
     """
-    def __init__(self, local_dependencies):
+    def __init__(self, model, local_dependencies):
         super(ModelGraph, self).__init__()
+        self.model = model
 
         # add all nodes and edges from extracted local deps
         for cf, deps in local_dependencies.items():
@@ -764,6 +765,13 @@ class ModelGraph(Graph):
             for left in deps:
                 self.add_edge(Edge(Node(left), Node(right)))
 
+        # add ## node as update_fields=None place holder with edges to all computed fields
+        # --> None explicitly updates all computed fields
+        left = Node('##')
+        self.add_node(left)
+        for cf in self.model._computed_fields.keys():
+            self.add_edge(Edge(left, Node(cf)))
+
     def cleaned_paths(self):
         """
         Remove redundant paths. Returns a mapping of ``{update_field: [cf paths to be updated]}``.
@@ -773,6 +781,8 @@ class ModelGraph(Graph):
         for path in self.get_nodepaths():
             if path[-1] in left_nodes:
                 continue
+            # for dep calculation we only account the update path, not a cf itself
+            # for cfs this must be re-added later on again
             paths.setdefault(path[0], []).append(path[1:])
         return paths
 
@@ -780,6 +790,7 @@ class ModelGraph(Graph):
         """
         Merges ``{update_field: [cf paths to be updated]}`` to ``{update_field: sorted_path}``.
         """
+        # FIXME: merge topsort with cleaned_paths, reimplement topsort with better runtime
         sorted = {}
         for start, localpaths in paths.items():
             sorted[start] = []
@@ -813,48 +824,66 @@ class ModelGraph(Graph):
             for cf in path:
                 final[field.data].append(cf.data)
 
-        import pprint
-        pprint.pprint(final)
+        # transfer final data to bitarray
+        # bitarray: bit index is realisation of one valid full topsort order held in final['##']
+        # since this order was build from full graph it always reflects the correct mro even for a subset
+        # of fields in update_fields later on
+        # properties:
+        #   - length is number of computed fields on model
+        #   - True indicates execution of associated function at position in topological order
+        #   - bitarray is int, field update rules can be added by bitwise OR at save time
+        # example:
+        #   - edges: [name, c_a], [c_a, c_b], [c_c, c_b], [z, c_c]
+        #   - topological order of cfs: {1: c_a, 2: c_c, 4: c_b}
+        #   - field deps:   name  : c_a, c_b    --> 0b101
+        #                   c_a   : c_a*, c_b   --> 0b101       *re-added
+        #                   c_c   : c_c*, c_b   --> 0b110       *re-added
+        #                   z     : c_c, c_b    --> 0b110
+        #   - update mro:   [name, z]   --> 0b101 | 0b110 --> [c_a, c_c, c_b]
+        #                   [c_a, c_b]  --> 0b101 | 0b110 --> [c_a, c_c, c_b]
+        final_binary = {}
+        for field, deps in final.items():
+            final_binary[field] = 0
+            if field in final['##']:
+                # a cf in update_fields should be lined up in topological order
+                # thus we re-add it here
+                final_binary[field] |= 1 << final['##'].index(field)
+            for pos, name in enumerate(final['##']):
+                final_binary[field] |= (1 if name in deps else 0) << pos
 
-        # FIXME: create mro keymaps from combination of update_fields
-        # watch out for growing: sum of binomial coefficient ~2^n --> 4: 16, 8: 256 ...
-        # --> maybe another settings options:
-        #
-        # COMPUTEDFIELDS_PREMAPPED_KEYS = {
-        #   full: [modelA, modelB],         --> generates full keymaps (concrete + cf)
-        #   computed: [modelC, modelD]      --> generates keymaps from cf only (default?)
-        #   none: [modelE]                  --> no premapping (mro done during runtime, useful for very big models)
-        #   map: [modelF, [fieldA, fieldB]] --> ultimate customization, determine which fields end up in mro keymap
-        #                                       (useful for big models with certain bulk actions)
-        # }
-        # COMPUTEDFIELDS_PREMAPPED_KEYS_LIMIT = 256 --> bailout to runtime mro calculation if limit is hit?
-        #
-        # Warning: settings is tricky to communicate, in general mro keymaps are only useful,
-        #          if update_fields gets used often (not the default in ORM actions,
-        #          only done by cf updates itself, thus `computed` might be the best default here)
-        # Overall this is still ugly and complicated, make it more comprehensible...
-
-        # try to resolve during save:
-        # what to do during save with None?
+        # some tests
         update_fields = None
-        self.cf_mro(final, update_fields)
-
-        # single comp field is easy?
-        update_fields = ['c8', 'c7', 'c3', 'c1']
-        self.cf_mro(final, update_fields)
-
-        # what about mixed?
+        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
+        update_fields = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']
+        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
         update_fields = ['c2', 'name']
-        self.cf_mro(final, update_fields)
+        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
 
-    def cf_mro(self, deps, update_fields=None):
-        # should no given update_fields update all cfs?
-        if not update_fields: # FIXME: needs prev mapping of all locals to ordered cfs
-            update_fields = ['name', 'xy']
-        # calc longest path?
-        up = []
-        while update_fields:
-            candidate = deps.get(update_fields.pop(), [])
-            if not is_sublist(candidate, up):
-                up.extend(candidate)
-        print(up)
+    # FIXME: move to model, needs export of deps and base order from above into map
+    # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+    def cf_mro_binary(self, base, deps, update_fields=None):
+        if update_fields is None:
+            return base
+        update_fields = frozenset(update_fields)
+        mro = 0
+        for f in update_fields:
+            mro |= deps.get(f, 0)
+        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
+
+# TODO: eval correct dealing with update_fields in save:
+#
+# Problem:
+#   update_fields is defined as a positive list containing fields that should be written to database.
+#   We should not lightheartedly break with that meaning in ComputedFieldsModel.save by obscure auto-adding
+#   computed fields without further notion.
+#   On the other hand we already do this for intermodel dependencies without a way to intercept that behavior.
+#
+# Solution:
+#   To have a uniform default handling of dependency updates within computedfields, deviate here from django's
+#   default behavior - by default we gonna add dependent local computed fields automatically
+#   to incoming update_fields based on the mro rules. Furthermore implement a keyword argument for save to
+#   explicitly drop back to django's default behavior (something like `no_autoadd_computedfields`).
+#   Make a clear statement in the docs about this change in behavior.
+#
+# Unclear:
+#   Do we need a similar mechanism to temporarily switch off cf handling (skipping any signal handler)?
