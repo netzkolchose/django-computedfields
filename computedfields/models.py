@@ -7,6 +7,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
 from django.core.exceptions import AppRegistryNotReady
+from itertools import chain
 
 
 class ComputedFieldsModelType(ModelBase):
@@ -49,7 +50,7 @@ class ComputedFieldsModelType(ModelBase):
                     #     dependent_fields[k] = depends
                     # for downward compat we always have to add depends
                     # an empty depends gets filled up with local concrete fields
-                    # FIXME: make this field mandatory listing all dep fields incl. local
+                    # FIXME: make this field mandatory on @computed
                     dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         if name != 'ComputedFieldsModel':
@@ -60,6 +61,26 @@ class ComputedFieldsModelType(ModelBase):
             if not cls._meta.abstract:
                 mcs._computed_models[cls] = dependent_fields or {}
         return cls
+
+    @classmethod
+    def cf_mro(mcs, cls, update_fields=None):
+        """
+        Return mro for local computed field methods for a given set of ``update_fields``.
+        This method may return ``None`` if there are no local computed field dependencies.
+        """
+        # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+        entry = mcs._local_mro.get(cls, None)
+        if entry is None:
+            return None
+        base = entry['base']
+        if update_fields is None:
+            return base
+        update_fields = frozenset(update_fields)
+        fields = entry['fields']
+        mro = 0
+        for f in update_fields:
+            mro |= fields.get(f, 0)
+        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
     @classmethod
     def _resolve_dependencies(mcs, force=False, _force=False):
@@ -95,6 +116,7 @@ class ComputedFieldsModelType(ModelBase):
                     pickled_data = pickle.load(f)
                     mcs._map = pickled_data['lookup_map']
                     mcs._fk_map = pickled_data['fk_map']
+                    # FIXME: insert local mro map to pickled data
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
@@ -102,6 +124,7 @@ class ComputedFieldsModelType(ModelBase):
                 mcs._graph.remove_redundant()
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
+            mcs._local_mro = mcs._graph.generate_local_mro_map()
             mcs._map_loaded = True
 
     @classmethod
@@ -381,29 +404,75 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         return field._computed['func'](self)
 
     def save(self, *args, **kwargs):
+        # FIXME: rewrite this mess in a cleaner way
+        # FIXME: add custom kwargs to finetune cf handling
         update_fields = kwargs.get('update_fields')
-        if update_fields:
-            update_fields = set(update_fields)
-            all_computed = not (update_fields - set(self._computed_fields.keys()))
-            if all_computed:
-                has_changed = False
-                for fieldname in update_fields:
-                    result = self.compute(fieldname)
-                    field = self._computed_fields[fieldname]
-                    if result != getattr(self, field._computed['attr']):
-                        has_changed = True
-                        setattr(self, field._computed['attr'], result)
-                if not has_changed:
-                    # no save needed, we still need to update dependent objects
-                    update_dependent(self, type(self), update_fields)
+        cf_mro = ComputedFieldsModelType.cf_mro(type(self), update_fields)
+        if cf_mro is None:
+            # simple case: cf_mro is None - stick with old code?
+            if update_fields:
+                update_fields = set(update_fields)
+                all_computed = not (update_fields - set(self._computed_fields.keys()))
+                if all_computed:
+                    has_changed = False
+                    for fieldname in update_fields:
+                        result = self.compute(fieldname)
+                        field = self._computed_fields[fieldname]
+                        if result != getattr(self, field._computed['attr']):
+                            has_changed = True
+                            setattr(self, field._computed['attr'], result)
+                    if not has_changed:
+                        # no save needed, we still need to update dependent objects
+                        update_dependent(self, type(self), update_fields)
+                        return
+                    super(ComputedFieldsModel, self).save(*args, **kwargs)
                     return
-                super(ComputedFieldsModel, self).save(*args, **kwargs)
-                return
-        for fieldname in self._computed_fields:
-            result = self.compute(fieldname)
-            field = self._computed_fields[fieldname]
-            setattr(self, field._computed['attr'], result)
-        super(ComputedFieldsModel, self).save(*args, **kwargs)
+            for fieldname in self._computed_fields:
+                result = self.compute(fieldname)
+                field = self._computed_fields[fieldname]
+                setattr(self, field._computed['attr'], result)
+            super(ComputedFieldsModel, self).save(*args, **kwargs)
+        else:
+            # complicated: cf_mro returns something - 1. apply order to cf walk, 2. extend updatefields by dep cf
+            if update_fields:
+                update_fields = set(update_fields)
+                # mro_plus: contains cfs, that additionally have to be updated
+                # uf_plus: contains fields, that are additionally to mro (concrete fields, cfs with no local deps)
+                # update_fields_corrected: update_fields expanded by additional cfs
+                mro_plus = set(cf_mro) - update_fields
+                uf_plus = update_fields - set(cf_mro)
+                update_fields_corrected = set(update_fields)
+                update_fields_corrected.update(mro_plus)
+                # FIXME: extending update_fields here might lead to additional
+                # field updates from intermodel deps --> needs union graph cycle check in graph.py
+                kwargs['update_fields'] = update_fields_corrected
+                all_computed = not (update_fields_corrected - set(self._computed_fields.keys()))
+                if all_computed:
+                    has_changed = False
+                    #for fieldname in update_fields:
+                    for fieldname in chain(cf_mro, uf_plus):
+                        result = self.compute(fieldname)
+                        field = self._computed_fields[fieldname]
+                        if result != getattr(self, field._computed['attr']):
+                            has_changed = True
+                            setattr(self, field._computed['attr'], result)
+                    if not has_changed:
+                        # no save needed, we still need to update dependent objects
+                        #update_dependent(self, type(self), update_fields)
+                        # also use extended fields for intermodel deps
+                        update_dependent(self, type(self), update_fields_corrected)
+                        return
+                    super(ComputedFieldsModel, self).save(*args, **kwargs)
+                    return
+            #for fieldname in self._computed_fields:
+            # ensure to update all cfs here - get sorted names from mro + left out from computed_fields
+            # TODO: possible idea for opt - let cf_mro contain all models with all cfs by default?
+            cf_plus = set(self._computed_fields.keys()) - set(cf_mro)
+            for fieldname in chain(cf_mro, cf_plus):
+                result = self.compute(fieldname)
+                field = self._computed_fields[fieldname]
+                setattr(self, field._computed['attr'], result)
+            super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
 def computed(field, **kwargs):

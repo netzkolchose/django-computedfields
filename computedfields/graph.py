@@ -716,21 +716,18 @@ class ComputedModelsGraph(Graph):
                 for rmodel, rdata in ldata.items():
                     lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
-        # FIXME: needs outer interface
-        self.generate_local_lookup_map()
         return lookup_map
 
-    def generate_local_lookup_map(self):
+    def generate_local_mro_map(self):
         data = self.resolved['local']
+        mapping = {}
         for model, local_deps in data.items():
-            if model._meta.model_name != 'selfref':
-                continue
             self.modelgraphs[model] = ModelGraph(model, local_deps)
             g = self.modelgraphs[model]
             g.remove_redundant()
             cp = g.cleaned_paths()
             sp = g.topological_sort(cp)
-            g.generate_local_mapping(sp)
+            mapping[model] = g.generate_local_mapping(sp)
 
         # FIXME: do final cycle check on union graph of all modelgraphs and global graph
         # This needed, since modelgraph edges might short-circuit update paths.
@@ -747,6 +744,8 @@ class ComputedModelsGraph(Graph):
         #         self.add_edge(Edge(left, right)
         # if not self.is_cyclefree:
         #     raise Exception('boom')
+
+        return mapping
 
 class ModelGraph(Graph):
     """
@@ -809,7 +808,10 @@ class ModelGraph(Graph):
     def generate_local_mapping(self, sorted):
         """
         Generates the final model local update table to be used during ``ComputedFieldsModel.save``.
+        Output is a mapping of local fields, that also update local computed fields and a bitarray
+        containing the computed fields mro, and the base topologcial order for a full update.
         """
+        # FIXME: dont do inplace here
         for entry, path in sorted.items():
             spath = set(path)
             for entry2, path2 in sorted.items():
@@ -843,6 +845,8 @@ class ModelGraph(Graph):
         #                   [c_a, c_b]  --> 0b101 | 0b110 --> [c_a, c_c, c_b]
         final_binary = {}
         for field, deps in final.items():
+            if field == '##':
+                continue
             final_binary[field] = 0
             if field in final['##']:
                 # a cf in update_fields should be lined up in topological order
@@ -850,25 +854,8 @@ class ModelGraph(Graph):
                 final_binary[field] |= 1 << final['##'].index(field)
             for pos, name in enumerate(final['##']):
                 final_binary[field] |= (1 if name in deps else 0) << pos
+        return {'base': final['##'], 'fields': final_binary}
 
-        # some tests
-        update_fields = None
-        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
-        update_fields = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']
-        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
-        update_fields = ['c2', 'name']
-        print('mro', self.cf_mro_binary(final['##'], final_binary, update_fields))
-
-    # FIXME: move to model, needs export of deps and base order from above into map
-    # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
-    def cf_mro_binary(self, base, deps, update_fields=None):
-        if update_fields is None:
-            return base
-        update_fields = frozenset(update_fields)
-        mro = 0
-        for f in update_fields:
-            mro |= deps.get(f, 0)
-        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
 # TODO: eval correct dealing with update_fields in save:
 #
