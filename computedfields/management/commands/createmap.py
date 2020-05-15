@@ -17,5 +17,6 @@ class Command(BaseCommand):
             graph.remove_redundant()
             pickle.dump({
                 'lookup_map': graph.generate_lookup_map(),
-                'fk_map': graph._fk_map
+                'fk_map': graph._fk_map,
+                'local_mro': graph.generate_local_mro_map()
             }, f, pickle.HIGHEST_PROTOCOL)

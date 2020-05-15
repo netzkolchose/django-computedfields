@@ -77,8 +77,10 @@ class CommandTests(GenericModelTestBase):
             pickled_data = pickle.load(f)
             map = pickled_data['lookup_map']
             fk_map = pickled_data['fk_map']
+            local_mro = pickled_data['local_mro']
             self.assertDictEqual(map, ComputedFieldsModelType._map)
             self.assertDictEqual(fk_map, ComputedFieldsModelType._fk_map)
+            self.assertDictEqual(local_mro, ComputedFieldsModelType._local_mro)
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value

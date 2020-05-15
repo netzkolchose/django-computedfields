@@ -116,7 +116,7 @@ class ComputedFieldsModelType(ModelBase):
                     pickled_data = pickle.load(f)
                     mcs._map = pickled_data['lookup_map']
                     mcs._fk_map = pickled_data['fk_map']
-                    # FIXME: insert local mro map to pickled data
+                    mcs._local_mro = pickled_data['local_mro']
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
