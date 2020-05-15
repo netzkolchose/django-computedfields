@@ -335,3 +335,36 @@ class ConcreteWithForeignKey(AbstractWithForeignKey):
     @computed(models.IntegerField(default=0), depends=['concrete_target#c'])
     def concrete_c_proxy(self):
         return self.concrete_target.c
+
+
+# test local field dependencies
+class SelfA(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=34), depends=[['self', ['name']]])
+    def c1(self):
+        return 'c1' + self.name
+
+    @computed(models.CharField(max_length=74), depends=[['self', ['c1', 'c3']]])
+    def c4(self):
+        return 'c4' + self.c1 + self.c3
+
+    @computed(models.CharField(max_length=36), depends=[['self', ['c1']]])
+    def c2(self):
+        return 'c2' + self.c1
+
+    @computed(models.CharField(max_length=38), depends=[['self', ['c2']]])
+    def c3(self):
+        return 'c3' + self.c2
+
+class SelfB(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    a = models.ForeignKey(SelfA, related_name='self_b', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=34), depends=[['self', ['name']]])
+    def c1(self):
+        return 'C1' + self.name
+
+    @computed(models.CharField(max_length=118), depends=[['self', ['c1']], ['a', ['c4']]])
+    def c2(self):
+        return 'C2' + self.c1 + self.a.c4
