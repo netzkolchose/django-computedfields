@@ -14,7 +14,7 @@ from computedfields.helper import pairwise, is_sublist, modelname, is_computedfi
 
 class ComputedFieldsException(Exception):
     """
-    Base exception raise from computed fields.
+    Base exception raised from computed fields.
     """
 
 class CycleException(ComputedFieldsException):
@@ -472,9 +472,10 @@ class ComputedModelsGraph(Graph):
         """
         Converts field dependencies into lookups and checks the fields' existance.
         Also expands the old depends notation into the new format:
-            - ``'relA.relB'`` --> ``['relA.relB', local_fieldnames_on_B]``
-            - ``'relA#xy'`` --> ``['relA', ['xy']]``
-            - plus model local non computed fields, e.g. ``['self', ['fieldA', 'fieldB']]``
+
+        - ``'relA.relB'`` --> ``['relA.relB', local_fieldnames_on_B]``
+        - ``'relA#xy'`` --> ``['relA', ['xy']]``
+        - plus model local non computed fields, e.g. ``['self', ['fieldA', 'fieldB']]``
 
         .. warning::
             Dont use the old `depends` notation anymore, as it is underdetermined leading to ambiguity and
@@ -718,35 +719,89 @@ class ComputedModelsGraph(Graph):
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
         return lookup_map
 
-    def generate_local_mro_map(self):
+    def prepare_modelgraphs(self):
+        """
+        Helper to initialize model local subgraphs.
+        """
+        if self.modelgraphs:
+            return
         data = self.resolved['local']
-        mapping = {}
         for model, local_deps in data.items():
             self.modelgraphs[model] = ModelGraph(model, local_deps)
-            g = self.modelgraphs[model]
-            g.transitive_reduction()
-            fpaths = g.generate_field_paths(g.get_topological_paths())
-            mapping[model] = g.generate_local_mapping(fpaths)
+            # modelgraph always must be cyclefree, thus we can always do the reduction here
+            self.modelgraphs[model].transitive_reduction()
 
-        # FIXME: cycle check currently removed due to other tsort impl, needs to be re-established
+    def generate_local_mro_map(self):
+        """
+        Generate model local computed fields mro maps.
+        Returns a mapping of models with local computed fields dependencies and their
+        `mro`, example:
 
-        # FIXME: do final cycle check on union graph of all modelgraphs and global graph
-        # This needed, since modelgraph edges might short-circuit update paths.
-        # proof: A.comp updates B.comp, which updates B.comp2, which updates A.comp
-        #   global dep graph (acyclic):  A.comp --> B.comp, B.comp2 --> A.comp          passes global cycle check
-        #   modelgraph of B  (acyclic):  B.comp --> B.comp2                             passes local cycle check
-        #   --> union        (cyclic) :  A.comp --> B.comp --> B.comp2 --> A.comp ...   but its still recursive
-        #
-        #     for edge in gg.edges:
-        #         left = Node((modelname(model), edge.left.data))
-        #         right = Node((modelname(model), edge.right.data))
-        #         self.add_node(left)
-        #         self.add_node(right)
-        #         self.add_edge(Edge(left, right)
-        # if not self.is_cyclefree:
-        #     raise Exception('boom')
+        .. code:: python
 
-        return mapping
+            {
+                modelX: {
+                    'base': ['c1', 'c2', 'c3'],
+                    'fields': {
+                        'name': ['c2', 'c3'],
+                        'c2': ['c2', 'c3']
+                    }
+                }
+            }
+
+        In the example `modelX` would have 3 computed fields, where `c2` somehow depends on
+        the field `name`. `c3` itself depends on changes to `c2`, thus a change to `name` should
+        run `c2` and `c3` in that specific order.
+
+        `base` lists all computed fields, that have other local dependencies
+        and carries the topological execution order (mro). It is also used at runtime to cover
+        a full update of an instance (``update_fields=None``).
+
+        .. NOTE::
+            Note that the actual values in `fields` are bitarrays to index positions of `base`, which allows
+            quick field update merges at runtime by doing binary OR on the bitarrays.
+
+        .. WARNING::
+            Currently the mro maps only contain computed fields, that have local dependencies. Therefore
+            for a full update during ``save`` the field list has to be extended by computed fields,
+            that have no local dependencies. (Might change with future versions.)
+        """
+        self.prepare_modelgraphs()
+        return dict((model, g.generate_local_mapping(g.generate_field_paths(g.get_topological_paths())))
+                        for model, g in self.modelgraphs.items())
+
+    def get_uniongraph(self):
+        """
+        Build a union graph of intermodel dependencies and model local dependencies.
+        This graph represents the final update cascades triggered by a certain field update.
+        The union graph is needed to spot cycles introduced by model local dependencies,
+        that otherwise might went unnoticed, example:
+
+        - global dep graph (acyclic):  ``A.comp --> B.comp, B.comp2 --> A.comp``
+        - modelgraph of B  (acyclic):  ``B.comp --> B.comp2``
+
+        Here the resulting union graph is not a DAG anymore, since both subgraphs short-circuit
+        to a cycle of ``A.comp --> B.comp --> B.comp2 --> A.comp``.
+        """
+        if not self.union:
+            graph = Graph()
+            # copy intermodel edges
+            for edge in self.edges:
+                graph.add_node(edge.left)
+                graph.add_node(edge.right)
+                graph.add_edge(edge)
+            # copy modelgraph edges
+            self.prepare_modelgraphs()
+            for model, g in self.modelgraphs.items():
+                for edge in g.edges:
+                    left = Node((modelname(model), edge.left.data))
+                    right = Node((modelname(model), edge.right.data))
+                    graph.add_node(left)
+                    graph.add_node(right)
+                    graph.add_edge(Edge(left, right))
+            self.union = graph
+        return self.union
+
 
 class ModelGraph(Graph):
     """
@@ -773,6 +828,10 @@ class ModelGraph(Graph):
             self.add_edge(Edge(left, Node(cf)))
 
     def transitive_reduction(self):
+        """
+        Remove redundant single edges. Also checks for cycles.
+        *Note:* Other than intermodel dependencies a model local dependencies always must be cyclefree.
+        """
         paths = self.get_edgepaths()
         remove = set()
         for p1 in paths:
@@ -807,7 +866,7 @@ class ModelGraph(Graph):
 
     def get_topological_paths(self):
         """
-        Creates a map of all possible entry nodes and their topological update path.
+        Creates a map of all possible entry nodes and their topological update path (computed fields mro).
         """
         # create simplified parent-child relation graph
         graph = {}
@@ -834,7 +893,7 @@ class ModelGraph(Graph):
 
     def generate_field_paths(self, tpaths):
         """
-        Convert topological path node mapping into a mapping continaing the fieldnames.
+        Convert topological path node mapping into a mapping containing the fieldnames.
         """
         field_paths = {}
         for node, path in tpaths.items():
@@ -844,7 +903,7 @@ class ModelGraph(Graph):
     def generate_local_mapping(self, field_paths):
         """
         Generates the final model local update table to be used during ``ComputedFieldsModel.save``.
-        Output is a mapping of local fields, that also update local computed fields and a bitarray
+        Output is a mapping of local fields, that also update local computed fields, to a bitarray
         containing the computed fields mro, and the base topologcial order for a full update.
         """
         # transfer final data to bitarray
@@ -877,22 +936,3 @@ class ModelGraph(Graph):
             for pos, name in enumerate(base):
                 final_binary[field] |= (1 if name in deps else 0) << pos
         return {'base': base, 'fields': final_binary}
-
-
-# TODO: eval correct dealing with update_fields in save:
-#
-# Problem:
-#   update_fields is defined as a positive list containing fields that should be written to database.
-#   We should not lightheartedly break with that meaning in ComputedFieldsModel.save by obscure auto-adding
-#   computed fields without further notion.
-#   On the other hand we already do this for intermodel dependencies without a way to intercept that behavior.
-#
-# Solution:
-#   To have a uniform default handling of dependency updates within computedfields, deviate here from django's
-#   default behavior - by default we gonna add dependent local computed fields automatically
-#   to incoming update_fields based on the mro rules. Furthermore implement a keyword argument for save to
-#   explicitly drop back to django's default behavior (something like `no_autoadd_computedfields`).
-#   Make a clear statement in the docs about this change in behavior.
-#
-# Unclear:
-#   Do we need a similar mechanism to temporarily switch off cf handling (skipping any signal handler)?
