@@ -724,10 +724,11 @@ class ComputedModelsGraph(Graph):
         for model, local_deps in data.items():
             self.modelgraphs[model] = ModelGraph(model, local_deps)
             g = self.modelgraphs[model]
-            g.remove_redundant()
-            cp = g.cleaned_paths()
-            sp = g.topological_sort(cp)
-            mapping[model] = g.generate_local_mapping(sp)
+            g.transitive_reduction()
+            fpaths = g.generate_field_paths(g.get_topological_paths())
+            mapping[model] = g.generate_local_mapping(fpaths)
+
+        # FIXME: cycle check currently removed due to other tsort impl, needs to be re-established
 
         # FIXME: do final cycle check on union graph of all modelgraphs and global graph
         # This needed, since modelgraph edges might short-circuit update paths.
@@ -764,70 +765,90 @@ class ModelGraph(Graph):
             for left in deps:
                 self.add_edge(Edge(Node(left), Node(right)))
 
-        # add ## node as update_fields=None place holder with edges to all computed fields
+        # add ## node as update_fields=None placeholder with edges to all computed fields
         # --> None explicitly updates all computed fields
         left = Node('##')
         self.add_node(left)
         for cf in self.model._computed_fields.keys():
             self.add_edge(Edge(left, Node(cf)))
 
-    def cleaned_paths(self):
-        """
-        Remove redundant paths. Returns a mapping of ``{update_field: [cf paths to be updated]}``.
-        """
-        paths = {}
-        left_nodes = [edge.left for edge in self.edges]
-        for path in self.get_nodepaths():
-            if path[-1] in left_nodes:
+    def transitive_reduction(self):
+        paths = self.get_edgepaths()
+        remove = set()
+        for p1 in paths:
+            # we only cut single edge paths
+            if len(p1) > 1:
                 continue
-            # for dep calculation we only account the update path, not a cf itself
-            # for cfs this must be re-added later on again
-            paths.setdefault(path[0], []).append(path[1:])
-        return paths
+            left = p1[0].left
+            right = p1[-1].right
+            for p2 in paths:
+                if p2 == p1:
+                    continue
+                if right == p2[-1].right and left == p2[0].left:
+                    remove.add(p1[0])
+        for edge in remove:
+            self.remove_edge(edge)
 
-    def topological_sort(self, paths):
+    def _tsort(self, graph, start, paths, path):
         """
-        Merges ``{update_field: [cf paths to be updated]}`` to ``{update_field: sorted_path}``.
+        Recursive deep first search variant of topsort.
+        Also accumulates any revealed subpaths.
         """
-        # FIXME: merge topsort with cleaned_paths, reimplement topsort with better runtime
-        sorted = {}
-        for start, localpaths in paths.items():
-            sorted[start] = []
-            s = sorted[start]
-            idx = 0
-            while localpaths:
-                p = localpaths.pop()
-                for n in p[::-1]:
-                    if n in s:
-                        idx = s.index(n)
-                        continue
-                    else:
-                        s.insert(idx, n)
-        return sorted
+        for node in graph.get(start, []):
+            if not node in paths:
+                # accumulate revealed topological subpaths
+                paths[node] = self._tsort(graph, node, paths, [])
+            for snode in paths[node]:
+                # append node if its not yet part of the path
+                if not snode in path:
+                    path += [snode]
+        path += [start]
+        return path
 
-    def generate_local_mapping(self, sorted):
+    def get_topological_paths(self):
+        """
+        Creates a map of all possible entry nodes and their topological update path.
+        """
+        # create simplified parent-child relation graph
+        graph = {}
+        for edge in self.edges:
+            graph.setdefault(edge.left, []).append(edge.right)
+        topological_paths = {}
+
+        # '##' has connections to all cfs thus creates the basic deps order map containing all cfs
+        # it also creates all tpaths between cfs itself
+        topological_paths[Node('##')] = self._tsort(graph, Node('##'), topological_paths, [])[:-1]
+
+        # we still need to reveal concrete field deps
+        # other than for real cfs we also strip last entry (the field itself)
+        for node in graph:
+            if node in topological_paths:
+                continue
+            topological_paths[node] = self._tsort(graph, node, topological_paths, [])[:-1]
+
+        # reverse all tpaths
+        for entry, path in topological_paths.items():
+            topological_paths[entry] = path[::-1]
+
+        return topological_paths
+
+    def generate_field_paths(self, tpaths):
+        """
+        Convert topological path node mapping into a mapping continaing the fieldnames.
+        """
+        field_paths = {}
+        for node, path in tpaths.items():
+            field_paths[node.data] = [el.data for el in path]
+        return field_paths
+
+    def generate_local_mapping(self, field_paths):
         """
         Generates the final model local update table to be used during ``ComputedFieldsModel.save``.
         Output is a mapping of local fields, that also update local computed fields and a bitarray
         containing the computed fields mro, and the base topologcial order for a full update.
         """
-        # FIXME: dont do inplace here
-        for entry, path in sorted.items():
-            spath = set(path)
-            for entry2, path2 in sorted.items():
-                if entry2 == entry:
-                    continue
-                if set(path2) == spath:
-                    sorted[entry2] = path
-
-        final = {}
-        for field, path in sorted.items():
-            final[field.data] = []
-            for cf in path:
-                final[field.data].append(cf.data)
-
         # transfer final data to bitarray
-        # bitarray: bit index is realisation of one valid full topsort order held in final['##']
+        # bitarray: bit index is realisation of one valid full topsort order held in '##'
         # since this order was build from full graph it always reflects the correct mro even for a subset
         # of fields in update_fields later on
         # properties:
@@ -838,23 +859,24 @@ class ModelGraph(Graph):
         #   - edges: [name, c_a], [c_a, c_b], [c_c, c_b], [z, c_c]
         #   - topological order of cfs: {1: c_a, 2: c_c, 4: c_b}
         #   - field deps:   name  : c_a, c_b    --> 0b101
-        #                   c_a   : c_a*, c_b   --> 0b101       *re-added
-        #                   c_c   : c_c*, c_b   --> 0b110       *re-added
+        #                   c_a   : c_a, c_b    --> 0b101
+        #                   c_c   : c_c, c_b    --> 0b110
         #                   z     : c_c, c_b    --> 0b110
         #   - update mro:   [name, z]   --> 0b101 | 0b110 --> [c_a, c_c, c_b]
         #                   [c_a, c_b]  --> 0b101 | 0b110 --> [c_a, c_c, c_b]
         final_binary = {}
-        for field, deps in final.items():
+        base = field_paths['##']
+        for field, deps in field_paths.items():
             if field == '##':
                 continue
             final_binary[field] = 0
-            if field in final['##']:
+            if field in base:
                 # a cf in update_fields should be lined up in topological order
                 # thus we re-add it here
-                final_binary[field] |= 1 << final['##'].index(field)
-            for pos, name in enumerate(final['##']):
+                final_binary[field] |= 1 << base.index(field)
+            for pos, name in enumerate(base):
                 final_binary[field] |= (1 if name in deps else 0) << pos
-        return {'base': final['##'], 'fields': final_binary}
+        return {'base': base, 'fields': final_binary}
 
 
 # TODO: eval correct dealing with update_fields in save:
