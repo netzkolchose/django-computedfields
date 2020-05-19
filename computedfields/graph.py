@@ -489,6 +489,10 @@ class ComputedModelsGraph(Graph):
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
 
                 if self._is_old_depends(depends):
+                    # print a warning about old depends string
+                    # FIXME: to be removed with future version
+                    print('WARNING: "%s" on %s contains old depends string format.'
+                        % (field, model))
                     # translate old depends listing into new format
                     # note that this pulls all model local fields of underdetemined depends
                     # declarations:   depends=['relA'] => (('relA', local_fields_on_A),)
