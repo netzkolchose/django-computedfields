@@ -61,7 +61,7 @@ Now changes to `self.name` or `fk.fieldname` will update `computed_field`.
 **NOTE:** The old depends syntax is deprecated and should be replaced with the new syntax.
 It also should contain a `self` entry with local fields to get reliable updates from local field changes.
 This is especially true for advanced usage with `save(update_fields=[...])` or bulk actions.
-The old syntax be be removed with a future version.
+The old syntax will be removed with a future version.
 
 
 #### Documentation ####

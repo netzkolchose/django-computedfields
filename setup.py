@@ -8,7 +8,7 @@ setup(
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=[],
-    version='0.0.17',
+    version='0.0.18',
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,
@@ -16,7 +16,7 @@ setup(
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.0.15.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.0.18.tar.gz',
     keywords=['django', 'method', 'decorator', 'autoupdate', 'persistent', 'field'],
     classifiers=[
         'Development Status :: 4 - Beta',
