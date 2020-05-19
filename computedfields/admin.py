@@ -23,7 +23,7 @@ except ImportError:
 class ComputedModelsAdmin(admin.ModelAdmin):
     """
     Shows all ``ComputedFieldsModel`` models with their field dependencies
-    in the admin. Also renders the dependency graph if the :mod:`graphviz`
+    in the admin. Also renders the dependency graphs if the :mod:`graphviz`
     package is installed.
     """
     actions = None
@@ -32,9 +32,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     list_display_links = None
 
     def has_add_permission(self, request, obj=None):
+        ""
         return False
 
     def has_delete_permission(self, request, obj=None):
+        ""
         return False
 
     def dependencies(self, inst):
@@ -168,9 +170,11 @@ class ContributingModelsAdmin(admin.ModelAdmin):
     list_display_links = None
 
     def has_add_permission(self, request, obj=None):
+        ""
         return False
 
     def has_delete_permission(self, request, obj=None):
+        ""
         return False
     
     def vulerable_fk_fields(self, inst):

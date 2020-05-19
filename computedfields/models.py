@@ -370,7 +370,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
             forename = models.CharField(max_length=32)
             surname = models.CharField(max_length=32)
 
-            @computed(models.CharField(max_length=32))
+            @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
             def combined(self):
                 return u'%s, %s' % (self.surname, self.forename)
 
@@ -398,6 +398,12 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         return field._computed['func'](self)
 
     def save(self, *args, **kwargs):
+        """
+        Save the current instance. Note that for ``update_fields=None`` (default)
+        all computed fields on the instance will be re-evaluated.
+        If `update_fields` is set, it might get expanded by computed fields
+        that depend on fields listed there.
+        """
         # TODO: eval correct dealing with update_fields in save:
         #
         # Problem:
@@ -455,19 +461,19 @@ def computed(field, **kwargs):
     """
     Decorator to create computed fields.
 
-    ``field`` should be a model field suitable to hold the result
-    of the decorated method. The decorator understands an optional
+    ``field`` should be a model field instance suitable to hold the result
+    of the decorated method. The decorator expects a
     keyword argument ``depends`` to indicate dependencies to
-    related model fields. Listed dependencies will automatically
+    model fields (local or related). Listed dependencies will automatically
     update the computed field.
 
     Examples:
 
-        - create a char field with no outer dependencies
+        - create a char field with no further dependencies (not very useful)
 
           .. code-block:: python
 
-            @computed(models.CharField(max_length=32))
+            @computed(models.CharField(max_length=32), depends=[])
             def ...
 
         - create a char field with one dependency to the field
@@ -475,14 +481,14 @@ def computed(field, **kwargs):
 
           .. code-block:: python
 
-            @computed(models.CharField(max_length=32), depends=['fk#name'])
+            @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
             def ...
 
-    The dependency string is in the form ``'rel_a.rel_b#fieldname'``,
-    where the computed field gets a value from a field ``fieldname``,
-    which is accessible through the relations ``rel_a`` --> ``rel_b``.
-    A relation can be any of foreign key, m2m, o2o and their
-    corresponding back relations.
+    Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+    The relation can span serveral models, simply name the relation
+    in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
+    foreign key, m2m, o2o and their back relations.
+    The fieldnames should be a list of strings of concrete fields on the foreign model.
 
     .. CAUTION::
 
@@ -492,14 +498,14 @@ def computed(field, **kwargs):
         .. code-block:: python
 
             class A(ComputedFieldsModel):
-                @computed(models.CharField(max_length=32), depends=['b_set#comp'])
+                @computed(models.CharField(max_length=32), depends=[['b_set', ['comp']]])
                 def comp(self):
                     return ''.join(b.comp for b in self.b_set.all())
 
             class B(ComputedFieldsModel):
                 a = models.ForeignKey(A)
 
-                @computed(models.CharField(max_length=32), depends=['a#comp'])
+                @computed(models.CharField(max_length=32), depends=[['a', ['comp']]])
                 def comp(self):
                     return a.comp
 
@@ -508,11 +514,16 @@ def computed(field, **kwargs):
         to spot for this simple case it might get tricky for more
         complicated dependencies. Therefore the dependency resolver tries
         to detect cyclic dependencies and raises a ``CycleNodeException``
-        if a cycle was found.
+        in case a cycle was found.
 
         If you experience this in your project try to get in-depth cycle
         information, either by using the ``rendergraph`` management command or
-        by accessing the graph object directly under ``your_model._graph``.
+        by directly accessing the graph objects:
+
+        - intermodel dependency graph: ``your_model._graph``
+        - mode local dependency graphs: ``your_model._graph.modelgraphs[your_model]``
+        - union graph: ``your_model._graph.get_uniongraph()``
+
         Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):

@@ -757,18 +757,12 @@ class ComputedModelsGraph(Graph):
         the field `name`. `c3` itself depends on changes to `c2`, thus a change to `name` should
         run `c2` and `c3` in that specific order.
 
-        `base` lists all computed fields, that have other local dependencies
-        and carries the topological execution order (mro). It is also used at runtime to cover
-        a full update of an instance (``update_fields=None``).
+        `base` lists all computed fields in topological execution order (mro).
+        It is also used at runtime to cover a full update of an instance (``update_fields=None``).
 
         .. NOTE::
             Note that the actual values in `fields` are bitarrays to index positions of `base`, which allows
             quick field update merges at runtime by doing binary OR on the bitarrays.
-
-        .. WARNING::
-            Currently the mro maps only contain computed fields, that have local dependencies. Therefore
-            for a full update during ``save`` the field list has to be extended by computed fields,
-            that have no local dependencies. (Might change with future versions.)
         """
         self.prepare_modelgraphs()
         return dict((model, g.generate_local_mapping(g.generate_field_paths(g.get_topological_paths())))
@@ -777,7 +771,7 @@ class ComputedModelsGraph(Graph):
     def get_uniongraph(self):
         """
         Build a union graph of intermodel dependencies and model local dependencies.
-        This graph represents the final update cascades triggered by a certain field update.
+        This graph represents the final update cascades triggered by certain field updates.
         The union graph is needed to spot cycles introduced by model local dependencies,
         that otherwise might went unnoticed, example:
 

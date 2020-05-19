@@ -6,7 +6,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 1.11, 2.2 and 3.0 (Python 3.6 to 3.8, also Python 2.7 where possible).
+Tested with Django 2.2 and 3.0 (Python 3.6 to 3.8).
 
 
 #### Example ####
@@ -21,7 +21,7 @@ from computedfields.models import ComputedFieldsModel, computed
 class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32))
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
     def computed_field(self):
         return self.name.upper()
 ```
@@ -41,9 +41,7 @@ if you have pending changes:
 >>> person.computed_field             # outputs 'BERTY'
 ```
 
-The `computed` decorator supports a `depends` keyword argument
-to indicate dependencies to other model fields. If set, the computed field
-gets automatically updated upon changes of the related fields:
+The  `depends` keyword argument can be used with any relation to indicate dependencies to fields on other models as well:
 
 ```python
 from django.db import models
@@ -53,12 +51,17 @@ class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     fk = models.ForeignKey(SomeModel)
 
-    @computed(models.CharField(max_length=32), depends=['fk#fieldname'])
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']], ['fk', ['fieldname']]])
     def computed_field(self):
         return self.name.upper() + self.fk.fieldname
 ```
 
-Now changes to `fk.fieldname` will now also update `computed_field`.
+Now changes to `self.name` or `fk.fieldname` will update `computed_field`.
+
+**NOTE:** The old depends syntax is deprecated and should be replaced with the new syntax.
+It also should contain a `self` entry with local fields to get reliable updates from local field changes.
+This is especially true for advanced usage with `save(update_fields=[...])` or bulk actions.
+The old syntax be be removed with a future version.
 
 
 #### Documentation ####
