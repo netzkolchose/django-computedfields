@@ -38,20 +38,12 @@ class ComputedFieldsModelType(ModelBase):
 
     def __new__(mcs, name, bases, attrs):
         computed_fields = OrderedDict()
-        dependent_fields = {}
         if name != 'ComputedFieldsModel':
             for k, v in attrs.items():
                 if getattr(v, '_computed', None):
                     computed_fields.update({k: v})
                     v.editable = False
                     v._computed.update({'attr': k})
-                    depends = v._computed['kwargs'].get('depends')
-                    # if depends:
-                    #     dependent_fields[k] = depends
-                    # for downward compat we always have to add depends
-                    # an empty depends gets filled up with local concrete fields
-                    # FIXME: make this field mandatory on @computed
-                    dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         if name != 'ComputedFieldsModel':
             if hasattr(cls, '_computed_fields'):
@@ -59,7 +51,8 @@ class ComputedFieldsModelType(ModelBase):
             else:
                 cls._computed_fields = computed_fields
             if not cls._meta.abstract:
-                mcs._computed_models[cls] = dependent_fields or {}
+                mcs._computed_models[cls] = dict((k, v._computed['kwargs'].get('depends'))
+                    for k, v in cls._computed_fields.items())
         return cls
 
     @classmethod
