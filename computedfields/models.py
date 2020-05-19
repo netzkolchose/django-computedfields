@@ -62,13 +62,11 @@ class ComputedFieldsModelType(ModelBase):
         This method returns computed fields as self dependent to simplify field calculation in ``save``.
         """
         # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
-        entry = mcs._local_mro.get(cls, None)
-        if entry is None:
-            return None
-        base = entry['base']
+        entry = mcs._local_mro[cls]  # raise here, if cls is not a CMFT
         if update_fields is None:
-            return base
+            return entry['base']
         update_fields = frozenset(update_fields)
+        base = entry['base']
         fields = entry['fields']
         mro = 0
         for f in update_fields:
