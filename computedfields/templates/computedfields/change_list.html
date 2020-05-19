@@ -8,7 +8,14 @@
                 <a href="{% url opts|admin_urlname:'computedfields_rendergraph' %}"
                    target="popup"
                    onclick="javascript:open('', 'popup', 'height=400,width=600,resizable=yes')">
-                    {% blocktrans with cl.opts.verbose_name_plural|escape as name %}Dependency Graph{% endblocktrans %}
+                    {% blocktrans with cl.opts.verbose_name_plural|escape as name %}Intermodel Graph{% endblocktrans %}
+                </a>
+            </li>
+            <li>
+                <a href="{% url opts|admin_urlname:'computedfields_renderuniongraph' %}"
+                   target="popup"
+                   onclick="javascript:open('', 'popup', 'height=400,width=600,resizable=yes')">
+                    {% blocktrans with cl.opts.verbose_name_plural|escape as name %}Union Graph{% endblocktrans %}
                 </a>
             </li>
         {% endblock %}

@@ -37,11 +37,12 @@ def B_comp(self):
 class M2MBackDependencies(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
-            'A': {'depends': ['ab_m.bc_m#name'],
+            'A': {'depends': [['self', ['name']], ['ab_m.bc_m', ['name']]],
                   'func': A_comp},
-            'B': {'depends': ['bc_m#name'],
+            'B': {'depends': [['self', ['name']], ['bc_m', ['name']]],
                   'func': B_comp},
-            'C': {'func': lambda self: self.name}
+            'C': {'depends': [['self', ['name']]],
+                  'func': lambda self: self.name}
         })
         self.a1 = self.models.A(name='a1')
         self.a1.save()

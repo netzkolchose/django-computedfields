@@ -16,17 +16,18 @@ class CommandTests(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # deps only to itself
-            'B': {'func': lambda self: self.name},
+            'B': {'depends': [['self', ['name']]],
+                  'func': lambda self: self.name},
             # one fk step deps to comp field
-            'C': {'depends': ['f_cb#comp'],
+            'C': {'depends': [['self', ['name']], ['f_cb', ['comp']]],
                   'func': lambda self: self.name + self.f_cb.comp},
-            'D': {'depends': ['f_dc#comp'],
+            'D': {'depends': [['self', ['name']], ['f_dc', ['comp']]],
                   'func': lambda self: self.name + self.f_dc.comp},
             # multi fk steps deps to non comp field
-            'E': {'depends': ['f_ed.f_dc.f_cb.f_ba#name'],
+            'E': {'depends': [['self', ['name']], ['f_ed.f_dc.f_cb.f_ba', ['name']]],
                   'func': lambda self: self.name + self.f_ed.f_dc.f_cb.f_ba.name},
             # multi fk steps deps to comp field
-            'F': {'depends': ['f_fe.f_ed.f_dc.f_cb#name'],
+            'F': {'depends': [['self', ['name']], ['f_fe.f_ed.f_dc.f_cb', ['name']]],
                   'func': lambda self: self.name + self.f_fe.f_ed.f_dc.f_cb.name}
         })
 
@@ -46,8 +47,8 @@ class CommandTests(GenericModelTestBase):
         self.assertRaises(
             CycleNodeException,
             lambda: self.setDeps({
-                    'A': {'depends': ['f_ag#comp']},
-                    'G': {'depends': ['f_ga#comp']},
+                    'A': {'depends': [['f_ag', ['comp']]]},
+                    'G': {'depends': [['f_ga', ['comp']]]},
                 })
         )
         self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
@@ -77,8 +78,10 @@ class CommandTests(GenericModelTestBase):
             pickled_data = pickle.load(f)
             map = pickled_data['lookup_map']
             fk_map = pickled_data['fk_map']
+            local_mro = pickled_data['local_mro']
             self.assertDictEqual(map, ComputedFieldsModelType._map)
             self.assertDictEqual(fk_map, ComputedFieldsModelType._fk_map)
+            self.assertDictEqual(local_mro, ComputedFieldsModelType._local_mro)
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value

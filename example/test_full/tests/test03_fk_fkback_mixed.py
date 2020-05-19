@@ -9,11 +9,11 @@ class MixedForeignKeysAndBackDependenciesSimple(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # fk + fk_back
-            'B': {'depends': ['f_ba.ag_f#name'],
+            'B': {'depends': [['self', ['name']], ['f_ba.ag_f', ['name']]],
                   'func': lambda self: self.name + ''.join(
                       MODELS['G'].objects.filter(f_ga=self.f_ba).values_list('name', flat=True))},
             # fk_back + fk
-            'F': {'depends': ['fg_f.f_ga#name'],
+            'F': {'depends': [['self', ['name']], ['fg_f.f_ga', ['name']]],
                   'func': lambda self: self.name + ''.join(MODELS['A'].objects.filter(
                       pk__in=self.fg_f.all().values_list('f_ga', flat=True).distinct()
                   ).values_list('name', flat=True))},
@@ -88,12 +88,12 @@ class MixedForeignKeysAndBackDependenciesMultipleOne(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # fk + fk_back + fk + fk_back
-            'B': {'depends': ['f_ba.ag_f.f_gf.fd_f#name'],
+            'B': {'depends': [['self', ['name']], ['f_ba.ag_f.f_gf.fd_f', ['name']]],
                   'func': lambda self: self.name + ''.join(MODELS['D'].objects.filter(
                       f_df__in=MODELS['G'].objects.filter(f_ga=self.f_ba).values_list('f_gf', flat=True)
                   ).values_list('name', flat=True))},
             # fk_back + fk + fk_back + fk
-            'D': {'depends': ['f_df.fg_f.f_ga.ab_f#name'],
+            'D': {'depends': [['self', ['name']], ['f_df.fg_f.f_ga.ab_f', ['name']]],
                   'func': lambda self: self.name + ''.join(MODELS['B'].objects.filter(
                       f_ba__in=MODELS['G'].objects.filter(f_gf=self.f_df).values_list('f_ga', flat=True)
                   ).values_list('name', flat=True))}
@@ -212,7 +212,7 @@ class MixedForeignKeysAndBackDependenciesMultipleTwo(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # fk + fk + fk_back + fk_back
-            'C': {'depends': ['f_cb.f_ba.ag_f.gd_f#name'],
+            'C': {'depends': [['self', ['name']], ['f_cb.f_ba.ag_f.gd_f', ['name']]],
                   'func': lambda self: self.name + ''.join(
                       MODELS['D'].objects.filter(f_dg__in=MODELS['G'].objects.filter(
                           f_ga=self.f_cb.f_ba)).values_list('name', flat=True))},
@@ -286,7 +286,7 @@ class MixedForeignKeysAndBackDependenciesMultipleExtendedFKBack(GenericModelTest
     def setUp(self):
         self.setDeps({
             # fk_back + fk_back + fk_back + fk + fk + fk
-            'D': {'depends': ['de_f.ef_f.fg_f.f_ga.f_ac.f_cb#name'],
+            'D': {'depends': [['self', ['name']], ['de_f.ef_f.fg_f.f_ga.f_ac.f_cb', ['name']]],
                   'func': lambda self: self.name + ''.join(filter(bool, MODELS['G'].objects.filter(
                       f_gf__in=MODELS['F'].objects.filter(
                           f_fe__in=self.de_f.all())).values_list('f_ga__f_ac__f_cb__name', flat=True)))}

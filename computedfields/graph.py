@@ -12,8 +12,12 @@ from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
 from computedfields.helper import pairwise, is_sublist, modelname, is_computedfield
 
+class ComputedFieldsException(Exception):
+    """
+    Base exception raised from computed fields.
+    """
 
-class CycleException(Exception):
+class CycleException(ComputedFieldsException):
     """
     Exception raised during path linearization, if a cycle was found.
     Contains the found cycle either as list of edges or nodes in
@@ -95,7 +99,7 @@ class Node(object):
         self.data = data
 
     def __str__(self):
-        return '.'.join(self.data)
+        return self.data if isinstance(self.data, str) else '.'.join(self.data)
 
     def __repr__(self):
         return str(self)
@@ -395,26 +399,120 @@ class ComputedModelsGraph(Graph):
         super(ComputedModelsGraph, self).__init__()
         self.models = {}
         self.resolved = self.resolve_dependencies(computed_models)
-        self.cleaned_data = self._clean_data(self.resolved)
+        self.cleaned_data = self._clean_data(self.resolved['global'])
         self._insert_data(self.cleaned_data)
         self._fk_map = self._generate_fk_map()
+        self.modelgraphs = {}
+        self.union = None
+
+    # FIXME: remove once transition to new depends format is done
+    def _is_old_depends(self, depends):
+        if depends is None:
+            return True
+        return any(isinstance(el, str) for el in depends)
+
+    # FIXME: remove once transition to new depends format is done
+    def _get_local_non_cf_fields(self, model):
+        # get all local fields of a model that are:
+        # - concrete
+        # - not a relation
+        # - not primary key
+        # - not a computed field
+        cfields = getattr(model, '_computed_fields', {}).keys()
+        return {f.name
+            for f in model._meta.get_fields()
+                if f.concrete
+                and not f.auto_created
+                and not f.is_relation
+                and not f.primary_key
+                and not f.name in cfields
+        }
+
+    # FIXME: remove once transition to new depends format is done
+    def _resolve_relational_fields(self, model, path):
+        cls = model
+        for symbol in path.split('.'):
+            try:
+                rel = cls._meta.get_field(symbol)
+            except FieldDoesNotExist:
+                rel = getattr(cls, symbol).rel
+                symbol = (rel.related_name
+                          or rel.related_query_name
+                          or rel.related_model._meta.model_name)
+            cls = rel.related_model
+        return self._get_local_non_cf_fields(cls)
+
+    # FIXME: remove once transition to new depends format is done
+    def _convert_depends(self, local_fields, depends, model):
+        # convert old style depends string into new style
+        result = []
+
+        if depends:
+            path_data = {'self': set(local_fields)} if local_fields else {}
+            for dep in depends:
+                try:
+                    path, field = dep.split('#')
+                    fields = (field,)
+                except ValueError:
+                    path = dep
+                    fields = self._resolve_relational_fields(model, path)
+                path_data.setdefault(path, set()).update(fields)
+            for path, fields in path_data.items():
+                result.append((path, fields))
+        else:
+            # always append local fields
+            result.append(('self', set(local_fields)))
+        return result
+
+    def _check_concrete_field(self, model, fieldname):
+        if not model._meta.get_field(fieldname).concrete:
+            raise ComputedFieldsException("%s has no concrete field named '%s'" % (model, fieldname))
 
     def resolve_dependencies(self, computed_models):
         """
-        Converts all depend strings into real model field lookups.
+        Converts field dependencies into lookups and checks the fields' existance.
+        Also expands the old depends notation into the new format:
+
+        - ``'relA.relB'`` --> ``['relA.relB', local_fieldnames_on_B]``
+        - ``'relA#xy'`` --> ``['relA', ['xy']]``
+        - plus model local non computed fields, e.g. ``['self', ['fieldA', 'fieldB']]``
+
+        .. warning::
+            Dont use the old `depends` notation anymore, as it is underdetermined leading to ambiguity and
+            will be removed by a later version.
         """
-        resolved = OrderedDict()
+        global_deps = OrderedDict()
+        local_deps = {}
         for model, fields in computed_models.items():
+            local_fields = None
+            local_deps.setdefault(model, {}) # always add to local to get a result from mro later on
             for field, depends in fields.items():
-                fieldentry = resolved.setdefault(model, {}).setdefault(field, {})
-                for value in depends:
-                    try:
-                        # depends on another computed field
-                        path, target_field = value.split('#')
-                    except ValueError:
-                        # simple dependency to other model
-                        path = value
-                        target_field = '#'
+                fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
+                local_deps.setdefault(model, {}).setdefault(field, set())
+
+                if self._is_old_depends(depends):
+                    # print a warning about old depends string
+                    # FIXME: to be removed with future version
+                    # silence test cases
+                    if not model._meta.model_name in ('olddependsparent', 'olddependschild'):
+                        print('WARNING: "%s" on %s contains old depends string format.'
+                            % (field, model))
+                    # translate old depends listing into new format
+                    # note that this pulls all model local fields of underdetemined depends
+                    # declarations:   depends=['relA'] => (('relA', local_fields_on_A),)
+                    if not local_fields:
+                        local_fields = self._get_local_non_cf_fields(model)
+                    depends = self._convert_depends(local_fields, depends, model)
+
+                for path, fieldnames in depends:
+                    if path == 'self':
+                        # skip selfdeps in global graph handling
+                        # we handle it instead on model graph level
+                        # do at least an existance check here to provide an early error
+                        for fieldname in fieldnames:
+                            self._check_concrete_field(model, fieldname)
+                        local_deps.setdefault(model, {}).setdefault(field, set()).update(fieldnames)
+                        continue
                     path_segments = []
                     cls = model
                     for symbol in path.split('.'):
@@ -423,17 +521,22 @@ class ComputedModelsGraph(Graph):
                         except FieldDoesNotExist:
                             rel = getattr(cls, symbol).rel
                             symbol = (rel.related_name
-                                      or rel.related_query_name
-                                      or rel.related_model._meta.model_name)
+                                    or rel.related_query_name
+                                    or rel.related_model._meta.model_name)
                         path_segments.append(symbol)
                         cls = rel.related_model
                         fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments)})
-                    fieldentry[cls][-1]['depends'] = target_field
-        return resolved
+                    # pop last path entry from '#' handling, since this it resolves to concrete fields
+                    # FIXME: check - this might be wrong here, if the source model is part of a chain AND provides concrete fields?
+                    fieldentry[cls].pop()
+                    for target_field in fieldnames:
+                        self._check_concrete_field(cls, target_field)
+                        fieldentry[cls].append({'path': '__'.join(path_segments), 'depends': target_field})
+        return {'global': global_deps, 'local': local_deps}
 
     def _clean_data(self, data):
         """
-        Converts the dependency data into an adjacency list tree
+        Converts the global dependency data into an adjacency list tree
         to be used with the underlying graph.
         """
         cleaned = OrderedDict()
@@ -448,6 +551,8 @@ class ComputedModelsGraph(Graph):
                         # any chance to the model should trigger the update
                         # Note: '#' is only triggered for `.save` without
                         # setting update_fields!
+                        # FIXME: with enforcing to list all fields '#' turns into plain relation listings
+                        # --> maybe simplify it to rel fieldnames?
                         depends = dep.get('depends', '#')
                         key = (modelname(depmodel), depends)
                         value = (modelname(model), field)
@@ -456,14 +561,10 @@ class ComputedModelsGraph(Graph):
 
     def _insert_data(self, data):
         """
-        Adds nodes in ``data`` to the graph and creates edges.
+        Adds edges in ``data`` to the graph.
         Data must be an adjacency mapping like
         ``{left: set(right neighbours)}``.
         """
-        for node, value in data.items():
-            self.add_node(Node(node))
-            for node in value:
-                self.add_node(Node(node))
         for left, value in data.items():
             for right in value:
                 edge = Edge(Node(left), Node(right))
@@ -500,7 +601,7 @@ class ComputedModelsGraph(Graph):
                  .setdefault(lfield, {})\
                  .setdefault(rmodel, {})\
                  .setdefault(rfield, [])\
-                 .extend(self.resolved[rmodel][rfield][lmodel])
+                 .extend(self.resolved['global'][rmodel][rfield][lmodel])
 
         # extract all field paths for model dependencies
         path_map = {}
@@ -611,7 +712,7 @@ class ComputedModelsGraph(Graph):
                  .setdefault(lfield, {})\
                  .setdefault(rmodel, {})\
                  .setdefault(rfield, [])\
-                 .extend(self.resolved[rmodel][rfield][lmodel])
+                 .extend(self.resolved['global'][rmodel][rfield][lmodel])
 
         # finally build map for the signal handler
         lookup_map = {}
@@ -621,3 +722,205 @@ class ComputedModelsGraph(Graph):
                     lookup_map.setdefault(lmodel, {})\
                               .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
         return lookup_map
+
+    def prepare_modelgraphs(self):
+        """
+        Helper to initialize model local subgraphs.
+        """
+        if self.modelgraphs:
+            return
+        data = self.resolved['local']
+        for model, local_deps in data.items():
+            self.modelgraphs[model] = ModelGraph(model, local_deps)
+            # modelgraph always must be cyclefree, thus we can always do the reduction here
+            self.modelgraphs[model].transitive_reduction()
+
+    def generate_local_mro_map(self):
+        """
+        Generate model local computed fields mro maps.
+        Returns a mapping of models with local computed fields dependencies and their
+        `mro`, example:
+
+        .. code:: python
+
+            {
+                modelX: {
+                    'base': ['c1', 'c2', 'c3'],
+                    'fields': {
+                        'name': ['c2', 'c3'],
+                        'c2': ['c2', 'c3']
+                    }
+                }
+            }
+
+        In the example `modelX` would have 3 computed fields, where `c2` somehow depends on
+        the field `name`. `c3` itself depends on changes to `c2`, thus a change to `name` should
+        run `c2` and `c3` in that specific order.
+
+        `base` lists all computed fields in topological execution order (mro).
+        It is also used at runtime to cover a full update of an instance (``update_fields=None``).
+
+        .. NOTE::
+            Note that the actual values in `fields` are bitarrays to index positions of `base`, which allows
+            quick field update merges at runtime by doing binary OR on the bitarrays.
+        """
+        self.prepare_modelgraphs()
+        return dict((model, g.generate_local_mapping(g.generate_field_paths(g.get_topological_paths())))
+                        for model, g in self.modelgraphs.items())
+
+    def get_uniongraph(self):
+        """
+        Build a union graph of intermodel dependencies and model local dependencies.
+        This graph represents the final update cascades triggered by certain field updates.
+        The union graph is needed to spot cycles introduced by model local dependencies,
+        that otherwise might went unnoticed, example:
+
+        - global dep graph (acyclic):  ``A.comp --> B.comp, B.comp2 --> A.comp``
+        - modelgraph of B  (acyclic):  ``B.comp --> B.comp2``
+
+        Here the resulting union graph is not a DAG anymore, since both subgraphs short-circuit
+        to a cycle of ``A.comp --> B.comp --> B.comp2 --> A.comp``.
+        """
+        if not self.union:
+            graph = Graph()
+            # copy intermodel edges
+            for edge in self.edges:
+                graph.add_edge(edge)
+            # copy modelgraph edges
+            self.prepare_modelgraphs()
+            for model, g in self.modelgraphs.items():
+                name = modelname(model)
+                for edge in g.edges:
+                    graph.add_edge(Edge(
+                        Node((name, edge.left.data)),
+                        Node((name, edge.right.data))
+                    ))
+            self.union = graph
+        return self.union
+
+
+class ModelGraph(Graph):
+    """
+    Graph to resolve model local computed field dependencies in right calculation order.
+    """
+    def __init__(self, model, local_dependencies):
+        super(ModelGraph, self).__init__()
+        self.model = model
+
+        # add all edges from extracted local deps
+        for right, deps in local_dependencies.items():
+            for left in deps:
+                self.add_edge(Edge(Node(left), Node(right)))
+
+        # add ## node as update_fields=None placeholder with edges to all computed fields
+        # --> None explicitly updates all computed fields
+        # Note: this has to be on all cfs to not skip a non local dependent one by accident
+        left = Node('##')
+        for cf in self.model._computed_fields.keys():
+            self.add_edge(Edge(left, Node(cf)))
+
+    def transitive_reduction(self):
+        """
+        Remove redundant single edges. Also checks for cycles.
+        *Note:* Other than intermodel dependencies a model local dependencies always must be cyclefree.
+        """
+        paths = self.get_edgepaths()
+        remove = set()
+        for p1 in paths:
+            # we only cut single edge paths
+            if len(p1) > 1:
+                continue
+            left = p1[0].left
+            right = p1[-1].right
+            for p2 in paths:
+                if p2 == p1:
+                    continue
+                if right == p2[-1].right and left == p2[0].left:
+                    remove.add(p1[0])
+        for edge in remove:
+            self.remove_edge(edge)
+
+    def _tsort(self, graph, start, paths, path):
+        """
+        Recursive deep first search variant of topsort.
+        Also accumulates any revealed subpaths.
+        """
+        for node in graph.get(start, []):
+            if not node in paths:
+                # accumulate revealed topological subpaths
+                paths[node] = self._tsort(graph, node, paths, [])
+            for snode in paths[node]:
+                # append node if its not yet part of the path
+                if not snode in path:
+                    path += [snode]
+        path += [start]
+        return path
+
+    def get_topological_paths(self):
+        """
+        Creates a map of all possible entry nodes and their topological update path (computed fields mro).
+        """
+        # create simplified parent-child relation graph
+        graph = {}
+        for edge in self.edges:
+            graph.setdefault(edge.left, []).append(edge.right)
+        topological_paths = {}
+
+        # '##' has connections to all cfs thus creates the basic deps order map containing all cfs
+        # it also creates all tpaths between cfs itself
+        topological_paths[Node('##')] = self._tsort(graph, Node('##'), topological_paths, [])[:-1]
+
+        # we still need to reveal concrete field deps
+        # other than for cfs we also strip last entry (the field itself)
+        for node in graph:
+            if node in topological_paths:
+                continue
+            topological_paths[node] = self._tsort(graph, node, topological_paths, [])[:-1]
+
+        # reverse all tpaths
+        for entry, path in topological_paths.items():
+            topological_paths[entry] = path[::-1]
+
+        return topological_paths
+
+    def generate_field_paths(self, tpaths):
+        """
+        Convert topological path node mapping into a mapping containing the fieldnames.
+        """
+        field_paths = {}
+        for node, path in tpaths.items():
+            field_paths[node.data] = [el.data for el in path]
+        return field_paths
+
+    def generate_local_mapping(self, field_paths):
+        """
+        Generates the final model local update table to be used during ``ComputedFieldsModel.save``.
+        Output is a mapping of local fields, that also update local computed fields, to a bitarray
+        containing the computed fields mro, and the base topologcial order for a full update.
+        """
+        # transfer final data to bitarray
+        # bitarray: bit index is realisation of one valid full topsort order held in '##'
+        # since this order was build from full graph it always reflects the correct mro even for a subset
+        # of fields in update_fields later on
+        # properties:
+        #   - length is number of computed fields on model
+        #   - True indicates execution of associated function at position in topological order
+        #   - bitarray is int, field update rules can be added by bitwise OR at save time
+        # example:
+        #   - edges: [name, c_a], [c_a, c_b], [c_c, c_b], [z, c_c]
+        #   - topological order of cfs: {1: c_a, 2: c_c, 4: c_b}
+        #   - field deps:   name  : c_a, c_b    --> 0b101
+        #                   c_a   : c_a, c_b    --> 0b101
+        #                   c_c   : c_c, c_b    --> 0b110
+        #                   z     : c_c, c_b    --> 0b110
+        #   - update mro:   [name, z]   --> 0b101 | 0b110 --> [c_a, c_c, c_b]
+        #                   [c_a, c_b]  --> 0b101 | 0b110 --> [c_a, c_c, c_b]
+        binary = {}
+        base = field_paths['##']
+        for field, deps in field_paths.items():
+            if field == '##':
+                continue
+            binary[field] = 0
+            for pos, name in enumerate(base):
+                binary[field] |= (1 if name in deps else 0) << pos
+        return {'base': base, 'fields': binary}
