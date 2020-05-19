@@ -60,10 +60,9 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     def local_computed_fields_mro(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
         cfs = model._computed_fields.keys()
-        entry = ComputedFieldsModelType._local_mro.get(model, {'base': [], 'fields': {}})
+        entry = ComputedFieldsModelType._local_mro[model]
         base = entry['base']
-        deps = {'nonlocal': [], 'mro': base, 'fields': {}}
-        deps['nonlocal'] = list(set(cfs) - set(base))
+        deps = {'mro': base, 'fields': {}}
         for field, value in entry['fields'].items():
             deps['fields'][field] = [name for pos, name in enumerate(base) if value & (1 << pos)]
         s = dumps(deps, indent=4, sort_keys=False)
@@ -71,7 +70,6 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             s = mark_safe(
                 pygments.highlight(s, JsonLexer(stripnl=False), HtmlFormatter(noclasses=True, nowrap=True)))
         return format_html(u'<pre>{}</pre>', s)
-        #return 'has local deps (TODO)'
 
     def name(self, obj):
         name = escape(u'%s.%s' % (obj.app_label, obj.model))

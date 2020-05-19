@@ -485,8 +485,10 @@ class ComputedModelsGraph(Graph):
         local_deps = {}
         for model, fields in computed_models.items():
             local_fields = None
+            local_deps.setdefault(model, {}) # always add to local to get a result from mro later on
             for field, depends in fields.items():
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
+                local_deps.setdefault(model, {}).setdefault(field, set())
 
                 if self._is_old_depends(depends):
                     # print a warning about old depends string
@@ -818,8 +820,8 @@ class ModelGraph(Graph):
 
         # add ## node as update_fields=None placeholder with edges to all computed fields
         # --> None explicitly updates all computed fields
+        # Note: this has to be on all cfs to not skip a non local dependent one by accident
         left = Node('##')
-        self.add_node(left)
         for cf in self.model._computed_fields.keys():
             self.add_edge(Edge(left, Node(cf)))
 
