@@ -921,16 +921,12 @@ class ModelGraph(Graph):
         #                   z     : c_c, c_b    --> 0b110
         #   - update mro:   [name, z]   --> 0b101 | 0b110 --> [c_a, c_c, c_b]
         #                   [c_a, c_b]  --> 0b101 | 0b110 --> [c_a, c_c, c_b]
-        final_binary = {}
+        binary = {}
         base = field_paths['##']
         for field, deps in field_paths.items():
             if field == '##':
                 continue
-            final_binary[field] = 0
-            if field in base:
-                # a cf in update_fields should be lined up in topological order
-                # thus we re-add it here
-                final_binary[field] |= 1 << base.index(field)
+            binary[field] = 0
             for pos, name in enumerate(base):
-                final_binary[field] |= (1 if name in deps else 0) << pos
-        return {'base': base, 'fields': final_binary}
+                binary[field] |= (1 if name in deps else 0) << pos
+        return {'base': base, 'fields': binary}
