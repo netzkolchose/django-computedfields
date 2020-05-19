@@ -14,9 +14,11 @@ class Command(BaseCommand):
 
         with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
             graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
-            graph.remove_redundant()
+            if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
+                graph.remove_redundant()
+                graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
             pickle.dump({
                 'lookup_map': graph.generate_lookup_map(),
                 'fk_map': graph._fk_map,
-                'local_mro': graph.generate_local_mro_map()
+                'local_mro': graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
             }, f, pickle.HIGHEST_PROTOCOL)

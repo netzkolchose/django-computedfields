@@ -69,6 +69,7 @@ class ComputedFieldsModelType(ModelBase):
         This method may return ``None`` if there are no local computed field dependencies.
         """
         # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+        # FIXME: simplification for save - should also return non local dependent cfs?
         entry = mcs._local_mro.get(cls, None)
         if entry is None:
             return None
@@ -122,9 +123,10 @@ class ComputedFieldsModelType(ModelBase):
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
+                mcs._graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
-            mcs._local_mro = mcs._graph.generate_local_mro_map()
+            mcs._local_mro = mcs._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
             mcs._map_loaded = True
 
     @classmethod

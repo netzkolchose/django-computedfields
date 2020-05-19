@@ -553,14 +553,10 @@ class ComputedModelsGraph(Graph):
 
     def _insert_data(self, data):
         """
-        Adds nodes in ``data`` to the graph and creates edges.
+        Adds edges in ``data`` to the graph.
         Data must be an adjacency mapping like
         ``{left: set(right neighbours)}``.
         """
-        for node, value in data.items():
-            self.add_node(Node(node))
-            for node in value:
-                self.add_node(Node(node))
         for left, value in data.items():
             for right in value:
                 edge = Edge(Node(left), Node(right))
@@ -787,18 +783,16 @@ class ComputedModelsGraph(Graph):
             graph = Graph()
             # copy intermodel edges
             for edge in self.edges:
-                graph.add_node(edge.left)
-                graph.add_node(edge.right)
                 graph.add_edge(edge)
             # copy modelgraph edges
             self.prepare_modelgraphs()
             for model, g in self.modelgraphs.items():
+                name = modelname(model)
                 for edge in g.edges:
-                    left = Node((modelname(model), edge.left.data))
-                    right = Node((modelname(model), edge.right.data))
-                    graph.add_node(left)
-                    graph.add_node(right)
-                    graph.add_edge(Edge(left, right))
+                    graph.add_edge(Edge(
+                        Node((name, edge.left.data)),
+                        Node((name, edge.right.data))
+                    ))
             self.union = graph
         return self.union
 
@@ -811,11 +805,7 @@ class ModelGraph(Graph):
         super(ModelGraph, self).__init__()
         self.model = model
 
-        # add all nodes and edges from extracted local deps
-        for cf, deps in local_dependencies.items():
-            self.add_node(Node(cf))
-            for dep in deps:
-                self.add_node(Node(dep))
+        # add all edges from extracted local deps
         for right, deps in local_dependencies.items():
             for left in deps:
                 self.add_edge(Edge(Node(left), Node(right)))
@@ -879,7 +869,7 @@ class ModelGraph(Graph):
         topological_paths[Node('##')] = self._tsort(graph, Node('##'), topological_paths, [])[:-1]
 
         # we still need to reveal concrete field deps
-        # other than for real cfs we also strip last entry (the field itself)
+        # other than for cfs we also strip last entry (the field itself)
         for node in graph:
             if node in topological_paths:
                 continue
