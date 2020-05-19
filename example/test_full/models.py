@@ -369,3 +369,25 @@ class SelfB(ComputedFieldsModel):
     @computed(models.CharField(max_length=118), depends=[['self', ['c1']], ['a', ['c4']]])
     def c2(self):
         return 'C2' + self.c1 + self.a.c4
+
+
+# old depends notation still working
+# FIXME: to be removed with furture version
+class OldDependsParent(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=['self#name'])
+    def upper(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32), depends=['self#upper', 'children'])
+    def proxy(self):
+        return self.upper + str(self.children.all().count())
+
+class OldDependsChild(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(OldDependsParent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=['self#name', 'parent#upper'])
+    def parent_and_self(self):
+        return self.parent.upper + self.name
