@@ -391,3 +391,22 @@ class OldDependsChild(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=['self#name', 'parent#upper'])
     def parent_and_self(self):
         return self.parent.upper + self.name
+
+
+# test update_fields expansion, see https://github.com/netzkolchose/django-computedfields/issues/27
+class ChainA(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+class ChainB(ComputedFieldsModel):
+    a = models.ForeignKey(ChainA, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['a']], ['a', ['name']]])
+    def comp(self):
+        return self.a.name
+
+class ChainC(ComputedFieldsModel):
+    b = models.ForeignKey(ChainB, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['b', ['comp']]])
+    def comp(self):
+        return self.b.comp
