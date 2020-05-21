@@ -400,7 +400,7 @@ class ChainA(ComputedFieldsModel):
 class ChainB(ComputedFieldsModel):
     a = models.ForeignKey(ChainA, on_delete=models.CASCADE)
 
-    @computed(models.CharField(max_length=32), depends=[['self', ['a']], ['a', ['name']]])
+    @computed(models.CharField(max_length=32), depends=[['a', ['name']]])
     def comp(self):
         return self.a.name
 

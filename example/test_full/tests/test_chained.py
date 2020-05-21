@@ -29,7 +29,7 @@ class TestChained(TestCase):
         #self.b.save()
         # also works
         #self.b.save(update_fields=['a', 'comp'])
-        # does not work without explicit listing 'a' under self deps
+        # expands automatically to 'comp' with commit 203b9bc
         self.b.save(update_fields=['a'])
         self.b.refresh_from_db()
         self.c.refresh_from_db()

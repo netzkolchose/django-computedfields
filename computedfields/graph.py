@@ -524,6 +524,11 @@ class ComputedModelsGraph(Graph):
                                     or rel.related_query_name
                                     or rel.related_model._meta.model_name)
                         path_segments.append(symbol)
+                        # add path segment to self deps if we have an fk field on a CFM
+                        # this is needed to correctly propagate direct fk changes in local cf mro later on
+                        if isinstance(rel, ForeignKey) and cls in computed_models:
+                            self._check_concrete_field(cls, symbol)
+                            local_deps.setdefault(cls, {}).setdefault(field, set()).add(symbol)
                         cls = rel.related_model
                         fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments)})
                     # pop last path entry from '#' handling, since this it resolves to concrete fields
