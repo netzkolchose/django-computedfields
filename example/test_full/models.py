@@ -410,3 +410,19 @@ class ChainC(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['b', ['comp']]])
     def comp(self):
         return self.b.comp
+
+class ExpandA(models.Model):
+    name = models.CharField(max_length=32)
+
+class ExpandB(models.Model):
+    a = models.ForeignKey(ExpandA, on_delete=models.CASCADE)
+
+class ExpandC(models.Model):
+    b = models.ForeignKey(ExpandB, on_delete=models.CASCADE)
+
+class ExpandD(ComputedFieldsModel):
+    c = models.ForeignKey(ExpandC, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['c.b.a', ['name']]])
+    def comp(self):
+        return self.c.b.a.name
