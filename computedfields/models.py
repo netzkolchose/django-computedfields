@@ -51,7 +51,7 @@ class ComputedFieldsModelType(ModelBase):
             else:
                 cls._computed_fields = computed_fields
             if not cls._meta.abstract:
-                mcs._computed_models[cls] = dict((k, v._computed['kwargs'].get('depends'))
+                mcs._computed_models[cls] = dict((k, v._computed['depends'])
                     for k, v in cls._computed_fields.items())
         return cls
 
@@ -455,7 +455,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
-def computed(field, **kwargs):
+def computed(field, depends=None):
     """
     Decorator to create computed fields.
 
@@ -525,7 +525,7 @@ def computed(field, **kwargs):
         Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):
-        field._computed = {'func': f, 'kwargs': kwargs}
+        field._computed = {'func': f, 'depends': depends}
         return field
     return wrap
 
