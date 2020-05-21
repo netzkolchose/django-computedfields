@@ -523,15 +523,20 @@ class ComputedModelsGraph(Graph):
                             symbol = (rel.related_name
                                     or rel.related_query_name
                                     or rel.related_model._meta.model_name)
+                        # add path segment to self deps if we have an fk field on a CFM
+                        # this is needed to correctly propagate direct fk changes in local cf mro later on
+                        if isinstance(rel, ForeignKey) and cls in computed_models:
+                            self._check_concrete_field(cls, symbol)
+                            local_deps.setdefault(cls, {}).setdefault(field, set()).add(symbol)
+                        if path_segments:
+                            # add segment to intermodel graph deps
+                            # replaces the old '#' all rule with real source -> target deps
+                            fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments), 'depends': symbol})
                         path_segments.append(symbol)
                         cls = rel.related_model
-                        fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments)})
-                    # pop last path entry from '#' handling, since this it resolves to concrete fields
-                    # FIXME: check - this might be wrong here, if the source model is part of a chain AND provides concrete fields?
-                    fieldentry[cls].pop()
                     for target_field in fieldnames:
                         self._check_concrete_field(cls, target_field)
-                        fieldentry[cls].append({'path': '__'.join(path_segments), 'depends': target_field})
+                        fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments), 'depends': target_field})
         return {'global': global_deps, 'local': local_deps}
 
     def _clean_data(self, data):
@@ -546,15 +551,7 @@ class ComputedModelsGraph(Graph):
                 for depmodel, relations in modeldata.items():
                     self.models[modelname(depmodel)] = depmodel
                     for dep in relations:
-                        # normally we refer to the given model field
-                        # if none is given, set it to '#' which assumes
-                        # any chance to the model should trigger the update
-                        # Note: '#' is only triggered for `.save` without
-                        # setting update_fields!
-                        # FIXME: with enforcing to list all fields '#' turns into plain relation listings
-                        # --> maybe simplify it to rel fieldnames?
-                        depends = dep.get('depends', '#')
-                        key = (modelname(depmodel), depends)
+                        key = (modelname(depmodel), dep['depends'])
                         value = (modelname(model), field)
                         cleaned.setdefault(key, set()).add(value)
         return cleaned
