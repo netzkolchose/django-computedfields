@@ -163,6 +163,9 @@ The fieldnames should be a list of strings of concrete fields on the foreign mod
     This works because of the dependency declaration to ``['self', [..., 'city']]`` above.
     Beside correct expansion of ``update_fields`` this is also needed to determine
     the correct execution order of computed fields methods for local dependent computed fields (`MRO`).
+    Also note that from version 0.0.19 onwards `update_fields` will slightly deviate from django's
+    default behavior. It will be auto expanded by dependent local computed fields and also trigger
+    updates on foreign dependent computed fields.
 
 .. CAUTION::
 
@@ -265,7 +268,10 @@ Management Commands
     in settings.py.
 
 - ``rendergraph <filename>``
-    renders the dependency graph to <filename>.
+    renders the intermodel dependency graph to <filename>. Note that with version 0.0.18
+    the internal graph handling got extended by model local graphs and a final union graph.
+    Currently this command does not deal with those additional graphs
+    (help to get the command fixed is more than welcome).
 
 - ``updatedata``
     does a full update on all computed fields in the project. Only useful after
@@ -309,7 +315,7 @@ Specific Usage Hints
 ^^^^^^^^^^^^^^^^^^^^
 
 - Try to avoid deep nested dependencies. The way :mod:`django-computedfields` works internally will create
-  rather big JOIN tables for many long depends strings. If you hit that ground, either try to resort
+  rather big JOIN tables for many long relations. If you hit that ground, either try to resort
   to bulk actions with manually using ``update_dependent`` or rework your scheme by introducing additional
   denormalization models.
 - Try to avoid multiple 1:n relations in a dependency chain like ``['fk_back_a.fk_back_b...', [...]]`` or
@@ -337,6 +343,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.0.19
+    - Better graph expansion on relation paths with support for `update_fields`.
 - 0.0.18
     - New `depends` syntax deprecating the old one.
     - MRO of local computed field methods implemented.
