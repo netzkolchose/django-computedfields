@@ -7,6 +7,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
 from django.core.exceptions import AppRegistryNotReady
+from itertools import chain
 
 
 class ComputedFieldsModelType(ModelBase):
@@ -36,17 +37,13 @@ class ComputedFieldsModelType(ModelBase):
     _lock = RLock()
 
     def __new__(mcs, name, bases, attrs):
-        computed_fields = {}
-        dependent_fields = {}
+        computed_fields = OrderedDict()
         if name != 'ComputedFieldsModel':
             for k, v in attrs.items():
                 if getattr(v, '_computed', None):
                     computed_fields.update({k: v})
                     v.editable = False
                     v._computed.update({'attr': k})
-                    depends = v._computed['kwargs'].get('depends')
-                    if depends:
-                        dependent_fields[k] = depends
         cls = super(ComputedFieldsModelType, mcs).__new__(mcs, name, bases, attrs)
         if name != 'ComputedFieldsModel':
             if hasattr(cls, '_computed_fields'):
@@ -54,8 +51,27 @@ class ComputedFieldsModelType(ModelBase):
             else:
                 cls._computed_fields = computed_fields
             if not cls._meta.abstract:
-                mcs._computed_models[cls] = dependent_fields or {}
+                mcs._computed_models[cls] = dict((k, v._computed['depends'])
+                    for k, v in cls._computed_fields.items())
         return cls
+
+    @classmethod
+    def cf_mro(mcs, cls, update_fields=None):
+        """
+        Return mro for local computed field methods for a given set of ``update_fields``.
+        This method returns computed fields as self dependent to simplify field calculation in ``save``.
+        """
+        # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+        entry = mcs._local_mro[cls]  # raise here, if cls is not a CMFT
+        if update_fields is None:
+            return entry['base']
+        update_fields = frozenset(update_fields)
+        base = entry['base']
+        fields = entry['fields']
+        mro = 0
+        for f in update_fields:
+            mro |= fields.get(f, 0)
+        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
     @classmethod
     def _resolve_dependencies(mcs, force=False, _force=False):
@@ -91,13 +107,16 @@ class ComputedFieldsModelType(ModelBase):
                     pickled_data = pickle.load(f)
                     mcs._map = pickled_data['lookup_map']
                     mcs._fk_map = pickled_data['fk_map']
+                    mcs._local_mro = pickled_data['local_mro']
                     mcs._map_loaded = True
                 return
             mcs._graph = ComputedModelsGraph(mcs._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 mcs._graph.remove_redundant()
+                mcs._graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
+            mcs._local_mro = mcs._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
             mcs._map_loaded = True
 
     @classmethod
@@ -108,6 +127,7 @@ class ComputedFieldsModelType(ModelBase):
         """
         final = OrderedDict()
         modeldata = mcs._map.get(model)
+        #print(modeldata)
         if not modeldata:
             return final
         if not update_fields:
@@ -117,6 +137,8 @@ class ComputedFieldsModelType(ModelBase):
             for fieldname in update_fields:
                 if fieldname in modeldata:
                     updates.add(fieldname)
+            #if not updates:
+            #    updates.add('#')
         subquery = '__in' if isinstance(instance, models.QuerySet) else ''
         model_updates = OrderedDict()
         for update in updates:
@@ -391,7 +413,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
             forename = models.CharField(max_length=32)
             surname = models.CharField(max_length=32)
 
-            @computed(models.CharField(max_length=32))
+            @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
             def combined(self):
                 return u'%s, %s' % (self.surname, self.forename)
 
@@ -419,13 +441,47 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         return field._computed['func'](self)
 
     def save(self, *args, **kwargs):
+        """
+        Save the current instance. Note that for ``update_fields=None`` (default)
+        all computed fields on the instance will be re-evaluated.
+        If `update_fields` is set, it might get expanded by computed fields
+        that depend on fields listed there.
+        """
+        # TODO: eval correct dealing with update_fields in save:
+        #
+        # Problem:
+        #   update_fields is defined as a positive list containing fields that should be written to database.
+        #   We should not lightheartedly break with that meaning in ComputedFieldsModel.save by obscure auto-adding
+        #   computed fields without further notion.
+        #   On the other hand we already do this for intermodel dependencies without a way to intercept that behavior.
+        #
+        # Solution:
+        #   To have a uniform default handling of dependency updates within computedfields, deviate here from django's
+        #   default behavior - by default we gonna add dependent local computed fields automatically
+        #   to incoming update_fields based on the mro rules. Furthermore implement a keyword argument for save to
+        #   explicitly drop back to django's default behavior (something like `no_autoadd_computedfields`).
+        #   Make a clear statement in the docs about this change in behavior.
+        #
+        # Unclear:
+        #   Do we need a similar mechanism to temporarily switch off cf handling (skipping any signal handler)?
+        #
+        # FIXME: add custom kwargs to finetune cf handling
         update_fields = kwargs.get('update_fields')
+        cls = type(self)
+        cf_mro = ComputedFieldsModelType.cf_mro(cls, update_fields)
         if update_fields:
             update_fields = set(update_fields)
-            all_computed = not (update_fields - set(self._computed_fields.keys()))
+            # mro_plus: contains cfs, that additionally have to be updated
+            # update_fields_corrected: update_fields expanded by additional cfs from mro
+            mro_plus = set(cf_mro) - update_fields
+            update_fields_corrected = set(update_fields)
+            update_fields_corrected.update(mro_plus)
+            # update update_fields by additional dependent local cfs
+            kwargs['update_fields'] = update_fields_corrected
+            all_computed = not (update_fields_corrected - set(self._computed_fields.keys()))
             if all_computed:
                 has_changed = False
-                for fieldname in update_fields:
+                for fieldname in cf_mro:
                     result = self.compute(fieldname)
                     field = self._computed_fields[fieldname]
                     if result != getattr(self, field._computed['attr']):
@@ -433,34 +489,34 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
                         setattr(self, field._computed['attr'], result)
                 if not has_changed:
                     # no save needed, we still need to update dependent objects
-                    update_dependent(self, type(self), update_fields)
+                    update_dependent(self, cls, update_fields_corrected)
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
-        for fieldname in self._computed_fields:
+        for fieldname in cf_mro:
             result = self.compute(fieldname)
             field = self._computed_fields[fieldname]
             setattr(self, field._computed['attr'], result)
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
-def computed(field, **kwargs):
+def computed(field, depends=None):
     """
     Decorator to create computed fields.
 
-    ``field`` should be a model field suitable to hold the result
-    of the decorated method. The decorator understands an optional
+    ``field`` should be a model field instance suitable to hold the result
+    of the decorated method. The decorator expects a
     keyword argument ``depends`` to indicate dependencies to
-    related model fields. Listed dependencies will automatically
+    model fields (local or related). Listed dependencies will automatically
     update the computed field.
 
     Examples:
 
-        - create a char field with no outer dependencies
+        - create a char field with no further dependencies (not very useful)
 
           .. code-block:: python
 
-            @computed(models.CharField(max_length=32))
+            @computed(models.CharField(max_length=32), depends=[])
             def ...
 
         - create a char field with one dependency to the field
@@ -468,14 +524,14 @@ def computed(field, **kwargs):
 
           .. code-block:: python
 
-            @computed(models.CharField(max_length=32), depends=['fk#name'])
+            @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
             def ...
 
-    The dependency string is in the form ``'rel_a.rel_b#fieldname'``,
-    where the computed field gets a value from a field ``fieldname``,
-    which is accessible through the relations ``rel_a`` --> ``rel_b``.
-    A relation can be any of foreign key, m2m, o2o and their
-    corresponding back relations.
+    Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+    The relation can span serveral models, simply name the relation
+    in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
+    foreign key, m2m, o2o and their back relations.
+    The fieldnames should be a list of strings of concrete fields on the foreign model.
 
     .. CAUTION::
 
@@ -485,14 +541,14 @@ def computed(field, **kwargs):
         .. code-block:: python
 
             class A(ComputedFieldsModel):
-                @computed(models.CharField(max_length=32), depends=['b_set#comp'])
+                @computed(models.CharField(max_length=32), depends=[['b_set', ['comp']]])
                 def comp(self):
                     return ''.join(b.comp for b in self.b_set.all())
 
             class B(ComputedFieldsModel):
                 a = models.ForeignKey(A)
 
-                @computed(models.CharField(max_length=32), depends=['a#comp'])
+                @computed(models.CharField(max_length=32), depends=[['a', ['comp']]])
                 def comp(self):
                     return a.comp
 
@@ -501,15 +557,20 @@ def computed(field, **kwargs):
         to spot for this simple case it might get tricky for more
         complicated dependencies. Therefore the dependency resolver tries
         to detect cyclic dependencies and raises a ``CycleNodeException``
-        if a cycle was found.
+        in case a cycle was found.
 
         If you experience this in your project try to get in-depth cycle
         information, either by using the ``rendergraph`` management command or
-        by accessing the graph object directly under ``your_model._graph``.
+        by directly accessing the graph objects:
+
+        - intermodel dependency graph: ``your_model._graph``
+        - mode local dependency graphs: ``your_model._graph.modelgraphs[your_model]``
+        - union graph: ``your_model._graph.get_uniongraph()``
+
         Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):
-        field._computed = {'func': f, 'kwargs': kwargs}
+        field._computed = {'func': f, 'depends': depends}
         return field
     return wrap
 

@@ -62,13 +62,13 @@ the ``@computed`` decorator on a method:
         forename = models.CharField(max_length=32)
         surname = models.CharField(max_length=32)
 
-        @computed(models.CharField(max_length=32))
+        @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
         def combined(self):
             return u'%s, %s' % (self.surname, self.forename)
 
 ``combined`` will be turned into a real database field and can be accessed
 and searched like any other database field. During saving the associated method gets called
-and it's result written to the database. With the method ``compute('fieldname')`` you can
+and its result written to the database. With the method ``compute('fieldname')`` you can
 inspect the value that will be written, which is useful if you have pending
 changes:
 
@@ -79,16 +79,15 @@ changes:
     >>> person.combined             # outputs 'Jenkins, Leeroy'
     >>> Person.objects.filter(combined__<some condition>)  # used in a queryset
 
-The ``@computed`` decorator expects a model field as first argument to hold the
+The ``@computed`` decorator expects a model field instance as first argument to hold the
 result of the decorated method.
 
 
 Automatic Updates
 -----------------
 
-The ``@computed`` decorator understands a keyword argument ``depends`` to indicate
-dependencies to related model fields. If set, the computed field gets automatically
-updated upon changes of the related fields.
+The  `depends` keyword argument of the decorator can be used with any relation to indicate
+dependencies to fields on other models as well.
 
 The example above extended by a model ``Address``:
 
@@ -100,22 +99,27 @@ The example above extended by a model ``Address``:
         postal = models.CharField(max_length=32)
         city = models.CharField(max_length=32)
 
-        @computed(models.CharField(max_length=256), depends=['person#combined'])
+        @computed(models.CharField(max_length=256), depends=[
+            ['self', ['street', 'postal', 'city']],
+            ['person', ['combined']]
+        ])
         def full_address(self):
             return u'%s, %s, %s %s' % (self.person.combined, self.street,
                                        self.postal, self.city)
 
-Now if the name of a person changes, the field ``full_address`` will be updated
-accordingly.
+Now a change to ``self.street``, ``self.postal``, ``self.city`` or ``person.combined``
+will update ``full_address``.
 
-Note the format of the depends string - it consists of the relation name
-and the field name separated by '#'. The field name is mandatory for any
-dependency to trigger a proper update. (In fact it can be omitted for normal
-fields if you never use ``.save`` with explicit setting ``update_fields``.
-But that is an implementation detail you should not rely on.)
-The relation name part can span serveral models, simply name the relation
-in python style with a dot (e.g. ``'a.b.c'``).
-A relation can be of any of foreign key, m2m, o2o and their back relations.
+Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+The relation can span serveral models, simply name the relation
+in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
+foreign key, m2m, o2o and their back relations.
+The fieldnames should be a list of strings of concrete fields on the foreign model.
+
+.. WARNING::
+
+    The old `depends` syntax is deprecated and should not be used anymore. It will be removed with
+    a future version.
 
 .. NOTE::
 
@@ -124,7 +128,7 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=['nullable_relation#field'])
+        @computed(models.CharField(max_length=32), depends=[['nullable_relation', ['field']]])
         def compfield(self):
             if not self.nullable_relation:          # special handling of NULL here
                 return 'something else'
@@ -137,7 +141,7 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=['m2m#field'])
+        @computed(models.CharField(max_length=32), depends=[['m2m', ['field']]])
         def compfield(self):
             if not self.pk:  # no pk yet, access to .m2m will fail
                 return ''
@@ -146,29 +150,28 @@ A relation can be of any of foreign key, m2m, o2o and their back relations.
     Generally you should avoid nested m2m relations in dependendies
     as much as possible since the update penalty will explode.
 
+.. NOTE::
+
+    To get proper updates from local field dependencies under any cicumstances
+    it is important to provide a `self` entry in ``depends``:
+
+    .. CODE:: python
+
+        address.city = 'New City'
+        address.save(update_fields=['city'])  # also updates .full_address
+
+    This works because of the dependency declaration to ``['self', [..., 'city']]`` above.
+    Beside correct expansion of ``update_fields`` this is also needed to determine
+    the correct execution order of computed fields methods for local dependent computed fields (`MRO`).
+    Also note that from version 0.0.19 onwards `update_fields` will slightly deviate from django's
+    default behavior. It will be auto expanded by dependent local computed fields and also trigger
+    updates on foreign dependent computed fields.
+
 .. CAUTION::
 
     With the depends strings you can easily end up with recursive updates.
     The dependency resolver tries to detect cycling dependencies and might
     raise a ``CycleNodeException``.
-
-.. NOTE::
-
-    Updates of computed fields from fields on the same model behave a little
-    different than dependencies to fields on related models. To ensure proper updates,
-    either call ``save`` without ``update_fields`` (full save) or
-    include the computed fields explicitly in ``update_fields``:
-
-    .. CODE:: python
-
-        address.city = 'New City'
-        address.save()                                          # also updates .full_address
-        address.save(update_fields=['city'])                    # does not update .full_address
-        address.save(update_fields=['city', 'full_address'])    # make it explicit
-
-    Note that there is currently no way to circumvent this slightly different behavior
-    due to the way the autoresolver works internally.
-    Future versions might allow declarations like ``self#fieldname`` and handle it transparently.
 
 
 How does it work internally?
@@ -181,17 +184,20 @@ the collected dependency strings are resolved into model and field endpoints wit
 
 In the next step the dependency endpoints and computed fields are converted into an adjacency list and inserted
 into a directed graph. The graph does a cycle check during path linearization and removes redundant subpaths.
-The remaining edges are finally converted into a reverse lookup map containing source models and computed fields
-to be updated with their queryset access string. The expensive graph sanitizing process can be skipped
-in production by using a precalculated lookup map (see above).
+The remaining edges are converted into a reverse lookup map containing source models and computed fields
+to be updated with their queryset access string. For model local field dependencies a similar graph reduction per
+model takes place, returning an MRO for local computed fields methods. Finally a union graph of
+inter-model and local dependencies is build and does a last cycle check. The expensive graph sanitizing process
+can be skipped in production by using a precalculated lookup map (see above).
 
 During runtime certain signal handlers in ``handlers.py`` hook into model instance actions and trigger
 the needed additional changes on associated computed fields given by the lookup map.
 The signal handlers itself call into ``update_dependent``, which creates querysets for all needed
 computed fields updates. A computed field finally gets updated in the database by calling the instance's save method,
-which itself calls the method associated with the computed field name and places the result in the database.
+which itself calls all to be updated computed fields methods in topological order and places the results in the database.
 Currently this is done on individual instance basis (room for improvement with `bulk_update`).
-If a another computed field depends on a computed field the process repeats until all computed fields have been updated.
+If another computed field on a different model depends on the changes the process repeats until
+all computed fields have been updated.
 
 .. NOTE::
 
@@ -200,7 +206,7 @@ If a another computed field depends on a computed field the process repeats unti
     instance actions in Python, unless a transaction error occured.
 
 On ORM level all updates are turned into querysets filtering on dependent computed fields models
-in ``update_dependent``. A depends string like ``'a.b.c#...'`` on a computed fields model `X` will either
+in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` on a computed fields model `X` will either
 be turned into a queryset like ``X.objects.filter(a__b__c=instance)`` or ``X.objects.filter(a__b__c__in=instance)``,
 depending on ``instance`` being a single model instance or a queryset of model ``C``.
 The queryset gets further reduced by ``.distinct()`` to rule out duplicated entries.
@@ -262,7 +268,10 @@ Management Commands
     in settings.py.
 
 - ``rendergraph <filename>``
-    renders the dependency graph to <filename>.
+    renders the intermodel dependency graph to <filename>. Note that with version 0.0.18
+    the internal graph handling got extended by model local graphs and a final union graph.
+    Currently this command does not deal with those additional graphs
+    (help to get the command fixed is more than welcome).
 
 - ``updatedata``
     does a full update on all computed fields in the project. Only useful after
@@ -306,11 +315,11 @@ Specific Usage Hints
 ^^^^^^^^^^^^^^^^^^^^
 
 - Try to avoid deep nested dependencies. The way :mod:`django-computedfields` works internally will create
-  rather big JOIN tables for many long depends strings. If you hit that ground, either try to resort
+  rather big JOIN tables for many long relations. If you hit that ground, either try to resort
   to bulk actions with manually using ``update_dependent`` or rework your scheme by introducing additional
   denormalization models.
-- Try to avoid multiple 1:n relations in a dependency chain like ``'fk_back_a.fk_back_b...'`` or
-  ``'m2m_a.m2m_b...'``, as the query penalty might explode. Although the querysets are stripped down by
+- Try to avoid multiple 1:n relations in a dependency chain like ``['fk_back_a.fk_back_b...', [...]]`` or
+  ``['m2m_a.m2m_b...', [...]]``, as the query penalty might explode. Although the querysets are stripped down by
   ``.distinct()`` before doing the updates, the DBMS might have a hard time to join and filter the entries
   in the first place, if the tables are getting big.
 - Try to keep the record count low on related computed fields models, as ``update_dependent`` has to run the method
@@ -334,5 +343,10 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.0.19
+    - Better graph expansion on relation paths with support for `update_fields`.
+- 0.0.18
+    - New `depends` syntax deprecating the old one.
+    - MRO of local computed field methods implemented.
 - 0.0.17
     - Dropped Python 2.7 and Django 1.11 support.

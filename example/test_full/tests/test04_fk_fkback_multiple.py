@@ -5,7 +5,7 @@ class MultipleDependenciesOne(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # fk + fk + fk_back + fk_back
-            'C': {'depends': ['f_cb.f_ba.ag_f.gd_f#name', 'cd_f.de_f#name'],
+            'C': {'depends': [['self', ['name']], ['f_cb.f_ba.ag_f.gd_f', ['name']], ['cd_f.de_f', ['name']]],
                   'func': lambda self: self.name + ''.join(
                       MODELS['D'].objects.filter(f_dg__in=MODELS['G'].objects.filter(
                           f_ga=self.f_cb.f_ba)).values_list('name', flat=True)) + ''.join(
@@ -95,7 +95,7 @@ class MultipleDependenciesTwo(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # fk_back + fk_back + fk_back + fk + fk + fk
-            'D': {'depends': ['de_f.ef_f.fg_f.f_ga.f_ac.f_cb#name', 'f_dc.f_cb#name'],
+            'D': {'depends': [['self', ['name']], ['de_f.ef_f.fg_f.f_ga.f_ac.f_cb', ['name']], ['f_dc.f_cb', ['name']]],
                   'func': lambda self: self.name + ''.join(filter(bool, MODELS['G'].objects.filter(
                       f_gf__in=MODELS['F'].objects.filter(
                           f_fe__in=self.de_f.all())).values_list(

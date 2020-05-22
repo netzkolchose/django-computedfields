@@ -69,9 +69,10 @@ class NoRelatedA(ComputedFieldsModel):
     name = models.CharField(max_length=5)
 
     @computed(models.CharField(max_length=256), depends=[
-        'norelatedb_set',
-        'norelatedb_set.norelatedc_set',
-        'norelatedb_set.norelatedc_set.norelatedd#comp'])
+        ['norelatedb_set', ['name']],
+        ['norelatedb_set.norelatedc_set', ['name']],
+        ['norelatedb_set.norelatedc_set.norelatedd', ['comp']]
+    ])
     def comp(self):
         res = [self.name]
         for b in self.norelatedb_set.all():
@@ -99,7 +100,7 @@ class NoRelatedD(ComputedFieldsModel):
     name = models.CharField(max_length=5)
     o_dc = models.OneToOneField(NoRelatedC, blank=True, null=True, on_delete=models.CASCADE)
 
-    @computed(models.CharField(max_length=32), depends=['o_dc.m_cb.f_ba'])
+    @computed(models.CharField(max_length=32), depends=[['o_dc.m_cb.f_ba', ['name']]])
     def comp(self):
         inner = []
         try:
@@ -114,11 +115,11 @@ class NoRelatedD(ComputedFieldsModel):
 class MultipleCompSource(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32))
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
     def upper(self):
         return self.name.upper()
 
-    @computed(models.CharField(max_length=32))
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
     def lower(self):
         return self.name.lower()
 
@@ -127,19 +128,19 @@ class MultipleCompRef(ComputedFieldsModel):
     a = models.ForeignKey(MultipleCompSource, related_name='a_set', on_delete=models.CASCADE)
     b = models.ForeignKey(MultipleCompSource, related_name='b_set', on_delete=models.CASCADE)
 
-    @computed(models.CharField(max_length=32), depends=['a#upper'])
+    @computed(models.CharField(max_length=32), depends=[['a', ['upper']]])
     def upper_a(self):
         return self.a.upper
 
-    @computed(models.CharField(max_length=32), depends=['a#lower'])
+    @computed(models.CharField(max_length=32), depends=[['a', ['lower']]])
     def lower_a(self):
         return self.a.lower
 
-    @computed(models.CharField(max_length=32), depends=['b#upper'])
+    @computed(models.CharField(max_length=32), depends=[['b', ['upper']]])
     def upper_b(self):
         return self.b.upper
 
-    @computed(models.CharField(max_length=32), depends=['b#lower'])
+    @computed(models.CharField(max_length=32), depends=[['b', ['lower']]])
     def lower_b(self):
         return self.b.lower
 
@@ -153,25 +154,25 @@ class PartialUpdateB(ComputedFieldsModel):
     f_ba = models.ForeignKey(PartialUpdateA, related_name='a_set', on_delete=models.CASCADE)
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32), depends=['f_ba#name'])
+    @computed(models.CharField(max_length=32), depends=[['f_ba', ['name']], ['self', ['name']]])
     def comp(self):
         return self.f_ba.name + self.name
 
 
 # moving related objects
 class Parent(ComputedFieldsModel):
-    @computed(models.IntegerField(default=0), depends=['children#parent'])
+    @computed(models.IntegerField(default=0), depends=[['children', ['parent']]])
     def children_count(self):
         return self.children.all().count()
 
-    @computed(models.IntegerField(default=0), depends=['children.subchildren#subparent'])
+    @computed(models.IntegerField(default=0), depends=[['children.subchildren', ['subparent']]])
     def subchildren_count(self):
         count = 0
         for child in self.children.all():
             count += child.subchildren.all().count()
         return count
 
-    @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
+    @computed(models.IntegerField(default=0), depends=[['children', ['subchildren_count']]])
     def subchildren_count_proxy(self):
         from functools import reduce
         from operator import add
@@ -180,7 +181,7 @@ class Parent(ComputedFieldsModel):
 class Child(ComputedFieldsModel):
     parent = models.ForeignKey(Parent, related_name='children', on_delete=models.CASCADE)
 
-    @computed(models.IntegerField(default=0), depends=['subchildren#subparent'])
+    @computed(models.IntegerField(default=0), depends=[['subchildren', ['subparent']]])
     def subchildren_count(self):
         return self.subchildren.all().count()
 
@@ -189,7 +190,7 @@ class Subchild(models.Model):
 
 # example from #15
 class XParent(ComputedFieldsModel):
-    @computed(models.IntegerField(default=0), depends=['children#value'])
+    @computed(models.IntegerField(default=0), depends=[['children', ['value']]])
     def children_value(self):
         return self.children.all().aggregate(sum=models.Sum('value'))['sum'] or 0
 
@@ -200,7 +201,7 @@ class XChild(ComputedFieldsModel):
 
 # update_dependent/update_dependent_multi tests
 class DepBaseA(ComputedFieldsModel):
-    @computed(models.CharField(max_length=256), depends=['sub1.sub2.subfinal#name'])
+    @computed(models.CharField(max_length=256), depends=[['sub1.sub2.subfinal', ['name']]])
     def final_proxy(self):
         s = ''
         for s1 in self.sub1.all():
@@ -210,7 +211,7 @@ class DepBaseA(ComputedFieldsModel):
         return s
 
 class DepBaseB(ComputedFieldsModel):
-    @computed(models.CharField(max_length=256), depends=['sub1.sub2.subfinal#name'])
+    @computed(models.CharField(max_length=256), depends=[['sub1.sub2.subfinal', ['name']]])
     def final_proxy(self):
         s = ''
         for s1 in self.sub1.all():
@@ -241,7 +242,7 @@ class Abstract(ComputedFieldsModel):
     a = models.IntegerField(default=0)
     b = models.IntegerField(default=0)
 
-    @computed(models.IntegerField(default=0))
+    @computed(models.IntegerField(default=0), depends=[['self', ['a', 'b']]])
     def c(self):
         return self.a + self.b
 
@@ -251,18 +252,18 @@ class Concrete(Abstract):
 
 
 class ParentOfAbstract(ComputedFieldsModel):
-    @computed(models.IntegerField(default=0), depends=['children#parent'])
+    @computed(models.IntegerField(default=0), depends=[['children', ['parent']]])
     def children_count(self):
         return self.children.all().count()
 
-    @computed(models.IntegerField(default=0), depends=['children.subchildren#subparent'])
+    @computed(models.IntegerField(default=0), depends=[['children.subchildren', ['subparent']]])
     def subchildren_count(self):
         count = 0
         for child in self.children.all():
             count += child.subchildren.all().count()
         return count
 
-    @computed(models.IntegerField(default=0), depends=['children#subchildren_count'])
+    @computed(models.IntegerField(default=0), depends=[['children', ['subchildren_count']]])
     def subchildren_count_proxy(self):
         from functools import reduce
         from operator import add
@@ -277,7 +278,7 @@ class AbstractChild(ComputedFieldsModel):
 
 
 class ConcreteChild(AbstractChild):
-    @computed(models.IntegerField(default=0), depends=['subchildren#subparent'])
+    @computed(models.IntegerField(default=0), depends=[['subchildren', ['subparent']]])
     def subchildren_count(self):
         return self.subchildren.all().count()
 
@@ -296,15 +297,15 @@ class ConcreteSubchild(AbstractSubchild):
 class AbstractWithForeignKey(ComputedFieldsModel):
     target = models.ForeignKey(Concrete, related_name="abstract_with_foreign_key", on_delete=models.CASCADE)
 
-    @computed(models.IntegerField(default=0), depends=['target#d'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['d']]])
     def target_d(self):
         return self.target.d
 
-    @computed(models.IntegerField(default=0), depends=['target#a', 'target#b'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['a', 'b']]])
     def target_c(self):
         return self.target.a + self.target.b
 
-    @computed(models.IntegerField(default=0), depends=['target#c'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['c']]])
     def target_c_proxy(self):
         return self.target.c
 
@@ -312,26 +313,116 @@ class AbstractWithForeignKey(ComputedFieldsModel):
 class ConcreteWithForeignKey(AbstractWithForeignKey):
     concrete_target = models.ForeignKey(Concrete, related_name="concrete_with_foreign_key", on_delete=models.CASCADE)
 
-    @computed(models.IntegerField(default=0), depends=['target#d'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['d']]])
     def d(self):
         return self.target.d
 
-    @computed(models.IntegerField(default=0), depends=['target#a', 'target#b'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['a', 'b']]])
     def c(self):
         return self.target.a + self.target.b
 
-    @computed(models.IntegerField(default=0), depends=['target#c'])
+    @computed(models.IntegerField(default=0), depends=[['target', ['c']]])
     def c_proxy(self):
         return self.target.c
 
-    @computed(models.IntegerField(default=0), depends=['concrete_target#d'])
+    @computed(models.IntegerField(default=0), depends=[['concrete_target', ['d']]])
     def concrete_d(self):
         return self.concrete_target.d
 
-    @computed(models.IntegerField(default=0), depends=['concrete_target#a', 'concrete_target#b'])
+    @computed(models.IntegerField(default=0), depends=[['concrete_target', ['a', 'b']]])
     def concrete_c(self):
         return self.concrete_target.a + self.concrete_target.b
 
-    @computed(models.IntegerField(default=0), depends=['concrete_target#c'])
+    @computed(models.IntegerField(default=0), depends=[['concrete_target', ['c']]])
     def concrete_c_proxy(self):
         return self.concrete_target.c
+
+
+# test local field dependencies
+class SelfA(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=34), depends=[['self', ['name']]])
+    def c1(self):
+        return 'c1' + self.name
+
+    @computed(models.CharField(max_length=74), depends=[['self', ['c1', 'c3']]])
+    def c4(self):
+        return 'c4' + self.c1 + self.c3
+
+    @computed(models.CharField(max_length=36), depends=[['self', ['c1']]])
+    def c2(self):
+        return 'c2' + self.c1
+
+    @computed(models.CharField(max_length=38), depends=[['self', ['c2']]])
+    def c3(self):
+        return 'c3' + self.c2
+
+class SelfB(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    a = models.ForeignKey(SelfA, related_name='self_b', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=34), depends=[['self', ['name']]])
+    def c1(self):
+        return 'C1' + self.name
+
+    @computed(models.CharField(max_length=118), depends=[['self', ['c1']], ['a', ['c4']]])
+    def c2(self):
+        return 'C2' + self.c1 + self.a.c4
+
+
+# old depends notation still working
+# FIXME: to be removed with furture version
+class OldDependsParent(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=['self#name'])
+    def upper(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32), depends=['self#upper', 'children'])
+    def proxy(self):
+        return self.upper + str(self.children.all().count())
+
+class OldDependsChild(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(OldDependsParent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=['self#name', 'parent#upper'])
+    def parent_and_self(self):
+        return self.parent.upper + self.name
+
+
+# test update_fields expansion, see https://github.com/netzkolchose/django-computedfields/issues/27
+class ChainA(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+class ChainB(ComputedFieldsModel):
+    a = models.ForeignKey(ChainA, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['a', ['name']]])
+    def comp(self):
+        return self.a.name
+
+class ChainC(ComputedFieldsModel):
+    b = models.ForeignKey(ChainB, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['b', ['comp']]])
+    def comp(self):
+        return self.b.comp
+
+class ExpandA(models.Model):
+    name = models.CharField(max_length=32)
+
+class ExpandB(models.Model):
+    a = models.ForeignKey(ExpandA, on_delete=models.CASCADE)
+
+class ExpandC(models.Model):
+    b = models.ForeignKey(ExpandB, on_delete=models.CASCADE)
+
+class ExpandD(ComputedFieldsModel):
+    c = models.ForeignKey(ExpandC, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['c.b.a', ['name']]])
+    def comp(self):
+        return self.c.b.a.name
