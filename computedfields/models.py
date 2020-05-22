@@ -295,18 +295,17 @@ class ComputedFieldsModelType(ModelBase):
             return
 
         change = set()
+        mro = mcs.cf_mro(qs.model, fields)
+        fields = set(mro)
         for el in qs:
             has_changed = False
-            for comp_field in fields:
+            for comp_field in mro:
                 new_value = el.compute(comp_field)
                 if new_value != getattr(el, comp_field):
                     has_changed = True
                     setattr(el, comp_field, new_value)
             if has_changed:
                 change.add(el)
-        # batch in 100ths, otherwise query construction
-        # in python explodes and eats the perf gain again
-        # FIXME: make this customizable somehow
         qs.model.objects.bulk_update(change, fields, batch_size=100)
 
         # trigger dependent comp field updates on all records

@@ -35,7 +35,10 @@ class BSubChild(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     parent = models.ForeignKey(BChild, on_delete=models.CASCADE)
 
-    @computed(models.CharField(max_length=32), depends=['parent#name', 'parent.parent#name'])
+    @computed(models.CharField(max_length=32), depends=[
+        ['parent', ['name']],
+        ['parent.parent', ['name']]
+    ])
     def parents(self):
         return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
 
@@ -43,7 +46,10 @@ class BSubChild(ComputedFieldsModel):
 class BParentReverse(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=256), depends=['children', 'children.subchildren'])
+    @computed(models.CharField(max_length=256), depends=[
+        ['children', ['name']],
+        ['children.subchildren', ['name']]
+    ])
     def children_comp(self):
         s = []
         for child in self.children.all():
