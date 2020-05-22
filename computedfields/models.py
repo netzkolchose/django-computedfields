@@ -262,9 +262,6 @@ class ComputedFieldsModelType(ModelBase):
             with transaction.atomic():
                 pks_updated = {}
                 for qs, fields in updates:
-                    # FIXME: apply select_related here, prefetch is much more complicated to get done right
-                    #qs = qs.select_related('parent__parent')
-                    #qs = qs.prefetch_related('children__subchildren')
                     pks_updated[qs.model] = mcs.bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
@@ -294,9 +291,22 @@ class ComputedFieldsModelType(ModelBase):
                 return set(el.pk for el in qs)
             return
 
-        change = set()
+        # correct update_fields by local mro
         mro = mcs.cf_mro(qs.model, fields)
         fields = set(mro)
+
+        # FIXME: precalc and check prefetch/select related entries during map creation somehow?
+        select = set()
+        prefetch = []
+        for field in fields:
+            select.update(qs.model._computed_fields[field]._computed['select_related'] or [])
+            prefetch.extend(qs.model._computed_fields[field]._computed['prefetch_related'] or [])
+        if select:
+            qs = qs.select_related(*select)
+        if prefetch:
+            qs = qs.prefetch_related(*prefetch)
+
+        change = set()
         for el in qs:
             has_changed = False
             for comp_field in mro:
@@ -499,7 +509,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
-def computed(field, depends=None):
+def computed(field, depends=None, select_related=None, prefetch_related=None):
     """
     Decorator to create computed fields.
 
@@ -569,7 +579,12 @@ def computed(field, depends=None):
         Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):
-        field._computed = {'func': f, 'depends': depends}
+        field._computed = {
+            'func': f,
+            'depends': depends,
+            'select_related': select_related,
+            'prefetch_related': prefetch_related
+        }
         return field
     return wrap
 
