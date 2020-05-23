@@ -11,6 +11,7 @@ Welcome to django-computedfields' documentation!
    :caption: Contents:
 
    manual
+   optimization
    reference
 
 
