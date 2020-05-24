@@ -12,7 +12,7 @@ circumstances. The following tries to give some hints on how to avoid major inse
 
 The full decorator declaration reads as:
 
-.. code:: python
+.. code-block:: python
 
     def computed(field, depends=None, select_related=None, select_related=None)
 
@@ -51,12 +51,27 @@ Explanation of the arguments:
 
 - ``select_related``
     Optional listing of field lookups, that should be joined into the select-for-update queryset to avoid
-    additional subqueries by relational field access in the method. Basically the same as for other ORM functions.
+    additional subqueries by relational field access in the method.
+
+    During update the entries are collected from all computed fields, that are going to be updated,
+    and applied to the underlying queryset with ``QuerySet.select_related``.
 
 - ``prefetch_related``
     Optional listing of field lookups, that should be prefetched and associated with the select-for-update queryset.
-    Basically the same as for other ORM functions, but harder to get done right than `select_related`.
-    See official Django docs for limitations, and below for some usage hints.
+
+    During update the entries are collected from all computed fields, that are going to be updated,
+    and applied to the underlying queryset with ``QuerySet.prefetch_related``.
+
+.. NOTE::
+
+    Computed field `updates` are always triggered from a select-for-update queryset on the model holding
+    the computed fields, that gets filtered by dependency constraints. Currently the queryset is not
+    further exposed and cannot be customized beside ``select_related`` and ``prefetch_related``.
+    That is a bit of a shame, as the real ORM strength starts with queryset trickery like field annotations,
+    subqueries etc. It is not easy to benefit from that strength in a single method, that shall keep
+    working for initial instance construction and later on for queryset based updates.
+    If you have a strong need for more queryset like features on the decorator or in the method code,
+    please file an issue and lets discuss a proper interface for that.
 
 
 ``save`` with `update_fields`
@@ -150,10 +165,10 @@ which will lower the query load by `n` for `n` entries to be updated. The underl
 by the corresponding `select_related` calls. This also works for multiple FETCHs,
 multiple computed fields on one model and over several n:1 relations.
 
-Of course this does not come for free - multiple n:1 relations put into `select_related` will let grow
+Of course this does not come for free - multiple n:1 relations put into `select_related` will grow
 the JOIN table rather quick, and the entries for multiple computed fields will even stack on the final queryset,
 thus the DBMS might struggle to get it done if applied all over the place. This is also the reason, why it
-is not done automatically by :mod:`django-computedfields`.
+is not done automatically.
 
 
 1:n relations - `prefetch_related`
@@ -175,7 +190,7 @@ In Django's ORM this is expressed as the reverse relation to a `ForeignKey`:
         fk = models.ForeignKey(MyModel, related_name='others', ...)
 
 In denormalization terms this is often an **AGGREGATE**, as multiple values returned from the relation
-are used to do some kind of aggregation on it (e.g. SUM, AVG, MAX).
+are used to do some kind of aggregation (e.g. SUM, AVG, MAX).
 
 A change to a single instance of ``OtherModel`` would result in the update logic to touch one entry in `MyModel`,
 as the select query to get all entries with dependent computed fields is again the reverse of the
@@ -186,14 +201,14 @@ the `total` field - the ORM has to do another query into ``OtherModel`` to get t
 (this step is somewhat obscure in Django's ORM notation).
 
 So far this cannot be done any better in terms of query load on the database. But this changes,
-as soon as we have deeper nested 1:n relations, e.g. behind a n:1 relation (``'fk.fk_reverse'``)
-or another 1:n relation (``'fk_reverse.fk_reverse'``).
+as soon as we have multiple changed objects of ``OtherModel`` or deeper nested 1:n relations
+(e.g. ``'fk.fk_reverse'``, ``'fk_reverse.fk_reverse'``).
 
 For those more complicated relations Django's ORM knows another way to reduce the query load - `prefetch_related`.
 Other than for `select_related` above, basic rules when and how to use `prefetch_related` are much harder to find,
-as it depends alot on the circumstances, from DB schematics down to plain record count for a particular model.
+as it depends alot on the circumstances, from DB schematics down to plain record count.
 Still the ``@computed`` decorator allows to place prefetch lookups,
-but keep in mind to have an eye on the query count yourself.
+but keep in mind to have an eye on the query count and RAM utilisation yourself.
 
 
 .. NOTE::
@@ -208,14 +223,14 @@ but keep in mind to have an eye on the query count yourself.
     and handled transparently as listed above.
 
 .. NOTE::
-    In terms of denormalization techniques we also skipped **EXTEND** here. Well EXTENDs can easily be done
+    In terms of denormalization techniques we also skipped **EXTEND** here. EXTEND can easily be done
     either by field annotations or by property methods on a model in Django.
     Nothing to get into :mod:`django-computedfields` business by default, unless the calculation penalty is really high.
     Then they can be constructed with `self` dependencies as shown above.
 
 
-Complex deep nested relations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Complicted deep nested relations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 So you really want to declare computed fields with dependencies like:
 
@@ -233,7 +248,9 @@ So you really want to declare computed fields with dependencies like:
                 [...]
             ]
         )
-        def comp1(self): ...
+        def comp1(self):
+            # 1000 lines of code following here
+            ...
 
         @computed(Field(..),
             depends=[
@@ -248,35 +265,38 @@ So you really want to declare computed fields with dependencies like:
 
 To make it simple - yes that is possible with :mod:`django-computedfields` as long as things are cyclefree
 (even that can be suppressed to some degree).
-Optimizing updates of such a beast is challenging for sure, and cannot be blueprinted by any means.
+Optimizing updates of such a beast is challenging for sure and cannot be blueprinted by any means.
 But how to approach it? Well a few ideas regarding this:
 
 - You should not have built this monster in the first place.
-  :mod:`django-computedfields` might look like a nice hammer,
-  but it should not turn all your database needs into a nail.
-  Maybe look for better suiting tools, like reporting tools crafted for your particular purpose.
-- Not convinced? Well, maybe try to identify good use cases for `prefetch_related`,
-  the uglier the dependency chain is, the higher the chance you should use a custom `Prefetch` object.
-  All on your own risk.
+  :mod:`django-computedfields` might look like a nice hammer, but it should not turn all your database needs
+  into a nail. Maybe look for some better suiting tool.
+- Not convinced? Well, you really should try to lower the shear amount of dependencies.
+  Of course, in a well normalized scheme it is quite normal to end up with tons of dependencies,
+  but keep in mind, that those 1000 lines of code above have to be re-evaluated for every single dependency change
+  touching all relations again and again. This "dependency update pressure" can be reduced by introducing
+  interim computed fields, again trading runtime for space. Consider grouping the interim fields over
+  dimensions like update frequency and/or penalty per update (isolate the slowpokes). Mix in fast turning
+  entities late. For really expensive dependency side paths consider using other denormalization mechanics,
+  like creating materialized database views, maybe scheduled by a nightly cronjob.
 - Still here? Well, maybe do some set theory maths on what you came up with.
-  There is a high chance you have intersections created, that are better handled by
-  bulk actions and manually triggering `update_dependent` and `update_dependent_multi`.
-  Note that :mod:`django-computedfields` tries to keep computed fields in sync for normal instance actions,
-  which can create a rather bad update penalty for deeply nested dependencies.
-  Also note that you leave normal Django ground here and prolly cannot use many of the default goodies anymore,
-  like the admin interface. But sure, writing your own custom update managers will keep you on track to some degree.
+  There is a high chance you have created entity intersections, that are better handled by
+  bulk actions and manually triggering `update_dependent` or `update_dependent_multi`. Since
+  :mod:`django-computedfields` tries to keep computed fields in sync for normal instance actions,
+  this penalty can be avoided if you batch the changes and do the computed field updates afterwards.
 - Still not done? Geez, well blame it all on the DBMS itself. Wait no - you are already on O...
   Just kidding - of course, DBMS specific things like native triggers and stored procedures would help
-  to squeeze the best performance out of your project. Sad news - :mod:`django-computedfields` does not know anything
-  about that, it is only a small helper acting on top of Django's ORM. If you end up here,
-  you prolly have bigger issues to handle. Maybe think about switching the framework, other DBMS, database sharding etc.
+  to squeeze the best performance out of your project. Sad news - :mod:`django-computedfields`
+  does not know anything about that, it is only a small helper acting on top of Django's ORM.
+  If you end up here, you prolly have bigger issues to handle. Maybe think about switching the framework,
+  using some other DBMS, database sharding etc.
 
 
 Fixtures
 --------
 
 :mod:`django-computedfields` skips intermodel computed fields updates during fixtures.
-Run the management command ``updatedata`` after applying fixtures to synchronize their values.
+Run the management command `updatedata` after applying fixtures to synchronize their values.
 
 
 Migrations

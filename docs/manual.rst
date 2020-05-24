@@ -275,7 +275,8 @@ Management Commands
 
 - ``updatedata``
     does a full update on all computed fields in the project. Only useful after
-    tons of bulk changes, e.g. from fixtures.
+    tons of bulk changes, e.g. from fixtures. Note that this command is currently not optimized
+    (PRs are welcome).
 
 
 General Usage Notes
