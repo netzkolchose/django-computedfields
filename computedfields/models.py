@@ -270,61 +270,6 @@ class ComputedFieldsModelType(ModelBase):
                         mcs.bulker(qs, fields)
 
     @classmethod
-    def bulker(mcs, qs, fields, return_pks=False):
-        # FIXME: integrate into update_dependent_multi
-
-        qs = qs.distinct()
-
-        # FIXME: old way to compare, to be removed
-        # across all tests the old way is slightly faster
-        # prolly due to high insert/single instance actions (~5% faster),
-        # but gets outperformed by bulk_update for more than 5 records
-        #
-        # speedup for bulk_update compared to single instance save in benchmark.tests.CountQueriesFk:
-        #   10 records +5%
-        #   100 records +25%
-        #   >1000 records +37%
-        if False:
-            for el in qs:
-                el.save(update_fields=fields)
-            if return_pks:
-                return set(el.pk for el in qs)
-            return
-
-        # correct update_fields by local mro
-        mro = mcs.cf_mro(qs.model, fields)
-        fields = set(mro)
-
-        # FIXME: precalc and check prefetch/select related entries during map creation somehow?
-        select = set()
-        prefetch = []
-        for field in fields:
-            select.update(qs.model._computed_fields[field]._computed['select_related'] or [])
-            prefetch.extend(qs.model._computed_fields[field]._computed['prefetch_related'] or [])
-        if select:
-            qs = qs.select_related(*select)
-        if prefetch:
-            qs = qs.prefetch_related(*prefetch)
-
-        change = set()
-        for el in qs:
-            has_changed = False
-            for comp_field in mro:
-                new_value = el.compute(comp_field)
-                if new_value != getattr(el, comp_field):
-                    has_changed = True
-                    setattr(el, comp_field, new_value)
-            if has_changed:
-                change.add(el)
-        qs.model.objects.bulk_update(change, fields, batch_size=100)
-
-        # trigger dependent comp field updates on all records
-        update_dependent(qs, qs.model, fields)
-        if return_pks:
-            return set(el.pk for el in qs)
-        return
-
-    @classmethod
     def update_dependent_multi(mcs, instances, old=None):
         """
         Updates all dependent computed fields model objects for multiple instances.
@@ -372,16 +317,54 @@ class ComputedFieldsModelType(ModelBase):
                 m[1].update(data[1])  # add fields
         if final:
             with transaction.atomic():
+                pks_updated = {}
                 for qs, fields in final.values():
-                    if qs.exists():
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                    pks_updated[qs.model] = mcs.bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks)
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
+                        mcs.bulker(qs, fields)
+
+    @classmethod
+    def bulker(mcs, qs, fields, return_pks=False):
+        """
+        Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
+        """
+        qs = qs.distinct()
+
+        # correct update_fields by local mro
+        mro = mcs.cf_mro(qs.model, fields)
+        fields = set(mro)
+
+        # FIXME: precalc and check prefetch/select related entries during map creation somehow?
+        select = set()
+        prefetch = []
+        for field in fields:
+            select.update(qs.model._computed_fields[field]._computed['select_related'] or [])
+            prefetch.extend(qs.model._computed_fields[field]._computed['prefetch_related'] or [])
+        if select:
+            qs = qs.select_related(*select)
+        if prefetch:
+            qs = qs.prefetch_related(*prefetch)
+
+        change = set()
+        for el in qs:
+            has_changed = False
+            for comp_field in mro:
+                new_value = el.compute(comp_field)
+                if new_value != getattr(el, comp_field):
+                    has_changed = True
+                    setattr(el, comp_field, new_value)
+            if has_changed:
+                change.add(el)
+        qs.model.objects.bulk_update(change, fields, batch_size=100)
+
+        # trigger dependent comp field updates on all records
+        update_dependent(qs, qs.model, fields)
+        if return_pks:
+            return set(el.pk for el in qs)
+        return
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
