@@ -352,7 +352,7 @@ class ComputedFieldsModelType(ModelBase):
         for el in qs:
             has_changed = False
             for comp_field in mro:
-                new_value = el.compute(comp_field)
+                new_value = el._compute(comp_field)
                 if new_value != getattr(el, comp_field):
                     has_changed = True
                     setattr(el, comp_field, new_value)
@@ -425,12 +425,49 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
     class Meta:
         abstract = True
 
-    def compute(self, fieldname):
+    def _compute(self, fieldname):
         """
         Returns the computed field value for ``fieldname``.
+        Note that this is just a shorthand method for calling the underlying computed
+        field method and does not deal with local MRO, thus should only be used,
+        if the MRO is respected by other means.
+        For quick inspection of a single computed field value that gonna be written
+        to the database, always use ``compute(fieldname)`` instead.
         """
         field = self._computed_fields[fieldname]
         return field._computed['func'](self)
+
+    def compute(self, fieldname):
+        """
+        Returns the computed field value for ``fieldname``. This method allows
+        to inspect the new calculated value, that would be written to the database
+        by a following ``save()``.
+        """
+        # Getting a single computed value prehand is quite complicated,
+        # as we have to:
+        # - resolve local MRO backwards (stored MRO data is optimized for forward deps)
+        # - calc all local cfs, that the requested one depends on
+        # - stack and rewind interim values, as we dont want to introduce side effects here
+        #   (in fact the save/bulker logic might try to save db calls based on changes)
+        entries = ComputedFieldsModelType._local_mro[type(self)]['fields']
+        mro = ComputedFieldsModelType.cf_mro(type(self), None)
+        if not fieldname in mro:
+            return getattr(self, fieldname)
+        pos = 1 << mro.index(fieldname)
+        stack = []
+        for field in mro:
+            if field == fieldname:
+                ret = self._compute(fieldname)
+                for field, old in stack:
+                    # reapply old stack values
+                    setattr(self, field, old)
+                return ret
+            f_mro = entries.get(field, 0)
+            if f_mro & pos:
+                # append old value to stack for later rewinding
+                # calc and set new value for field, if the requested one depends on it
+                stack.append((field, getattr(self, field)))
+                setattr(self, field, self._compute(field))
 
     def save(self, *args, **kwargs):
         """
@@ -474,7 +511,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
             if all_computed:
                 has_changed = False
                 for fieldname in cf_mro:
-                    result = self.compute(fieldname)
+                    result = self._compute(fieldname)
                     field = self._computed_fields[fieldname]
                     if result != getattr(self, field._computed['attr']):
                         has_changed = True
@@ -486,7 +523,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
         for fieldname in cf_mro:
-            result = self.compute(fieldname)
+            result = self._compute(fieldname)
             field = self._computed_fields[fieldname]
             setattr(self, field._computed['attr'], result)
         super(ComputedFieldsModel, self).save(*args, **kwargs)
