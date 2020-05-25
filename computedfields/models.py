@@ -348,6 +348,8 @@ class ComputedFieldsModelType(ModelBase):
         if prefetch:
             qs = qs.prefetch_related(*prefetch)
 
+        # TODO: stacking up big amounts of changed instances here might lead to memory issues
+        # --> resort to own batch size configurable in settings.py?
         change = set()
         for el in qs:
             has_changed = False
@@ -512,10 +514,9 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
                 has_changed = False
                 for fieldname in cf_mro:
                     result = self._compute(fieldname)
-                    field = self._computed_fields[fieldname]
-                    if result != getattr(self, field._computed['attr']):
+                    if result != getattr(self, fieldname):
                         has_changed = True
-                        setattr(self, field._computed['attr'], result)
+                        setattr(self, fieldname, result)
                 if not has_changed:
                     # no save needed, we still need to update dependent objects
                     update_dependent(self, cls, update_fields_corrected)
@@ -524,8 +525,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
                 return
         for fieldname in cf_mro:
             result = self._compute(fieldname)
-            field = self._computed_fields[fieldname]
-            setattr(self, field._computed['attr'], result)
+            setattr(self, fieldname, result)
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
