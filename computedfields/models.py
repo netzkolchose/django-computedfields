@@ -533,7 +533,7 @@ def computed(field, depends=None, select_related=None, prefetch_related=None):
     """
     Decorator to create computed fields.
 
-    ``field`` should be a model field instance suitable to hold the result
+    ``field`` should be a model concrete field instance suitable to hold the result
     of the decorated method. The decorator expects a
     keyword argument ``depends`` to indicate dependencies to
     model fields (local or related). Listed dependencies will automatically
@@ -561,6 +561,24 @@ def computed(field, depends=None, select_related=None, prefetch_related=None):
     in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
     foreign key, m2m, o2o and their back relations.
     The fieldnames should be a list of strings of concrete fields on the foreign model.
+
+    With `select_related` and `prefetch_related` you can instruct the dependency resolver
+    to apply certain optimizations on the select for update queryset later on
+    `(currently alpha, still might contain rough edges)`.
+    Also see :doc:`optimizations <../optimization>`.
+
+    .. NOTE::
+
+        `select_related` and `prefetch_related` are stacked over computed fields
+        of the same model during updates, that are going to be updated.
+        They call the underlying queryset methods of the default model manager,
+        e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
+        If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
+        these attributes will only be available during updates from the resolver, never during
+        instance construction or instances from other queries, unless you applied the same
+        lookups manually. To keep the computed field method code working under any circumstances,
+        it is best not to rely on lookups with custom attributes, or to test explicitly for
+        them in the code.
 
     .. CAUTION::
 
