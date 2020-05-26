@@ -73,7 +73,7 @@ def postsave_handler(sender, instance, **kwargs):
     # do not update for fixtures
     if not kwargs.get('raw'):
         CFMT.update_dependent(
-            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []))
+            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []), update_local=False)
 
 
 def predelete_handler(sender, instance, **kwargs):
@@ -134,7 +134,7 @@ def m2m_handler(sender, instance, **kwargs):
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        CFMT.update_dependent_multi([instance, model.objects.filter(pk__in=pks)])
+        CFMT.update_dependent_multi([instance, model.objects.filter(pk__in=pks)], update_local=False)
 
     elif action == 'pre_remove':
         # instance updates

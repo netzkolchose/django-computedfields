@@ -71,6 +71,6 @@ class BChildReverse(models.Model):
     name = models.CharField(max_length=32)
     parent = models.ForeignKey(BParentReverse, related_name='children', on_delete=models.CASCADE)
 
-class BSubChildReverse(ComputedFieldsModel):
+class BSubChildReverse(models.Model):
     name = models.CharField(max_length=32)
     parent = models.ForeignKey(BChildReverse, related_name='subchildren', on_delete=models.CASCADE)

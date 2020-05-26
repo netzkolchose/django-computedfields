@@ -194,7 +194,7 @@ class XParent(ComputedFieldsModel):
     def children_value(self):
         return self.children.all().aggregate(sum=models.Sum('value'))['sum'] or 0
 
-class XChild(ComputedFieldsModel):
+class XChild(models.Model):
     parent = models.ForeignKey(XParent, related_name='children', on_delete=models.CASCADE)
     value = models.IntegerField()
 
@@ -220,16 +220,16 @@ class DepBaseB(ComputedFieldsModel):
                     s += sf.name
         return s
 
-class DepSub1(ComputedFieldsModel):
+class DepSub1(models.Model):
     a = models.ForeignKey(DepBaseA, related_name='sub1', on_delete=models.CASCADE)
     b = models.ForeignKey(DepBaseB, related_name='sub1', on_delete=models.CASCADE)
 
 
-class DepSub2(ComputedFieldsModel):
+class DepSub2(models.Model):
     sub1 = models.ForeignKey(DepSub1, related_name='sub2', on_delete=models.CASCADE)
 
 
-class DepSubFinal(ComputedFieldsModel):
+class DepSubFinal(models.Model):
     name = models.CharField(max_length=32)
     sub2 = models.ForeignKey(DepSub2, related_name='subfinal', on_delete=models.CASCADE)
 

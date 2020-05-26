@@ -127,7 +127,6 @@ class ComputedFieldsModelType(ModelBase):
         """
         final = OrderedDict()
         modeldata = mcs._map.get(model)
-        #print(modeldata)
         if not modeldata:
             return final
         if not update_fields:
@@ -197,14 +196,13 @@ class ComputedFieldsModelType(ModelBase):
         return final
 
     @classmethod
-    def update_dependent(mcs, instance, model=None, update_fields=None, old=None):
+    def update_dependent(mcs, instance, model=None, update_fields=None, old=None, update_local=True):
         """
         Updates all dependent computed fields model objects.
 
         This is needed if you have computed fields that depend on a model
         changed by bulk actions. Simply call this function after the update
         with the queryset containing the changed objects.
-        The queryset may not be finalized by ``distinct`` or any other means.
 
             >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
             >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
@@ -257,6 +255,13 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
+        
+        # Note: update_local is always off for updates triggered from the resolver
+        # but True by default to avoid accidentally skipping updates called by user
+        if update_local and isinstance(model, ComputedFieldsModelType):
+            qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
+            mcs.bulker(qs, update_fields, local_only=True)
+        
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
@@ -270,7 +275,7 @@ class ComputedFieldsModelType(ModelBase):
                         mcs.bulker(qs, fields)
 
     @classmethod
-    def update_dependent_multi(mcs, instances, old=None):
+    def update_dependent_multi(mcs, instances, old=None, update_local=True):
         """
         Updates all dependent computed fields model objects for multiple instances.
 
@@ -310,6 +315,11 @@ class ComputedFieldsModelType(ModelBase):
         final = {}
         for instance in instances:
             model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+
+            if update_local and isinstance(model, ComputedFieldsModelType):
+                qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
+                mcs.bulker(qs, None, local_only=True)
+
             updates = mcs._querysets_for_update(model, instance, None)
             for model, data in updates.items():
                 m = final.setdefault(model, [model.objects.none(), set()])
@@ -327,7 +337,7 @@ class ComputedFieldsModelType(ModelBase):
                         mcs.bulker(qs, fields)
 
     @classmethod
-    def bulker(mcs, qs, fields, return_pks=False):
+    def bulker(mcs, qs, fields, return_pks=False, local_only=False):
         """
         Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
         """
@@ -350,6 +360,7 @@ class ComputedFieldsModelType(ModelBase):
 
         # TODO: stacking up big amounts of changed instances here might lead to memory issues
         # --> resort to own batch size configurable in settings.py?
+        # FIXME: make bulk_update configurable as well, default to old method?
         change = set()
         for el in qs:
             has_changed = False
@@ -363,7 +374,8 @@ class ComputedFieldsModelType(ModelBase):
         qs.model.objects.bulk_update(change, fields, batch_size=100)
 
         # trigger dependent comp field updates on all records
-        update_dependent(qs, qs.model, fields)
+        if not local_only:
+            update_dependent(qs, qs.model, fields, update_local=False)
         if return_pks:
             return set(el.pk for el in qs)
         return
@@ -519,7 +531,7 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
                         setattr(self, fieldname, result)
                 if not has_changed:
                     # no save needed, we still need to update dependent objects
-                    update_dependent(self, cls, update_fields_corrected)
+                    update_dependent(self, cls, update_fields_corrected, update_local=False)
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
