@@ -93,6 +93,8 @@ class TestResultFromCompute(TestCase):
         self.assertEqual(cl.c6, 'c6666')
         self.assertEqual(cl.c7, 'c7c8')
         self.assertEqual(cl.c8, 'c8')
+        # added for test coverage - resaving only cfs without any change should not trigger `save`
+        cl.save(update_fields=['c1','c2','c3','c4','c5','c6','c7','c8'])
 
     def test_manually_cf_update_bulk(self):
         # do cfs updates manually after bulk create of many records
