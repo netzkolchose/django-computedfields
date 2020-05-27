@@ -380,6 +380,11 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.0.20
+    - Use `bulk_update` for computed field updates.
+    - Allow custom update optimizations with `select_related` and `prefetch_related`.
+    - Respect computed field MRO in `compute`.
+    - Allow updates on local computed fields from `update_dependent` simplifying bulk actions on `ComputedFieldsModel`.
 - 0.0.19
     - Better graph expansion on relation paths with support for `update_fields`.
 - 0.0.18
