@@ -117,6 +117,7 @@ class ComputedFieldsModelType(ModelBase):
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
             mcs._local_mro = mcs._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
+            mcs._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
             mcs._map_loaded = True
 
     @classmethod
@@ -358,10 +359,9 @@ class ComputedFieldsModelType(ModelBase):
         if prefetch:
             qs = qs.prefetch_related(*prefetch)
 
-        # TODO: stacking up big amounts of changed instances here might lead to memory issues
-        # --> resort to own batch size configurable in settings.py?
-        # FIXME: make bulk_update configurable as well, default to old method?
-        change = set()
+        # do bulk_update on computed fields in question
+        # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
+        change = []
         for el in qs:
             has_changed = False
             for comp_field in mro:
@@ -370,8 +370,11 @@ class ComputedFieldsModelType(ModelBase):
                     has_changed = True
                     setattr(el, comp_field, new_value)
             if has_changed:
-                change.add(el)
-        qs.model.objects.bulk_update(change, fields, batch_size=100)
+                change.append(el)
+            if len(change) >= mcs._batchsize:
+                qs.model.objects.bulk_update(change, fields)
+                change = []
+        qs.model.objects.bulk_update(change, fields)
 
         # trigger dependent comp field updates on all records
         if not local_only:
