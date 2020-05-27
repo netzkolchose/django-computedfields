@@ -36,6 +36,7 @@ def get_old_handler(sender, instance, **kwargs):
     This is needed to correctly update old relations after fk changes,
     that would contain dirty computed field values after a save.
     The actual updates on old relations are done during ``post_save``.
+    Skipped during fixtures.
     """
     # do not handle fixtures
     if kwargs.get('raw'):
@@ -68,12 +69,12 @@ def postsave_handler(sender, instance, **kwargs):
     ``post_save`` handler.
 
     Directly updates dependent objects.
-    Does nothing during fixtures.
+    Skipped during fixtures.
     """
     # do not update for fixtures
     if not kwargs.get('raw'):
         CFMT.update_dependent(
-            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []))
+            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []), update_local=False)
 
 
 def predelete_handler(sender, instance, **kwargs):
@@ -102,8 +103,7 @@ def postdelete_handler(sender, instance, **kwargs):
     for model, data in updates.items():
         pks, fields = data
         qs = model.objects.filter(pk__in=pks)
-        for el in qs.distinct():
-            el.save(update_fields=fields)
+        CFMT._bulker(qs, fields)
 
 
 def merge_pk_maps(m1, m2):
@@ -135,7 +135,7 @@ def m2m_handler(sender, instance, **kwargs):
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        CFMT.update_dependent_multi([instance, model.objects.filter(pk__in=pks)])
+        CFMT.update_dependent_multi([instance, model.objects.filter(pk__in=pks)], update_local=False)
 
     elif action == 'pre_remove':
         # instance updates
@@ -156,8 +156,7 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            for el in qs.distinct():
-                el.save(update_fields=fields)
+            CFMT._bulker(qs, fields)
 
     elif action == 'pre_clear':
         # instance updates
@@ -189,5 +188,4 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            for el in qs.distinct():
-                el.save(update_fields=fields)
+            CFMT._bulker(qs, fields)

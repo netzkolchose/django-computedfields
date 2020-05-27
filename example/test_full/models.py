@@ -194,7 +194,7 @@ class XParent(ComputedFieldsModel):
     def children_value(self):
         return self.children.all().aggregate(sum=models.Sum('value'))['sum'] or 0
 
-class XChild(ComputedFieldsModel):
+class XChild(models.Model):
     parent = models.ForeignKey(XParent, related_name='children', on_delete=models.CASCADE)
     value = models.IntegerField()
 
@@ -220,16 +220,16 @@ class DepBaseB(ComputedFieldsModel):
                     s += sf.name
         return s
 
-class DepSub1(ComputedFieldsModel):
+class DepSub1(models.Model):
     a = models.ForeignKey(DepBaseA, related_name='sub1', on_delete=models.CASCADE)
     b = models.ForeignKey(DepBaseB, related_name='sub1', on_delete=models.CASCADE)
 
 
-class DepSub2(ComputedFieldsModel):
+class DepSub2(models.Model):
     sub1 = models.ForeignKey(DepSub1, related_name='sub2', on_delete=models.CASCADE)
 
 
-class DepSubFinal(ComputedFieldsModel):
+class DepSubFinal(models.Model):
     name = models.CharField(max_length=32)
     sub2 = models.ForeignKey(DepSub2, related_name='subfinal', on_delete=models.CASCADE)
 
@@ -426,3 +426,153 @@ class ExpandD(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['c.b.a', ['name']]])
     def comp(self):
         return self.c.b.a.name
+
+
+# test select_related
+class ParentNotO(models.Model):
+    name = models.CharField(max_length=32)
+    
+class ChildNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentNotO, on_delete=models.CASCADE)
+
+class SubChildNotO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildNotO, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32),
+        depends=[
+            ['parent', ['name']],
+            ['parent.parent', ['name']]
+        ]
+    )
+    def parents(self):
+        return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
+
+class ParentO(models.Model):
+    name = models.CharField(max_length=32)
+    
+class ChildO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentO, on_delete=models.CASCADE)
+
+class SubChildO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildO, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32),
+        depends=[
+            ['parent', ['name']],
+            ['parent.parent', ['name']]
+        ],
+        select_related=('parent__parent',)
+    )
+    def parents(self):
+        return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
+
+
+# test prefetch_related
+class ParentReverseNotO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['children', ['name']],
+            ['children.subchildren', ['name']],
+        ]
+    )
+    def children_comp(self):
+        s = []
+        for child in self.children.all():
+            substr = child.name
+            ss = []
+            for sub in child.subchildren.all():
+                ss.append(sub.name)
+            if ss:
+                substr += '#' + ','.join(ss)
+            s.append(substr)
+        return '$'.join(s)
+    
+class ChildReverseNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentReverseNotO, related_name='children', on_delete=models.CASCADE)
+
+class SubChildReverseNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildReverseNotO, related_name='subchildren', on_delete=models.CASCADE)
+
+class ParentReverseO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['children', ['name']],
+            ['children.subchildren', ['name']],
+        ],
+        prefetch_related=('children__subchildren',)
+    )
+    def children_comp(self):
+        s = []
+        for child in self.children.all():
+            substr = child.name
+            ss = []
+            for sub in child.subchildren.all():
+                ss.append(sub.name)
+            if ss:
+                substr += '#' + ','.join(ss)
+            s.append(substr)
+        return '$'.join(s)
+    
+class ChildReverseO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentReverseO, related_name='children', on_delete=models.CASCADE)
+
+class SubChildReverseO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildReverseO, related_name='subchildren', on_delete=models.CASCADE)
+
+
+# compute tests
+class ComputeLocal(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    xy = models.IntegerField(default=0)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def c1(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['c1']]])
+    def c2(self):
+        return 'c2' + self.c1
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c1']]])
+    def c3(self):
+        return 'c3' + self.c1
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c3']]])
+    def c4(self):
+        return 'c4' + self.c3
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c2', 'c4', 'c6']]])
+    def c5(self):
+        return 'c5' + self.c2 + self.c4 + self.c6
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['xy']]])
+    def c6(self):
+        return 'c6' + str(self.xy)
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c8']]])
+    def c7(self):
+        return 'c7' + self.c8
+
+    @computed(models.CharField(max_length=32, default=''), depends=[])
+    def c8(self):
+        return 'c8'
+
+# test for local cf updates from update_dependent/multi
+class LocalBulkUpdate(ComputedFieldsModel):
+    fk = models.ForeignKey(ComputeLocal, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['fk', ['c5']]])
+    def same_as_fk_c5(self):
+        return self.fk.c5

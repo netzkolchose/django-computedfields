@@ -117,6 +117,7 @@ class ComputedFieldsModelType(ModelBase):
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
             mcs._local_mro = mcs._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
+            mcs._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
             mcs._map_loaded = True
 
     @classmethod
@@ -127,7 +128,6 @@ class ComputedFieldsModelType(ModelBase):
         """
         final = OrderedDict()
         modeldata = mcs._map.get(model)
-        #print(modeldata)
         if not modeldata:
             return final
         if not update_fields:
@@ -197,14 +197,13 @@ class ComputedFieldsModelType(ModelBase):
         return final
 
     @classmethod
-    def update_dependent(mcs, instance, model=None, update_fields=None, old=None):
+    def update_dependent(mcs, instance, model=None, update_fields=None, old=None, update_local=True):
         """
         Updates all dependent computed fields model objects.
 
         This is needed if you have computed fields that depend on a model
         changed by bulk actions. Simply call this function after the update
         with the queryset containing the changed objects.
-        The queryset may not be finalized by ``distinct`` or any other means.
 
             >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
             >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
@@ -222,20 +221,17 @@ class ComputedFieldsModelType(ModelBase):
 
         .. NOTE::
 
-            This function cannot be used to update computed fields on a
-            computed fields model itself. For computed fields models always
-            use ``save`` on the model objects. You still can use
-            ``update`` or ``bulk_create`` but have to call
-            ``save`` afterwards:
+            Getting pks from `bulk_create` is not supported by all database adapters.
+            With a local computed field you can "cheat" here by providing a sentinel:
 
-                >>> objs = SomeComputedFieldsModel.objects.bulk_create([
-                ...     SomeComputedFieldsModel(headline='This is a test'),
-                ...     SomeComputedFieldsModel(headline='This is only a test'),
+                >>> MyComputedModel.objects.bulk_create([
+                ...     MyComputedModel(comp='SENTINEL'), # here or as default field value
+                ...     MyComputedModel(comp='SENTINEL'),
                 ... ])
-                >>> for obj in objs:
-                ...     obj.save()
+                >>> update_dependent(MyComputedModel.objects.filter(comp='SENTINEL'))
 
-            (This behavior might change with future versions.)
+            If the sentinel is beyond reach of the method result, this even ensures to update
+            only the newly added records.
         
         Special care is needed, if a bulk action contains foreign key changes,
         that are part of a computed field dependency chain. To correctly handle that case,
@@ -257,21 +253,30 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
+        
+        # Note: update_local is always off for updates triggered from the resolver
+        # but True by default to avoid accidentally skipping updates called by user
+        if update_local and isinstance(model, ComputedFieldsModelType):
+            # We skip a transaction here in the same sense, as local cf updates are not guarded either.
+            qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
+            if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
+                update_fields = set(update_fields)
+            mcs._bulker(qs, update_fields, local_only=True)
+        
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
+                pks_updated = {}
                 for qs, fields in updates:
-                    for el in qs.distinct():
-                        el.save(update_fields=fields)
+                    pks_updated[qs.model] = mcs._bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks)
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
+                        mcs._bulker(qs, fields)
 
     @classmethod
-    def update_dependent_multi(mcs, instances, old=None):
+    def update_dependent_multi(mcs, instances, old=None, update_local=True):
         """
         Updates all dependent computed fields model objects for multiple instances.
 
@@ -311,6 +316,11 @@ class ComputedFieldsModelType(ModelBase):
         final = {}
         for instance in instances:
             model = instance.model if isinstance(instance, models.QuerySet) else type(instance)
+
+            if update_local and isinstance(model, ComputedFieldsModelType):
+                qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
+                mcs._bulker(qs, None, local_only=True)
+
             updates = mcs._querysets_for_update(model, instance, None)
             for model, data in updates.items():
                 m = final.setdefault(model, [model.objects.none(), set()])
@@ -318,16 +328,63 @@ class ComputedFieldsModelType(ModelBase):
                 m[1].update(data[1])  # add fields
         if final:
             with transaction.atomic():
+                pks_updated = {}
                 for qs, fields in final.values():
-                    if qs.exists():
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                    pks_updated[qs.model] = mcs._bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks)
-                        for el in qs.distinct():
-                            el.save(update_fields=fields)
+                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
+                        mcs._bulker(qs, fields)
+
+    @classmethod
+    def _bulker(mcs, qs, update_fields, return_pks=False, local_only=False):
+        """
+        Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
+        """
+        qs = qs.distinct()
+
+        # correct update_fields by local mro
+        mro = mcs.cf_mro(qs.model, update_fields)
+        fields = set(mro)
+        if update_fields:
+            update_fields.update(fields)
+
+        # FIXME: precalc and check prefetch/select related entries during map creation somehow?
+        select = set()
+        prefetch = []
+        for field in fields:
+            select.update(qs.model._computed_fields[field]._computed['select_related'] or [])
+            prefetch.extend(qs.model._computed_fields[field]._computed['prefetch_related'] or [])
+        if select:
+            qs = qs.select_related(*select)
+        if prefetch:
+            qs = qs.prefetch_related(*prefetch)
+
+        # do bulk_update on computed fields in question
+        # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
+        if fields:
+            change = []
+            for el in qs:
+                has_changed = False
+                for comp_field in mro:
+                    new_value = el._compute(comp_field)
+                    if new_value != getattr(el, comp_field):
+                        has_changed = True
+                        setattr(el, comp_field, new_value)
+                if has_changed:
+                    change.append(el)
+                if len(change) >= mcs._batchsize:
+                    qs.model.objects.bulk_update(change, fields)
+                    change = []
+            qs.model.objects.bulk_update(change, fields)
+
+        # trigger dependent comp field updates on all records
+        if not local_only:
+            update_dependent(qs, qs.model, fields, update_local=False)
+        if return_pks:
+            return set(el.pk for el in qs)
+        return
 
 
 update_dependent = ComputedFieldsModelType.update_dependent
@@ -388,12 +445,49 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
     class Meta:
         abstract = True
 
-    def compute(self, fieldname):
+    def _compute(self, fieldname):
         """
         Returns the computed field value for ``fieldname``.
+        Note that this is just a shorthand method for calling the underlying computed
+        field method and does not deal with local MRO, thus should only be used,
+        if the MRO is respected by other means.
+        For quick inspection of a single computed field value that gonna be written
+        to the database, always use ``compute(fieldname)`` instead.
         """
         field = self._computed_fields[fieldname]
         return field._computed['func'](self)
+
+    def compute(self, fieldname):
+        """
+        Returns the computed field value for ``fieldname``. This method allows
+        to inspect the new calculated value, that would be written to the database
+        by a following ``save()``.
+        """
+        # Getting a single computed value prehand is quite complicated,
+        # as we have to:
+        # - resolve local MRO backwards (stored MRO data is optimized for forward deps)
+        # - calc all local cfs, that the requested one depends on
+        # - stack and rewind interim values, as we dont want to introduce side effects here
+        #   (in fact the save/bulker logic might try to save db calls based on changes)
+        entries = ComputedFieldsModelType._local_mro[type(self)]['fields']
+        mro = ComputedFieldsModelType.cf_mro(type(self), None)
+        if not fieldname in mro:
+            return getattr(self, fieldname)
+        pos = 1 << mro.index(fieldname)
+        stack = []
+        for field in mro:
+            if field == fieldname:
+                ret = self._compute(fieldname)
+                for field, old in stack:
+                    # reapply old stack values
+                    setattr(self, field, old)
+                return ret
+            f_mro = entries.get(field, 0)
+            if f_mro & pos:
+                # append old value to stack for later rewinding
+                # calc and set new value for field, if the requested one depends on it
+                stack.append((field, getattr(self, field)))
+                setattr(self, field, self._compute(field))
 
     def save(self, *args, **kwargs):
         """
@@ -437,29 +531,27 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
             if all_computed:
                 has_changed = False
                 for fieldname in cf_mro:
-                    result = self.compute(fieldname)
-                    field = self._computed_fields[fieldname]
-                    if result != getattr(self, field._computed['attr']):
+                    result = self._compute(fieldname)
+                    if result != getattr(self, fieldname):
                         has_changed = True
-                        setattr(self, field._computed['attr'], result)
+                        setattr(self, fieldname, result)
                 if not has_changed:
                     # no save needed, we still need to update dependent objects
-                    update_dependent(self, cls, update_fields_corrected)
+                    update_dependent(self, cls, update_fields_corrected, update_local=False)
                     return
                 super(ComputedFieldsModel, self).save(*args, **kwargs)
                 return
         for fieldname in cf_mro:
-            result = self.compute(fieldname)
-            field = self._computed_fields[fieldname]
-            setattr(self, field._computed['attr'], result)
+            result = self._compute(fieldname)
+            setattr(self, fieldname, result)
         super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
-def computed(field, depends=None):
+def computed(field, depends=None, select_related=None, prefetch_related=None):
     """
     Decorator to create computed fields.
 
-    ``field`` should be a model field instance suitable to hold the result
+    ``field`` should be a model concrete field instance suitable to hold the result
     of the decorated method. The decorator expects a
     keyword argument ``depends`` to indicate dependencies to
     model fields (local or related). Listed dependencies will automatically
@@ -487,6 +579,23 @@ def computed(field, depends=None):
     in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
     foreign key, m2m, o2o and their back relations.
     The fieldnames should be a list of strings of concrete fields on the foreign model.
+
+    With `select_related` and `prefetch_related` you can instruct the dependency resolver
+    to apply certain optimizations on the select for update queryset later on
+    `(currently alpha)`.
+
+    .. NOTE::
+
+        `select_related` and `prefetch_related` are stacked over computed fields
+        of the same model during updates, that are going to be updated.
+        They call the underlying queryset methods of the default model manager,
+        e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
+        If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
+        these attributes will only be available during updates from the resolver, never during
+        instance construction or instances from other queries, unless you applied the same
+        lookups manually. To keep the computed field methods working under any circumstances,
+        it is a good idea not to rely on lookups with custom attributes,
+        or to test explicitly for them in the method.
 
     .. CAUTION::
 
@@ -525,7 +634,12 @@ def computed(field, depends=None):
         Also see the graph documentation :ref:`here<graph>`.
     """
     def wrap(f):
-        field._computed = {'func': f, 'depends': depends}
+        field._computed = {
+            'func': f,
+            'depends': depends,
+            'select_related': select_related,
+            'prefetch_related': prefetch_related
+        }
         return field
     return wrap
 

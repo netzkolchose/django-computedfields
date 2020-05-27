@@ -819,7 +819,7 @@ class ModelGraph(Graph):
     def transitive_reduction(self):
         """
         Remove redundant single edges. Also checks for cycles.
-        *Note:* Other than intermodel dependencies a model local dependencies always must be cyclefree.
+        *Note:* Other than intermodel dependencies local dependencies must always be cyclefree.
         """
         paths = self.get_edgepaths()
         remove = set()
