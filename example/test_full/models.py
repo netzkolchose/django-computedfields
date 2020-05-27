@@ -426,3 +426,47 @@ class ExpandD(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['c.b.a', ['name']]])
     def comp(self):
         return self.c.b.a.name
+
+
+# test select and prefetch related
+class ParentNotO(models.Model):
+    name = models.CharField(max_length=32)
+    
+class ChildNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentNotO, on_delete=models.CASCADE)
+
+class SubChildNotO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildNotO, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32),
+        depends=[
+            ['parent', ['name']],
+            ['parent.parent', ['name']]
+        ]
+    )
+    def parents(self):
+        return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
+
+class ParentO(models.Model):
+    name = models.CharField(max_length=32)
+    
+class ChildO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentO, on_delete=models.CASCADE)
+
+class SubChildO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildO, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32),
+        depends=[
+            ['parent', ['name']],
+            ['parent.parent', ['name']]
+        ],
+        select_related=('parent__parent',)
+    )
+    def parents(self):
+        return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
+
