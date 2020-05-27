@@ -253,15 +253,15 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
-        if update_fields:
-            update_fields = set(update_fields)
         
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and isinstance(model, ComputedFieldsModelType):
             # We skip a transaction here in the same sense, as local cf updates are not guarded either.
             qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
-            mcs.bulker(qs, update_fields, local_only=True) # caution - might update update_fields
+            if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
+                update_fields = set(update_fields)
+            mcs.bulker(qs, update_fields, local_only=True)
         
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
