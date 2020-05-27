@@ -530,3 +530,41 @@ class ChildReverseO(models.Model):
 class SubChildReverseO(models.Model):
     name = models.CharField(max_length=32)
     parent = models.ForeignKey(ChildReverseO, related_name='subchildren', on_delete=models.CASCADE)
+
+
+# compute tests
+class ComputeLocal(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    xy = models.IntegerField(default=0)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def c1(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['c1']]])
+    def c2(self):
+        return 'c2' + self.c1
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c1']]])
+    def c3(self):
+        return 'c3' + self.c1
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c3']]])
+    def c4(self):
+        return 'c4' + self.c3
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c2', 'c4', 'c6']]])
+    def c5(self):
+        return 'c5' + self.c2 + self.c4 + self.c6
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['xy']]])
+    def c6(self):
+        return 'c6' + str(self.xy)
+
+    @computed(models.CharField(max_length=32, default=''), depends=[['self', ['c8']]])
+    def c7(self):
+        return 'c7' + self.c8
+
+    @computed(models.CharField(max_length=32, default=''), depends=[])
+    def c8(self):
+        return 'c8'
