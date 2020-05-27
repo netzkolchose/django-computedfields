@@ -287,9 +287,9 @@ Management Commands
     (help to get the command fixed is more than welcome).
 
 - ``updatedata``
-    does a full update on all computed fields in the project. Only useful after
-    tons of bulk changes, e.g. from fixtures. Note that this command is currently not optimized
-    (PRs are welcome).
+    does a full update on all project-wide computed fields. Useful if you ran into serious out-of-sync issues
+    or after tons of bulk changes or after applying fixtures. Note that this command is currently not runtime
+    optimized (PRs are welcome).
 
 
 General Usage Notes
@@ -312,7 +312,7 @@ before resorting to any denormalization trickery. Of course complicated field ca
 additional workload either on the database or in Python, which might turn into serious query bottlenecks in your project.
 
 That is the point where :mod:`django-computedfields` can help by creating (pre-) computed fields.
-It can greatly lower recurring query workload by providing a precalculated value instead of recalculating it everytime.
+It can remove recurring query workload by providing a precalculated value instead of recalculating it everytime.
 Please keep in mind, that this comes to a price:
 
 - additional space requirement in database
@@ -328,23 +328,45 @@ you have ruled out worse negative side effects from the list above,
 Specific Usage Hints
 ^^^^^^^^^^^^^^^^^^^^
 
-- Try to avoid deep nested dependencies. The way :mod:`django-computedfields` works internally will create
-  rather big JOIN tables for many long relations. If you hit that ground, either try to resort
+- Try to avoid deep nested dependencies in general. The way :mod:`django-computedfields` works internally
+  will create rather big JOIN tables for many long relations. If you hit that ground, either try to resort
   to bulk actions with manually using ``update_dependent`` or rework your scheme by introducing additional
-  denormalization models.
+  denormalization models or interim computed fields higher up in the dependency chain.
 - Try to avoid multiple 1:n relations in a dependency chain like ``['fk_back_a.fk_back_b...', [...]]`` or
-  ``['m2m_a.m2m_b...', [...]]``, as the query penalty might explode. Although the querysets are stripped down by
-  ``.distinct()`` before doing the updates, the DBMS might have a hard time to join and filter the entries
-  in the first place, if the tables are getting big.
-- Try to keep the record count low on related computed fields models, as ``update_dependent`` has to run the method
-  for every associated record to correctly update its value. (For future versions this is less of a problem
-  once `select_related`, `prefetch_related` and `bulk_update` optimizations are in place.)
+  ``['m2m_a.m2m_b...', [...]]``, as the query penalty might explode. Although the auto resolver tries to touch
+  affected computed fields only once, it does not help much, if multiple method invocations have to touch 80%
+  of all database entries to get the drilldown done.
+- Try to apply `select_related` and `prefetch_related` optimizations for complicated dependencies. While this can
+  reduce the query load by far, it also increases memory usage alot, thus it needs proper testing to find the sweep spot.
+- Try to reduce the "update pressure" by grouping update paths by dimensions like update frequency or update penalty
+  (isolate the slowpokes). Mix in fast turning entities late.
 - Avoid recursive models. The graph optimization relies on cycle-free model-field path linearization
   during model construction time, which cannot account record level by design. It is still possible to
   use :mod:`django-computedfields` with recursive models (as needed for tree like structures) by setting
   ``COMPUTEDFIELDS_ALLOW_RECURSION`` to ``True`` in `settings.py`. Note that this currently disables
   all graph optimizations project-wide for computed fields updates and roughly doubles the update query needs.
   (A future version might allow to explicit mark intended recursions while other update paths still get optimized.)
+
+
+Fixtures
+--------
+
+:mod:`django-computedfields` skips intermodel computed fields updates during fixtures.
+Run the management command `updatedata` after applying fixtures to resynchronize their values.
+
+
+Migrations
+----------
+
+On migration level computed fields are handled as other ordinary concrete fields defined on a model,
+thus you can apply any migration to them as with other concrete fields.
+
+Still data migrations should not be applied to computed fields by default, as the recalculation of
+their values is skipped during migrations. If you have made changes to a field,
+that a computed field depends on, or a computed field itself, either resynchronize the values by running
+``update_dependent(changed_model.objects.all(), update_fields=[changed_field])`` (partial update),
+or by a full resync with the management command `updatedata` (after several changes or changes
+that affect relations itself).
 
 
 Motivation

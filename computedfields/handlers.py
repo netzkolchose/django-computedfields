@@ -36,6 +36,7 @@ def get_old_handler(sender, instance, **kwargs):
     This is needed to correctly update old relations after fk changes,
     that would contain dirty computed field values after a save.
     The actual updates on old relations are done during ``post_save``.
+    Skipped during fixtures.
     """
     # do not handle fixtures
     if kwargs.get('raw'):
@@ -68,7 +69,7 @@ def postsave_handler(sender, instance, **kwargs):
     ``post_save`` handler.
 
     Directly updates dependent objects.
-    Does nothing during fixtures.
+    Skipped during fixtures.
     """
     # do not update for fixtures
     if not kwargs.get('raw'):
