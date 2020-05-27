@@ -577,8 +577,7 @@ def computed(field, depends=None, select_related=None, prefetch_related=None):
 
     With `select_related` and `prefetch_related` you can instruct the dependency resolver
     to apply certain optimizations on the select for update queryset later on
-    `(currently alpha, still might contain rough edges)`.
-    Also see :doc:`optimizations <../optimization>`.
+    `(currently alpha)`.
 
     .. NOTE::
 
@@ -589,9 +588,9 @@ def computed(field, depends=None, select_related=None, prefetch_related=None):
         If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
         these attributes will only be available during updates from the resolver, never during
         instance construction or instances from other queries, unless you applied the same
-        lookups manually. To keep the computed field method code working under any circumstances,
+        lookups manually. To keep the computed field methods working under any circumstances,
         it is best not to rely on lookups with custom attributes, or to test explicitly for
-        them in the code.
+        them in the method.
 
     .. CAUTION::
 
