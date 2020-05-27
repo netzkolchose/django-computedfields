@@ -347,7 +347,8 @@ class ComputedFieldsModelType(ModelBase):
         # correct update_fields by local mro
         mro = mcs.cf_mro(qs.model, update_fields)
         fields = set(mro)
-        update_fields.update(fields)
+        if update_fields:
+            update_fields.update(fields)
 
         # FIXME: precalc and check prefetch/select related entries during map creation somehow?
         select = set()
