@@ -260,6 +260,7 @@ class ComputedFieldsModelType(ModelBase):
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and isinstance(model, ComputedFieldsModelType):
+            # We skip a transaction here in the same sense, as local cf updates are not guarded either.
             qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
             mcs.bulker(qs, update_fields, local_only=True)
         

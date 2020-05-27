@@ -207,9 +207,16 @@ all computed fields have been updated.
 
 .. NOTE::
 
-    The computed field updates are guarded by transactions and get triggered by post signal handlers.
-    The database values of computed fields are always in sync between two database relevant
-    instance actions in Python, unless a transaction error occured.
+    Computed field updates on foreign models are guarded by transactions and get triggered by a `post_save`
+    signal handler. Their database values are always in sync between two database relevant model instance
+    actions in Python, unless a transaction error occured. Note that this transaction guard does not include
+    local computed fields, as they are recalculated during a normal ``save()`` call prior the foreign dependency
+    handling. It is your own responsibility to apply appropriate guards over a batch of model instances. To avoid
+    data integrity issues with bulk actions, it is a good idea, to group your actions together with
+    `update_dependent` under a transaction. If you ran out of sync with your computed fields (e.g. by an
+    exceptional path in your methods), a partial resync can be achieved by calling
+    `update_dependent(erroneous_instance_or_queryset)` after fixing the error. If in doubt, do a full resync with
+    the managment command `updatedata`.
 
 On ORM level all updates are turned into querysets filtering on dependent computed fields models
 in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` on a computed fields model `X` will either
