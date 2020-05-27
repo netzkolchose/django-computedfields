@@ -428,7 +428,7 @@ class ExpandD(ComputedFieldsModel):
         return self.c.b.a.name
 
 
-# test select and prefetch related
+# test select_related
 class ParentNotO(models.Model):
     name = models.CharField(max_length=32)
     
@@ -470,3 +470,63 @@ class SubChildO(ComputedFieldsModel):
     def parents(self):
         return self.name + '$' + self.parent.name + '$' + self.parent.parent.name
 
+
+# test prefetch_related
+class ParentReverseNotO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['children', ['name']],
+            ['children.subchildren', ['name']],
+        ]
+    )
+    def children_comp(self):
+        s = []
+        for child in self.children.all():
+            substr = child.name
+            ss = []
+            for sub in child.subchildren.all():
+                ss.append(sub.name)
+            if ss:
+                substr += '#' + ','.join(ss)
+            s.append(substr)
+        return '$'.join(s)
+    
+class ChildReverseNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentReverseNotO, related_name='children', on_delete=models.CASCADE)
+
+class SubChildReverseNotO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildReverseNotO, related_name='subchildren', on_delete=models.CASCADE)
+
+class ParentReverseO(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['children', ['name']],
+            ['children.subchildren', ['name']],
+        ],
+        prefetch_related=('children__subchildren',)
+    )
+    def children_comp(self):
+        s = []
+        for child in self.children.all():
+            substr = child.name
+            ss = []
+            for sub in child.subchildren.all():
+                ss.append(sub.name)
+            if ss:
+                substr += '#' + ','.join(ss)
+            s.append(substr)
+        return '$'.join(s)
+    
+class ChildReverseO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ParentReverseO, related_name='children', on_delete=models.CASCADE)
+
+class SubChildReverseO(models.Model):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(ChildReverseO, related_name='subchildren', on_delete=models.CASCADE)
