@@ -253,13 +253,15 @@ class ComputedFieldsModelType(ModelBase):
                 model = instance.model
             else:
                 model = type(instance)
+        if update_fields:
+            update_fields = set(update_fields)
         
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and isinstance(model, ComputedFieldsModelType):
             # We skip a transaction here in the same sense, as local cf updates are not guarded either.
             qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
-            mcs.bulker(qs, update_fields, local_only=True)
+            mcs.bulker(qs, update_fields, local_only=True) # caution - might update update_fields
         
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
@@ -336,15 +338,16 @@ class ComputedFieldsModelType(ModelBase):
                         mcs.bulker(qs, fields)
 
     @classmethod
-    def bulker(mcs, qs, fields, return_pks=False, local_only=False):
+    def bulker(mcs, qs, update_fields, return_pks=False, local_only=False):
         """
         Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
         """
         qs = qs.distinct()
 
         # correct update_fields by local mro
-        mro = mcs.cf_mro(qs.model, fields)
+        mro = mcs.cf_mro(qs.model, update_fields)
         fields = set(mro)
+        update_fields.update(fields)
 
         # FIXME: precalc and check prefetch/select related entries during map creation somehow?
         select = set()
@@ -359,20 +362,21 @@ class ComputedFieldsModelType(ModelBase):
 
         # do bulk_update on computed fields in question
         # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
-        change = []
-        for el in qs:
-            has_changed = False
-            for comp_field in mro:
-                new_value = el._compute(comp_field)
-                if new_value != getattr(el, comp_field):
-                    has_changed = True
-                    setattr(el, comp_field, new_value)
-            if has_changed:
-                change.append(el)
-            if len(change) >= mcs._batchsize:
-                qs.model.objects.bulk_update(change, fields)
-                change = []
-        qs.model.objects.bulk_update(change, fields)
+        if fields:
+            change = []
+            for el in qs:
+                has_changed = False
+                for comp_field in mro:
+                    new_value = el._compute(comp_field)
+                    if new_value != getattr(el, comp_field):
+                        has_changed = True
+                        setattr(el, comp_field, new_value)
+                if has_changed:
+                    change.append(el)
+                if len(change) >= mcs._batchsize:
+                    qs.model.objects.bulk_update(change, fields)
+                    change = []
+            qs.model.objects.bulk_update(change, fields)
 
         # trigger dependent comp field updates on all records
         if not local_only:

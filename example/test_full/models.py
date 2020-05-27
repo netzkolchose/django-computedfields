@@ -568,3 +568,11 @@ class ComputeLocal(ComputedFieldsModel):
     @computed(models.CharField(max_length=32, default=''), depends=[])
     def c8(self):
         return 'c8'
+
+# test for local cf updates from update_dependent/multi
+class LocalBulkUpdate(ComputedFieldsModel):
+    fk = models.ForeignKey(ComputeLocal, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['fk', ['c5']]])
+    def same_as_fk_c5(self):
+        return self.fk.c5
