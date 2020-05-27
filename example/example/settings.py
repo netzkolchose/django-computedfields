@@ -34,7 +34,6 @@ INSTALLED_APPS = [
     'computedfields',
     'test_full',
     'exampleapp',
-    'benchmark',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
