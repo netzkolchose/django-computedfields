@@ -366,8 +366,8 @@ and instead resynchronize their values manually (or by a custom migration rule).
 If you have made changes to a field, that a computed field depends on, or a computed field itself,
 either resynchronize the values by calling `update_dependent` with a full queryset of the changed model
 and the changed fields (partial update), or do a full resync with the management command `updatedata`.
-The latter should be preferred, if you have made several changes or changes that affect relations
-the dependency chain itself.
+The latter should be preferred, if you have several changes or changes that affect relations
+on dependency graph.
 
 
 Motivation

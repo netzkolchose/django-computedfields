@@ -103,7 +103,7 @@ def postdelete_handler(sender, instance, **kwargs):
     for model, data in updates.items():
         pks, fields = data
         qs = model.objects.filter(pk__in=pks)
-        CFMT.bulker(qs, fields)
+        CFMT._bulker(qs, fields)
 
 
 def merge_pk_maps(m1, m2):
@@ -156,7 +156,7 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            CFMT.bulker(qs, fields)
+            CFMT._bulker(qs, fields)
 
     elif action == 'pre_clear':
         # instance updates
@@ -188,4 +188,4 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            CFMT.bulker(qs, fields)
+            CFMT._bulker(qs, fields)

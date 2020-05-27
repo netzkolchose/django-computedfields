@@ -261,19 +261,19 @@ class ComputedFieldsModelType(ModelBase):
             qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
             if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
                 update_fields = set(update_fields)
-            mcs.bulker(qs, update_fields, local_only=True)
+            mcs._bulker(qs, update_fields, local_only=True)
         
         updates = mcs._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
                 pks_updated = {}
                 for qs, fields in updates:
-                    pks_updated[qs.model] = mcs.bulker(qs, fields, True)
+                    pks_updated[qs.model] = mcs._bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        mcs.bulker(qs, fields)
+                        mcs._bulker(qs, fields)
 
     @classmethod
     def update_dependent_multi(mcs, instances, old=None, update_local=True):
@@ -319,7 +319,7 @@ class ComputedFieldsModelType(ModelBase):
 
             if update_local and isinstance(model, ComputedFieldsModelType):
                 qs = instance if isinstance(instance, models.QuerySet) else model.objects.filter(pk__in=[instance.pk])
-                mcs.bulker(qs, None, local_only=True)
+                mcs._bulker(qs, None, local_only=True)
 
             updates = mcs._querysets_for_update(model, instance, None)
             for model, data in updates.items():
@@ -330,15 +330,15 @@ class ComputedFieldsModelType(ModelBase):
             with transaction.atomic():
                 pks_updated = {}
                 for qs, fields in final.values():
-                    pks_updated[qs.model] = mcs.bulker(qs, fields, True)
+                    pks_updated[qs.model] = mcs._bulker(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        mcs.bulker(qs, fields)
+                        mcs._bulker(qs, fields)
 
     @classmethod
-    def bulker(mcs, qs, update_fields, return_pks=False, local_only=False):
+    def _bulker(mcs, qs, update_fields, return_pks=False, local_only=False):
         """
         Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
         """
