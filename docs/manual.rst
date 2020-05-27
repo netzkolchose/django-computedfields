@@ -361,12 +361,13 @@ Migrations
 On migration level computed fields are handled as other ordinary concrete fields defined on a model,
 thus you can apply any migration to them as with other concrete fields.
 
-Still data migrations should not be applied to computed fields by default, as the recalculation of
-their values is skipped during migrations. If you have made changes to a field,
-that a computed field depends on, or a computed field itself, either resynchronize the values by running
-``update_dependent(changed_model.objects.all(), update_fields=[changed_field])`` (partial update),
-or by a full resync with the management command `updatedata` (after several changes or changes
-that affect relations itself).
+Still for computed fields you should not rely on data migrations by default
+and instead resynchronize their values manually (or by a custom migration rule).
+If you have made changes to a field, that a computed field depends on, or a computed field itself,
+either resynchronize the values by calling `update_dependent` with a full queryset of the changed model
+and the changed fields (partial update), or do a full resync with the management command `updatedata`.
+The latter should be preferred, if you have made several changes or changes that affect relations
+the dependency chain itself.
 
 
 Motivation
