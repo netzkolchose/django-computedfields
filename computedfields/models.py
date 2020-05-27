@@ -221,20 +221,17 @@ class ComputedFieldsModelType(ModelBase):
 
         .. NOTE::
 
-            This function cannot be used to update computed fields on a
-            computed fields model itself. For computed fields models always
-            use ``save`` on the model objects. You still can use
-            ``update`` or ``bulk_create`` but have to call
-            ``save`` afterwards:
+            Getting pks from `bulk_create` is not supported by all database adapters.
+            With a local computed field you can "cheat" here by providing a sentinel:
 
-                >>> objs = SomeComputedFieldsModel.objects.bulk_create([
-                ...     SomeComputedFieldsModel(headline='This is a test'),
-                ...     SomeComputedFieldsModel(headline='This is only a test'),
+                >>> MyComputedModel.objects.bulk_create([
+                ...     MyComputedModel(comp='SENTINEL'), # here or as default field value
+                ...     MyComputedModel(comp='SENTINEL'),
                 ... ])
-                >>> for obj in objs:
-                ...     obj.save()
+                >>> update_dependent(MyComputedModel.objects.filter(comp='SENTINEL'))
 
-            (This behavior might change with future versions.)
+            If the sentinel is beyond reach of the method result, this even ensures to update
+            only the newly added records.
         
         Special care is needed, if a bulk action contains foreign key changes,
         that are part of a computed field dependency chain. To correctly handle that case,
