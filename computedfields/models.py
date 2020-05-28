@@ -97,6 +97,7 @@ class ComputedFieldsModelType(ModelBase):
         Never do this at runtime in a multithreaded environment or hell
         will break loose. You have been warned ;)
         """
+        mcs._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
         with mcs._lock:
             if mcs._map_loaded and not _force:  # pragma: no cover
                 return
@@ -117,7 +118,6 @@ class ComputedFieldsModelType(ModelBase):
             mcs._map = ComputedFieldsModelType._graph.generate_lookup_map()
             mcs._fk_map = mcs._graph._fk_map
             mcs._local_mro = mcs._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
-            mcs._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
             mcs._map_loaded = True
 
     @classmethod
