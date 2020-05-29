@@ -576,3 +576,17 @@ class LocalBulkUpdate(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['fk', ['c5']]])
     def same_as_fk_c5(self):
         return self.fk.c5
+
+
+# test #33 / #34
+class Registration(ComputedFieldsModel):
+    @computed(models.FloatField(default=0), depends=[['payment_set', ['amount', 'registration']]])
+    def total_amount(self):
+        paid = 0
+        for cur_payment in self.payment_set.all():
+            paid += cur_payment.amount
+        return paid
+
+class Payment(models.Model):
+    amount = models.FloatField()
+    registration = models.ForeignKey(Registration, on_delete=models.CASCADE)
