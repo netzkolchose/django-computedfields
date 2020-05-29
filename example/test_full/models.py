@@ -580,7 +580,7 @@ class LocalBulkUpdate(ComputedFieldsModel):
 
 # test #33 / #34
 class Registration(ComputedFieldsModel):
-    @computed(models.FloatField(default=0), depends=[['payment_set', ['amount', 'registration']]])
+    @computed(models.FloatField(default=0), depends=[['payment_set', ['amount']]])
     def total_amount(self):
         paid = 0
         for cur_payment in self.payment_set.all():
