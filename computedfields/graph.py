@@ -519,10 +519,16 @@ class ComputedModelsGraph(Graph):
                         try:
                             rel = cls._meta.get_field(symbol)
                         except FieldDoesNotExist:
+                            # handle reverse relation (not a concrete field)
                             rel = getattr(cls, symbol).rel
                             symbol = (rel.related_name
                                     or rel.related_query_name
                                     or rel.related_model._meta.model_name)
+                            # add dependency to reverse relation field as well
+                            # this needs to be added in opposite direction on related model with relation field name
+                            path_segments.append(symbol)
+                            fieldentry.setdefault(rel.related_model, []).append({'path': '__'.join(path_segments), 'depends': rel.field.name})
+                            path_segments.pop()
                         # add path segment to self deps if we have an fk field on a CFM
                         # this is needed to correctly propagate direct fk changes in local cf mro later on
                         if isinstance(rel, ForeignKey) and cls in computed_models:
@@ -530,7 +536,6 @@ class ComputedModelsGraph(Graph):
                             local_deps.setdefault(cls, {}).setdefault(field, set()).add(symbol)
                         if path_segments:
                             # add segment to intermodel graph deps
-                            # replaces the old '#' all rule with real source -> target deps
                             fieldentry.setdefault(cls, []).append({'path': '__'.join(path_segments), 'depends': symbol})
                         path_segments.append(symbol)
                         cls = rel.related_model
