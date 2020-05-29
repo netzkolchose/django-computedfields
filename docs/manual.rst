@@ -380,6 +380,11 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.0.22:
+    - Automatic dependency expansion on reverse relations.
+    - Example documentation.
+- 0.0.21:
+    - Bugfix: Fixing undefined _batchsize for pickled map usage.
 - 0.0.20
     - Use `bulk_update` for computed field updates.
     - Allow custom update optimizations with `select_related` and `prefetch_related`.
