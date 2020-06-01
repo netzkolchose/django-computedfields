@@ -590,3 +590,47 @@ class Registration(ComputedFieldsModel):
 class Payment(models.Model):
     amount = models.FloatField()
     registration = models.ForeignKey(Registration, on_delete=models.CASCADE)
+
+
+from django.db.models import Prefetch
+# test M2M and through model
+class Person(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['groups', ['name']],
+            ['membership', ['person']]  # needed for through model changes
+        ],
+        prefetch_related=['groups']
+    )
+    def my_groups(self):
+        if not self.pk:
+            return ''
+        result = []
+        for group in self.groups.all():
+            result.append(group.name)
+        return ','.join(result)
+
+class Group(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    members = models.ManyToManyField(Person, related_name='groups', through='Membership')
+
+    @computed(models.CharField(max_length=256),
+        depends=[
+            ['members', ['name']],
+            ['membership', ['group']]  # needed for through model changes
+        ],
+        prefetch_related=['members']
+    )
+    def my_members(self):
+        if not self.pk:
+            return ''
+        result = []
+        for member in self.members.all():
+            result.append(member.name)
+        return ','.join(result)
+
+class Membership(models.Model):
+    person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='membership')
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='membership')
