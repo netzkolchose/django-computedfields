@@ -246,6 +246,8 @@ class Abstract(ComputedFieldsModel):
     def c(self):
         return self.a + self.b
 
+class ConcreteB(Abstract):
+    name = models.CharField(max_length=32)
 
 class Concrete(Abstract):
     d = models.IntegerField(default=0)
@@ -394,7 +396,7 @@ class OldDependsChild(ComputedFieldsModel):
 
 
 # test update_fields expansion, see https://github.com/netzkolchose/django-computedfields/issues/27
-class ChainA(ComputedFieldsModel):
+class ChainA(models.Model):
     name = models.CharField(max_length=32)
 
 class ChainB(ComputedFieldsModel):

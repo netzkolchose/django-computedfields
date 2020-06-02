@@ -1,10 +1,11 @@
 from django.test import TestCase
 from computedfields.graph import ModelGraph, Edge, Node
+from computedfields.models import Resolver
 from ..models import SelfA, SelfB
 
 class TestModelGraphInit(TestCase):
     def test_init(self):
-        base_graph = SelfA._graph
+        base_graph = Resolver._graph
         depsA = base_graph.resolved['local'][SelfA]
         depsB = base_graph.resolved['local'][SelfB]
         ga = ModelGraph(SelfA, depsA)
@@ -12,7 +13,7 @@ class TestModelGraphInit(TestCase):
 
 class TestModelGraph(TestCase):
     def setUp(self):
-        base_graph = SelfA._graph
+        base_graph = Resolver._graph
         self.depsA = base_graph.resolved['local'][SelfA]
         self.depsB = base_graph.resolved['local'][SelfB]
         self.ga = ModelGraph(SelfA, self.depsA)

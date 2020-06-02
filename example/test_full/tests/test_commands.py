@@ -1,5 +1,5 @@
 from .base import GenericModelTestBase
-from computedfields.models import ComputedFieldsModelType
+from computedfields.models import Resolver
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -51,7 +51,7 @@ class CommandTests(GenericModelTestBase):
                     'G': {'depends': [['f_ga', ['comp']]]},
                 })
         )
-        self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
+        self.assertEqual(Resolver._graph.is_cyclefree, False)
         stdout = sys.stdout
         sys.stdout = StringIO()
         call_command('rendergraph', 'output', verbosity=0)
@@ -79,9 +79,9 @@ class CommandTests(GenericModelTestBase):
             map = pickled_data['lookup_map']
             fk_map = pickled_data['fk_map']
             local_mro = pickled_data['local_mro']
-            self.assertDictEqual(map, ComputedFieldsModelType._map)
-            self.assertDictEqual(fk_map, ComputedFieldsModelType._fk_map)
-            self.assertDictEqual(local_mro, ComputedFieldsModelType._local_mro)
+            self.assertDictEqual(map, Resolver._map)
+            self.assertDictEqual(fk_map, Resolver._fk_map)
+            self.assertDictEqual(local_mro, Resolver._local_mro)
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value

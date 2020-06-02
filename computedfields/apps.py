@@ -12,8 +12,8 @@ class ComputedfieldsConfig(AppConfig):
                 return
 
         # normal startup
-        from computedfields.models import ComputedFieldsModelType
-        ComputedFieldsModelType._resolve_dependencies()
+        from computedfields.models import Resolver
+        Resolver._resolve_dependencies()
 
         # connect signals
         from computedfields.handlers import (

@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from computedfields.models import ComputedFieldsModelType
+from computedfields.models import Resolver
 from computedfields.graph import ComputedModelsGraph, CycleException
 from collections import Counter
 
@@ -38,7 +38,7 @@ class Command(BaseCommand):
         parser.add_argument('filename', nargs='+', type=str)
 
     def handle(self, *args, **options):
-        graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
+        graph = ComputedModelsGraph(Resolver._computed_models)
         try:
             graph.remove_redundant()
             graph.render(filename=options['filename'][0])

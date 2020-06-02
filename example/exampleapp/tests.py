@@ -1,13 +1,13 @@
 from django.test import TestCase
 from .models import Foo, Bar, Baz
-from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
+from computedfields.models import ComputedFieldsAdminModel, Resolver
 from computedfields.admin import ComputedModelsAdmin
 from django.contrib.admin.sites import AdminSite
 
 
 class TestModels(TestCase):
     def setUp(self):
-        ComputedFieldsModelType._resolve_dependencies(_force=True)
+        Resolver._resolve_dependencies(_force=True)
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
         self.baz = Baz.objects.create(name='baz1', bar=self.bar)
@@ -35,10 +35,10 @@ class TestModels(TestCase):
 
 class TestModelClassesForAdmin(TestCase):
     def setUp(self):
-        ComputedFieldsModelType._resolve_dependencies(_force=True)
+        Resolver._resolve_dependencies(_force=True)
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
-        self.models = set(ComputedFieldsModelType._computed_models.keys())
+        self.models = set(Resolver._computed_models.keys())
 
     def test_models_listed(self):
         models = [obj.model_class() for obj in ComputedFieldsAdminModel.objects.all()]

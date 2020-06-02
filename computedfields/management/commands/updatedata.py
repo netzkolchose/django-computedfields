@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from computedfields.models import ComputedFieldsModelType
+from computedfields.models import Resolver
 
 
 class Command(BaseCommand):
@@ -8,6 +8,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # simply run save on all computed models for now
         # dependencies will be resolved by the post_save handler
-        for model in ComputedFieldsModelType._computed_models:
+        for model in Resolver._computed_models:
             for obj in model.objects.all():
                 obj.save()
