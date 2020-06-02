@@ -9,6 +9,77 @@ from threading import RLock
 from django.core.exceptions import AppRegistryNotReady
 from itertools import chain
 
+# pulled functionality from ComputedFieldsModel
+# FIXME: move to resolver
+
+def _compute(instance, fieldname):
+    """
+    Returns the computed field value for ``fieldname``.
+    Note that this is just a shorthand method for calling the underlying computed
+    field method and does not deal with local MRO, thus should only be used,
+    if the MRO is respected by other means.
+    For quick inspection of a single computed field value that gonna be written
+    to the database, always use ``compute(fieldname)`` instead.
+    """
+    field = instance._computed_fields[fieldname]
+    return field._computed['func'](instance)
+
+
+def compute(instance, fieldname):
+    """
+    Returns the computed field value for ``fieldname``. This method allows
+    to inspect the new calculated value, that would be written to the database
+    by a following ``save()``.
+    """
+    # Getting a single computed value prehand is quite complicated,
+    # as we have to:
+    # - resolve local MRO backwards (stored MRO data is optimized for forward deps)
+    # - calc all local cfs, that the requested one depends on
+    # - stack and rewind interim values, as we dont want to introduce side effects here
+    #   (in fact the save/bulker logic might try to save db calls based on changes)
+    entries = Resolver._local_mro[type(instance)]['fields']
+    mro = Resolver.cf_mro(type(instance), None)
+    if not fieldname in mro:
+        return getattr(instance, fieldname)
+    pos = 1 << mro.index(fieldname)
+    stack = []
+    for field in mro:
+        if field == fieldname:
+            ret = _compute(instance, fieldname)
+            for field, old in stack:
+                # reapply old stack values
+                setattr(instance, field, old)
+            return ret
+        f_mro = entries.get(field, 0)
+        if f_mro & pos:
+            # append old value to stack for later rewinding
+            # calc and set new value for field, if the requested one depends on it
+            stack.append((field, getattr(instance, field)))
+            setattr(instance, field, _compute(instance, field))
+
+
+def update_computedfields(instance, update_fields=None):
+    model = type(instance)
+    cf_mro = Resolver.cf_mro(model, update_fields)
+    if update_fields:
+        update_fields = set(update_fields)
+        update_fields.update(set(cf_mro))
+    for fieldname in cf_mro:
+        setattr(instance, fieldname, _compute(instance, fieldname))
+    if update_fields:
+        return update_fields
+    return None
+
+
+def save_decorator(f):
+    def wrap(self, *args, **kwargs):
+        uf = update_computedfields(self, kwargs.get('update_fields'))
+        if uf:
+            kwargs['update_fields'] = uf
+        return f(self, *args, **kwargs)
+    return wrap
+
+
 # replaces the old metaclass field bootstrapping
 # TODO: move to resolver
 FIELDS = []
@@ -19,9 +90,13 @@ def some_action(*args, **kwargs):
         if f in model._meta.fields:
             Resolver._computed_models.setdefault(model, {})[f.name] = f._computed['depends']
             computed_fields[f.name] = f
-    # monkey patch model cls itself, TODO remove this later on
     if computed_fields:
-        model._computed_fields = computed_fields
+        # place save decorator
+        model.save = save_decorator(model.save)
+        model._computed_fields = computed_fields    # FIXME: to be removed
+        # FIXME: remove with final beta version
+        if issubclass(model, ComputedFieldsModel):
+            print('WARNING: "%s" - subclassing ComputedFieldsModel is deprecated.' % (model))
 
 from django.db.models.signals import class_prepared
 class_prepared.connect(some_action)
@@ -368,7 +443,7 @@ class Resolver:
             for el in qs:
                 has_changed = False
                 for comp_field in mro:
-                    new_value = el._compute(comp_field)
+                    new_value = _compute(el, comp_field)
                     if new_value != getattr(el, comp_field):
                         has_changed = True
                         setattr(el, comp_field, new_value)
@@ -409,123 +484,10 @@ def get_contributing_fks():
     return Resolver._fk_map
 
 
+# FIXME: remove stub with final beta version
 class ComputedFieldsModel(models.Model):
-    """
-    Base class for a computed fields model.
-
-    To use computed fields derive your model from this class
-    and use the ``@computed`` decorator:
-
-    .. code-block:: python
-
-        from django.db import models
-        from computedfields.models import ComputedFieldsModel, computed
-
-        class Person(ComputedFieldsModel):
-            forename = models.CharField(max_length=32)
-            surname = models.CharField(max_length=32)
-
-            @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
-            def combined(self):
-                return u'%s, %s' % (self.surname, self.forename)
-
-    ``combined`` will be turned into a real database field and can be accessed
-    and searched like any other field. During saving the value gets calculated and
-    written to the database. With the method ``compute('fieldname')`` you can
-    inspect the value that will be written, which is useful if you have pending
-    changes:
-
-        >>> person = Person(forename='Leeroy', surname='Jenkins')
-        >>> person.combined             # empty since not saved yet
-        >>> person.compute('combined')  # outputs 'Jenkins, Leeroy'
-        >>> person.save()
-        >>> person.combined             # outputs 'Jenkins, Leeroy'
-        >>> Person.objects.filter(combined__<some condition>)  # used in a queryset
-    """
     class Meta:
         abstract = True
-
-    def _compute(self, fieldname):
-        """
-        Returns the computed field value for ``fieldname``.
-        Note that this is just a shorthand method for calling the underlying computed
-        field method and does not deal with local MRO, thus should only be used,
-        if the MRO is respected by other means.
-        For quick inspection of a single computed field value that gonna be written
-        to the database, always use ``compute(fieldname)`` instead.
-        """
-        field = self._computed_fields[fieldname]
-        return field._computed['func'](self)
-
-    def compute(self, fieldname):
-        """
-        Returns the computed field value for ``fieldname``. This method allows
-        to inspect the new calculated value, that would be written to the database
-        by a following ``save()``.
-        """
-        # Getting a single computed value prehand is quite complicated,
-        # as we have to:
-        # - resolve local MRO backwards (stored MRO data is optimized for forward deps)
-        # - calc all local cfs, that the requested one depends on
-        # - stack and rewind interim values, as we dont want to introduce side effects here
-        #   (in fact the save/bulker logic might try to save db calls based on changes)
-        entries = Resolver._local_mro[type(self)]['fields']
-        mro = Resolver.cf_mro(type(self), None)
-        if not fieldname in mro:
-            return getattr(self, fieldname)
-        pos = 1 << mro.index(fieldname)
-        stack = []
-        for field in mro:
-            if field == fieldname:
-                ret = self._compute(fieldname)
-                for field, old in stack:
-                    # reapply old stack values
-                    setattr(self, field, old)
-                return ret
-            f_mro = entries.get(field, 0)
-            if f_mro & pos:
-                # append old value to stack for later rewinding
-                # calc and set new value for field, if the requested one depends on it
-                stack.append((field, getattr(self, field)))
-                setattr(self, field, self._compute(field))
-
-    def save(self, *args, **kwargs):
-        """
-        Save the current instance. Note that for ``update_fields=None`` (default)
-        all computed fields on the instance will be re-evaluated.
-        If `update_fields` is set, it might get expanded by computed fields
-        that depend on fields listed there.
-        """
-        update_fields = kwargs.get('update_fields')
-        cls = type(self)
-        cf_mro = Resolver.cf_mro(cls, update_fields)
-        if update_fields:
-            update_fields = set(update_fields)
-            # mro_plus: contains cfs, that additionally have to be updated
-            # update_fields_corrected: update_fields expanded by additional cfs from mro
-            mro_plus = set(cf_mro) - update_fields
-            update_fields_corrected = set(update_fields)
-            update_fields_corrected.update(mro_plus)
-            # update update_fields by additional dependent local cfs
-            kwargs['update_fields'] = update_fields_corrected
-            all_computed = not (update_fields_corrected - set(self._computed_fields.keys()))
-            if all_computed:
-                has_changed = False
-                for fieldname in cf_mro:
-                    result = self._compute(fieldname)
-                    if result != getattr(self, fieldname):
-                        has_changed = True
-                        setattr(self, fieldname, result)
-                if not has_changed:
-                    # no save needed, we still need to update dependent objects
-                    update_dependent(self, cls, update_fields_corrected, update_local=False)
-                    return
-                super(ComputedFieldsModel, self).save(*args, **kwargs)
-                return
-        for fieldname in cf_mro:
-            result = self._compute(fieldname)
-            setattr(self, fieldname, result)
-        super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
 def computed(field, depends=None, select_related=None, prefetch_related=None):
