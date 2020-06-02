@@ -76,14 +76,3 @@ class SelfDeps(TestCase):
         g0 = self.groups[0]
         g0.refresh_from_db()
         self.assertEqual(g0.my_members, 'P1') # should be 'P1', not 'P0,P1'
-
-    def test_queryload(self):
-        p0 = self.persons[0]
-        p0.groups.add(*[g for i, g in enumerate(self.groups) if i < 8])
-        with CaptureQueriesContext(connection) as ctx:
-            p0 = self.persons[0]
-            p0.groups.add(self.groups[8], self.groups[9])
-        print(len(ctx.captured_queries))
-        for q in ctx.captured_queries:
-            print(q['sql'])
-            print()

@@ -496,25 +496,6 @@ class ComputedFieldsModel(models.Model, metaclass=ComputedFieldsModelType):
         If `update_fields` is set, it might get expanded by computed fields
         that depend on fields listed there.
         """
-        # TODO: eval correct dealing with update_fields in save:
-        #
-        # Problem:
-        #   update_fields is defined as a positive list containing fields that should be written to database.
-        #   We should not lightheartedly break with that meaning in ComputedFieldsModel.save by obscure auto-adding
-        #   computed fields without further notion.
-        #   On the other hand we already do this for intermodel dependencies without a way to intercept that behavior.
-        #
-        # Solution:
-        #   To have a uniform default handling of dependency updates within computedfields, deviate here from django's
-        #   default behavior - by default we gonna add dependent local computed fields automatically
-        #   to incoming update_fields based on the mro rules. Furthermore implement a keyword argument for save to
-        #   explicitly drop back to django's default behavior (something like `no_autoadd_computedfields`).
-        #   Make a clear statement in the docs about this change in behavior.
-        #
-        # Unclear:
-        #   Do we need a similar mechanism to temporarily switch off cf handling (skipping any signal handler)?
-        #
-        # FIXME: add custom kwargs to finetune cf handling
         update_fields = kwargs.get('update_fields')
         cls = type(self)
         cf_mro = ComputedFieldsModelType.cf_mro(cls, update_fields)
