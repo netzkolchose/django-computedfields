@@ -24,8 +24,9 @@ It can be constructed by setting `depends` to an empty container, e.g.:
             return some_value_pulled_from_elsewhere
 
 Such a field will only be recalculated by calling ``save()`` or ``save(update_fields=[comp, ...])``
-on a model instance. It will not be touched by the auto resolver, unless you force the recalculating
-by directly calling ``update_dependent(MyComputedModel.objects.all(). update_fields=None)``.
+on a model instance. It will not be touched by the auto resolver by default, unless you force
+the recalculating by directly calling ``update_dependent(MyComputedModel.objects.all())``
+(or again with `update_fields` containing `comp`).
 
 .. NOTE::
 
@@ -64,8 +65,7 @@ on the right side as shown above.
     `Warning:` Technically the `self` rule is not needed, if there are no other local computed fields
     depending on `comp` and you always do a full instance save. But this will break as soon as
     you or some third party package uses partial update with ``save(update_fields=[...])``.
-    Thus it is a good idea, to provide a `self` rule right from the beginning for local source
-    fields as well.
+    Thus it is a good idea, to always provide a `self` rule right from the beginning.
 
 
 Local Computed Fields
@@ -89,13 +89,13 @@ To depend on another local computed field, simply list it in the `self` rule as 
             return some__other_calc(self.fieldC, self.comp)
 
 The auto resolver will take care, that the computed fields are calculated in the correct order (`MRO`).
-In the example above it will make sure, that `final` gets recalculated after `comp`. This also works
-with a partial save with ``save(update_fields=['fieldA'])``. Here the resolver will expand `update_fields`
-to ``['fieldA', 'comp', 'final']``.
+In the example above it will make sure, that `final` gets recalculated after `comp` and never vice versa.
+This also works with a partial save with ``save(update_fields=['fieldA'])``. Here the resolver will
+expand `update_fields` to ``['fieldA', 'comp', 'final']``.
 
 .. WARNING::
 
-    For correct `MRO` resolving computed fields should never be omitted in the `self` dependency rule,
+    For correct `MRO` resolving computed fields should never be omitted in dependency rules,
     otherwise the value of dependent computed fields is undetermined.
 
 The ability to depend on other computed fields introduces the problem of possible update cycles:
@@ -156,11 +156,11 @@ Dependencies to fields on related models can be expressed with the relation name
             return ...
 
 Note that the method result should not rely on any other field from the relations than those listed
-in `depends`. If you accidentally forget to list some field here (as shown for `foo.x` above),
+in `depends`. If you accidentally forget to list some field (as shown for `foo.x` above),
 the resolver will not update dependent instances for certain field updates (above: changes to `foo.x`
-may not trigger an update on `Foo.bazs.comp`).
+may not trigger an update on dependent `Foo.bazs.comp`).
 :mod:`django-computedfields` has no measures to spot a forgotten source field here, it fully relies on
-your `depends` declarations. If in doubt, if you correctly caught all relevant source fields,
+your `depends` declarations. If in doubt whether you caught all relevant source fields,
 you probably should test the computed field values against all of your critical business logic actions.
 
 .. WARNING::
@@ -168,7 +168,7 @@ you probably should test the computed field values against all of your critical 
     Accidentally forgetting a source field in `depends` may lead to hard to track down desync issues.
     Make sure, that you listed in `depends` all source fields the method pulls data from.
 
-The same rule applies for deeper nested relations, simply list the relation paths on the left side
+The same rules apply for deeper nested relations, simply list the relation paths on the left side
 with their corresponding source fields on the right side:
 
 .. code-block:: python
@@ -185,7 +185,7 @@ with their corresponding source fields on the right side:
             result += related.fk.xy
         return result
 
-For more advanced things like doing SQL aggregations or field annotations yourself you should refer
+For more advanced things like SQL aggregations or field annotations you should refer
 to the true concrete source fields behind the annotation:
 
 .. code-block:: python
@@ -197,9 +197,10 @@ to the true concrete source fields behind the annotation:
         return self.related_set.aggregate(total=Sum('value'))['total'] or some_default
 
 Here the aggregation is done over the field `value`, thus it should be listed in `depends`
-to properly get updated on changes of `value` on the foreign model. `totals` on the interim queryset
+to properly get updated on changes of related `value`. `totals` on the interim queryset
 is only an annotated field with no persistent database representation, thus cannot be used
-as field in the dependency declaration. Same goes for even more complicated queryset manipulations:
+as source field in the dependency declaration. Same goes for even more complicated queryset
+manipulations:
 
 .. code-block:: python
 
@@ -262,13 +263,13 @@ update. But other than for local computed field dependencies this can be supress
 ``COMPUTEDFIELDS_ALLOW_RECURSION`` to ``True`` in `settings.py`, which allows to use
 computed fields on self referencing models, e.g. tree like structures.
 Note that this currently disables intermodel dependency optimizations project-wide and might result
-in high "update pressure". It also might lead throw a `RuntimeError` later on, if you created
+in high "update pressure". It also might lead to a `RuntimeError` later on, if you created
 a real recursion on record level by accident.
 
 .. TIP::
 
     Depending on other computed fields is an easy way to lower the "update pressure" later on
-    for complicated dependencies by isolating relatively static dependencies from fast turning entities.
+    for complicated dependencies by isolating relatively static entities from fast turning ones.
 
 
 Many-To-Many Fields
@@ -300,8 +301,8 @@ no `pk` value yet. That clause is needed since Django will not allow access to a
 the instance was saved to the database. After the initial save the m2m relation can be accessed,
 now correctly pulling field values across the m2m relation.
 
-M2M fields allow to declare a custom `through` model for the join table. To use computed fields on that model
-or to pull fields from that model to either side of the m2m relation, you cannot use the m2m field anymore.
+M2M fields allow to declare a custom `through` model for the join table. To use computed fields on the
+`through` model or to pull fields from it to either side of the m2m relation, you cannot use the m2m field anymore.
 Instead use the foreign key relations declared on the `through` model in `depends`.
 
 Another important issue around m2m fields is the risk to cause a rather high update pressure later on,
@@ -320,7 +321,7 @@ limited for m2m fields. Also see below under optimization examples.
 Forced Update of Computed Fields
 --------------------------------
 
-The simplest way to force a model to resync all its computed fields is to resave all model instances:
+The simplest way to force a model to resync all its dependent computed fields is to resave all model instances:
 
 .. code-block:: python
 
@@ -328,7 +329,7 @@ The simplest way to force a model to resync all its computed fields is to resave
         inst.save()
 
 While this is easy to comprehend, it has the major drawback of resyncing all dependencies as well
-for every single save step touching those models over and over, thus will show bad runtime for
+for every single save step touching those models over and over. Thus it will show a bad runtime for
 complicated dependencies on big tables. A slightly better way is to call `update_dependent` instead:
 
 .. code-block:: python
@@ -352,7 +353,7 @@ the queryset accordingly:
     # or
     update_dependent(desynced_model.objects.filter(fieldA='xy'), update_fields=['fieldB'])
 
-Here both `save` and `update_dependent` will take care, that all dependent computed fields get updated.
+Here both `save` or `update_dependent` will take care, that all dependent computed fields get updated.
 Again using `update_dependent` has the advantage of further reducing the update pressure. Providing
 `update_fields` will narrow the update path to computed fields that actually rely on the listed
 source fields.
@@ -361,19 +362,14 @@ A full resync of all computed fields project-wide can be triggered by calling th
 `updatedata`. This comes handy if you cannot track down the cause of a desync or do not know which
 models/fields are actually affected.
 
-.. NOTE::
+.. TIP::
 
-    If you do bulk actions yourself, you should always call `update_dependent` afterwards with
-    the changeset. This is also true for normal models, that do not hold any computed fields themselves.
-    Note that the resolver operates on all project-wide models, for models with no dependent
-    computed fields it has a very small footprint in `O(1)`. Also note the documentation for
-    `preupdate_dependent` and `update_dependent_multi`.
+    After bulk actions always call `update_dependent` with the changeset for any model to be on the
+    safe side regarding sync status of computed fields. For models, that are not part of any
+    dependency, `update_dependent` has a very small footprint in `O(1)` and will not hurt performance.
 
-
-
-
-
-
+    Note that bulk actions altering relations itself might need a preparation step with
+    `preupdate_dependent` (see API docs and optimization examples below).
 
 
 Optimization Examples
@@ -391,22 +387,24 @@ Prerequisites
 
 Before trying to optimize things with computed fields it might be a good idea to check where
 you start from. In terms of computed fields there are two major aspects, that might lead to poor
-performance:
+update performance:
 
 - method code itself
     For the method code it is as simple as that - complicated code tends to do more things,
     tends to run longer. Try to keep methods slick, there is no need to wonder about DB query load,
-    if the method code itself eats >90% of the runtime. For big update queries you are already on the
-    hours vs. days track, if not worse. If you cannot get the code any faster, maybe try to give up
-    on the "realtime" approach computed fields offer by deferring the hard work.
+    if the genuine method code itself eats >90% of the runtime (not counting needed ORM lookups).
+    For big update queries you are already on the hours vs. days track, if not worse.
+    If you cannot get the code any faster, maybe try to give up on the "realtime" approach
+    computed fields offer by deferring the hard work.
 
 - query load
     The following ideas will mainly concentrate on query load issues with computed field updates
     and how to gain back some performance. Note that the query load plays a rather important role
-    for computed field updates, as any relation noted in dependencies will turn into an n-case update.
+    for computed field updates, as any relation noted in dependencies is likely to turn into an n-case update.
     In theory this expands to `O(n^nested_relations)`, practically it cuts down earlier due to finite
-    records in the database. Although the auto resolver already tries to optimize model/record access,
-    there is still much room for further optimization.
+    records in the database and agressive model/field filtering done by the resolver. Still there is much
+    room for further optimizations.
+
     Before applying some of the ideas below make sure to profile your project. Tools that might come
     handy for that:
 
@@ -486,17 +484,21 @@ to perform at all, since the initial select for update queryset already has thos
 
 `When to apply this optimization?`
 
-You can try to use it for fk forward relations in dependencies, especially when the keys
-tend to link to rather big sets of items later on. Imagine in the example above, that any `a` instance
-links to ~100 `MyComputedModel` instances. Now when an `a` instance changes, the update resolver has to
-walk the dependency in reverse order, thus doing a `1:n` update. With n=100 we already have to do 300
-subqueries just to pull all the needed data, plus one initial query to select instances for update
-plus one final save query. Makes 302 queries in total. By using `select_related` we can drop that
-to just 2 queries.
+You can try to use it for fk forward relations in dependencies. Imagine in the example above,
+that any `OtherModel` instance links to ~100 `MyComputedModel` instances. Now when an `OtherModel`
+instance changes, the update resolver has to walk the dependency in reverse order, thus doing a `1:n` update.
+With n=100 we already have to do 300 subqueries just to pull all the needed data,
+plus one initial query to select instances for update plus one final save query.
+Makes 302 queries in total. By using `select_related` we can drop that to just 2 queries.
 
 Of course this does not come for free - multiple n:1 relations put into `select_related` will grow
 the temporary JOIN table rather quick, possibly leading to memory / performance issues on the DBMS.
 This is also the reason, why it is not enabled by default.
+
+.. TIP::
+
+    The resolver batches computed field update queries itself with `bulk_update` and a default batch size
+    of 100. This can be further tweaked project-wide in `settings.py` with ``COMPUTEDFIELDS_BATCHSIZE``.
 
 
 Using `prefetch_related`
@@ -513,7 +515,7 @@ is where the real ORM-Fu starts, where some knowledge about relational algebra w
 
 Well yes, as a rule of thumb - as soon as you have a reverse fk relation in some dependency chain, there is a high
 chance to benefit from a `prefetch_related` lookup. This is also true for m2m relations, as they are `reverse_fk.fk`
-on relational level. But more on m2m relations down below.
+relation on DB level. But more on m2m relations in the next section.
 
 Lets try to tackle prefetch with a simple example:
 
@@ -545,12 +547,15 @@ later on:
 - n-cases: likely to be done in batches / bulk actions
 
 For 1-case updates the prefetch rule will behave worse, it will create another rather expensive query to be merged on
-the update queryset in Python for just one item, while the relational manager access in the method (touching `self.foos`)
-would get the interesting items much cheaper with a prefiltered subquery.
+the update queryset in Python for just one `Bar` instance, while the relational manager access in the method
+(touching `self.foos`) would get the linked `Foo` items much cheaper with a prefiltered subquery.
 
 The picture changes dramatically for n-cases update. Without the prefetch rule the related manager access
-would have to query n times for the related items with possible intersections, which creates a lot of
-nonsense database load. With the prefetch rule you can avoid those additional subqueries.
+would have to query `n` times for the related `Foo` items with possible intersections, which creates a lot of
+nonsense database load. With the prefetch rule you replaced those additional subqueries by one additional prefetch lookup,
+saving alot of DB lookups and ORM object mangeling. Of course there is again a downside - the prefetched lookup has to be
+held in memory and gets merged on Python side, which might show negative impact for very large prefetchs. Still for most
+scenarios prefetching will show a much better performance. (Also see Django docs about `prefetch_related`).
 
 Let's go one step further and extend the example by another fk relation behind the reverse one:
 
@@ -575,9 +580,10 @@ Let's go one step further and extend the example by another fk relation behind t
                 result += foo.c.some_baz_field
             return result
 
-With this you changed the chances, that multiple instances of `Foo` might be seen as changed by
-the update resolver, as just a single change of a `Baz` instance might link to multiple `foos`,
-which always turns out as an n-cases update for the computed field.
+With this you changed the chances, that multiple instances of `Foo` might be seen as changed at once by
+the update resolver, as a single change of a `Baz` instance might link to multiple `foos`. Here the
+resolver would have to do an n-cases update for the computed field `comp`, which qualifies for
+a prefetch lookup.
 
 Furthermore we extended the prefetch rule to also contain values from `Baz`, which lifts the need for
 additional subqueries from the `some_baz_field` access in the code. This also could have been achieved
@@ -643,8 +649,8 @@ though:
 
         @computed(models.CharField(max_length=256),
             depends=[
-                ['membership', ['joined_at']],
-                ['membership.group', ['name']]          # replaces groups.name dep
+                ['memberships', ['joined_at']],
+                ['memberships.group', ['name']]         # replaces groups.name dep
             ],
             prefetch_related=['membership__group']
         )
@@ -670,15 +676,27 @@ You should avoid listing the m2m relation and the `through` relations at the sam
 as it will double certain update tasks. Instead rework your m2m dependencies to use the `through` relation,
 and place appropriate prefetch lookups for them.
 
+Another catch with m2m relations and their manager set methods is a high update pressure in general.
+This comes from the fact that a set method may alter dependent computed fields on both m2m ends,
+therefore the resolver has to trigger a full update into both directions. Currently this cannot be avoided,
+since the `m2m_changed` signal does not provide enough details about the affected relation. This is also
+the reason, why the resolver cannot autoexpand dependencies into the `through` model itself. Thus regarding
+performance you should be careful with multiple m2m relations on a model or computed fields with dependencies
+crossing m2m relations forth and back.
+
 .. TIP::
 
-    Performance tip regarding m2m relations - Don't use them with computed fields.
+    Performance tip regarding m2m relations - don't use them with computed fields.
+
+    Avoid depending a computed field on another computed field, that lives behind an m2m relation.
+    It surely will scale bad with any reasonable record count later on leading to expensive
+    repeated update roundtrips with "coffee break" quality for your business logic.
 
 
 "One batch to bind 'em all ..."
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Any everyone working with Django knows, inserting/updating big batches of data can get you into serious
+As anyone working with Django knows, inserting/updating big batches of data can get you into serious
 runtime troubles with the default model instance approach. In conjunction with computed fields
 you will hit that ground much earlier, as even the simplest computed field with just one foreign key relation
 at least doubles the query load, plus the time to run the associated field method, example:
@@ -732,11 +750,12 @@ in fact this happens:
         item.some_field = new_value
         save()
         # post_save signal:
-            update_dependent(item)  # full refesh on dependents
+            update_dependent(item, old)         # full refesh on dependents
 
-Yes, we actually called `updated_dependent` over and over. For the single instance hooks there is no other way
-to guarantee data integrity in between, thus we have to do the full roundtrip for each call (the roundtrip itself
-is rather cheap in this example, but might be much more expensive with more complicated dependencies).
+Yes, we actually called `updated_dependent` over and over. For the single instance signal hooks there is
+no other way to guarantee data integrity in between, thus we have to do the full roundtrip for each call
+(the roundtrip itself is rather cheap in this example, but might be much more expensive with more
+complicated dependencies).
 
 With a bulk action this can be rewritten much shorter:
 
@@ -760,8 +779,8 @@ This can be ensured by placing everything under a transaction:
         OtherModel.objects.filter(some_condition).update(some_field=new_value)
         update_dependent(OtherModel.objects.filter(some_condition), update_fields=['some_field'])
 
-Of course there is a catch in using `update_dependent` directly - bulk actions that change reverse fk relations
-need another preparation step, if they are part of a computed field dependency:
+Of course there is a catch in using `update_dependent` directly - bulk actions altering fk relations
+need another preparation step, if they are part of a computed field dependency as reverse relation:
 
 .. code-block:: python
 
@@ -771,7 +790,7 @@ need another preparation step, if they are part of a computed field dependency:
             return self.children.all().count()
 
     class Child(models.Model):
-        parent = models.ForeignKey(Parent, on_delete=models.CASCADE)
+        parent = models.ForeignKey(Parent, related_name='children', on_delete=models.CASCADE)
 
     ...
     # moving children to new parent by some bulk action
@@ -781,20 +800,20 @@ need another preparation step, if they are part of a computed field dependency:
         update_dependent(Child.objects.filter(some_condition), old=old)
 
 Here `preupdate_dependent` will collect `Parent` instances before the the bulk change. We can feed the old
-relations back to `update_dependent` with the `old` keyword, so parents that just lost some children
+relations back to `update_dependent` with the `old` keyword, so parents, that just lost some children,
 will be updated as well.
 
-But looking at the example code it is not quite obvious, when you have to do this, as the fact is hidden behind
-the related name in `depends` of some computed field elsewhere. Therefore
+But looking at the example code it is not quite obvious, when you have to do this, as the fact is hidden
+behind the related name in `depends` of some computed field elsewhere. Therefore
 :mod:`django-computedfields` exposes a map containing contributing fk relations:
 
 .. code-block:: python
 
     from computedfields.models import get_contributing_fks
     fk_map = get_contributing_fks()
-    fk_map[Child]   # outputs {'fk'}
+    fk_map[Child]   # outputs {'parent'}
 
-    # or programatically
+    # or programatically (done similar in pre_save signal hook for instance.save)
     old = None
     if model in fk_map:
         old = preupdate_dependent(model.objects...)
@@ -809,14 +828,16 @@ the changing records.
 
     When using bulk actions and the `update_dependent` variants yourself, always make sure, that
     the given querysets correctly reflect the changeset made by the bulk action.
-    If in doubt, expand the queryset to a superset to not miss records by accident. 
+    If in doubt, expand the queryset to a superset to not miss records by accident. Special care
+    is needed for bulk actions, that alter fk relations itself.
 
 .. admonition:: A note on raw SQL updates...
 
     Technically it is also possible to resync computed fields with the help of `update_dependent`
-    after updates done by raw SQL queries. For that feed a model queryset reflecting the table, optional filtered
-    by the altered pks back to `update_dependent`. Optionally use the `update_fields` argument to further
-    narrow down the altered fields.
+    after updates done by raw SQL queries. For that feed a model queryset reflecting the table,
+    optionally filtered by the altered pks, back to `update_dependent`. To further narrow down
+    the triggered updates, set `update_fields` to altered field names (watch out to correctly
+    translate `db_column` back to the ORM field name).
 
 
 Complicated & Deep nested
@@ -839,10 +860,11 @@ So you really want to declare computed fields with dependencies like:
             ],
             prefetch_related=[]     # HELP, what to put here?
         )
-        def comp(self):
-            # 1000 lines of code following here
+        def busy_is_better(self):
+            # 1000+ lines of code following here
             ...
 
-To make it short - yes that is possible as long as things are cyclefree. Should you do that - probably not.
+To make it short - yes that is possible as long as things are cycle-free. Should you do that - probably not.
+
 :mod:`django-computedfields` might look like a hammer, but it should not turn all your database needs
-into a nail. Maybe look for some better suiting tool.
+into a nail. Maybe look for some better suited tools crafted for reporting needs.
