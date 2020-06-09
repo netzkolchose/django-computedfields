@@ -16,6 +16,7 @@ class ComputedFieldsException(Exception):
     """
     Base exception raised from computed fields.
     """
+    pass
 
 class CycleException(ComputedFieldsException):
     """
@@ -23,6 +24,7 @@ class CycleException(ComputedFieldsException):
     Contains the found cycle either as list of edges or nodes in
     ``args``.
     """
+    pass
 
 
 class CycleEdgeException(CycleException):

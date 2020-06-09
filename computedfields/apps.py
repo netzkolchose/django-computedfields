@@ -1,11 +1,32 @@
 from django.apps import AppConfig
 import sys
+from django.db.models.signals import class_prepared
+from .resolver import BOOT_COLLECTOR
 
 
 class ComputedfieldsConfig(AppConfig):
     name = 'computedfields'
 
+    def __init__(self, *args, **kwargs):
+        super(ComputedfieldsConfig, self).__init__(*args, **kwargs)
+
+        # register bootup model discovery
+        self.track_bootmodels = False
+        for token in ('makemigrations', 'migrate', 'help'):
+            if token in sys.argv:  # pragma: no cover
+                break
+        else:
+            class_prepared.connect(BOOT_COLLECTOR.add_model)
+            self.track_bootmodels = True
+
+
     def ready(self):
+        # disconnect model discovery to avoid resolver issues with models created later at runtime
+        # FIXME: establish a way to re-init resolver after model changes at runtime
+        if self.track_bootmodels:
+            class_prepared.disconnect(BOOT_COLLECTOR.add_model)
+            BOOT_COLLECTOR.seal()
+
         # do not run graph reduction in migrations
         for token in ('makemigrations', 'migrate', 'help', 'rendergraph', 'createmap'):
             if token in sys.argv:  # pragma: no cover
@@ -13,7 +34,7 @@ class ComputedfieldsConfig(AppConfig):
 
         # normal startup
         from computedfields.models import Resolver
-        Resolver._resolve_dependencies()
+        Resolver.initialize()
 
         # connect signals
         from computedfields.handlers import (
