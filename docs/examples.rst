@@ -652,7 +652,7 @@ though:
                 ['memberships', ['joined_at']],
                 ['memberships.group', ['name']]         # replaces groups.name dep
             ],
-            prefetch_related=['membership__group']
+            prefetch_related=['memberships__group']
         )
         def groupjoins(self):
             if not self.pk:
