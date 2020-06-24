@@ -380,6 +380,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.0.23:
+    - Bugfix: Fixing leaking computed fields in model inheritance.
 - 0.0.22:
     - Automatic dependency expansion on reverse relations.
     - Example documentation.
