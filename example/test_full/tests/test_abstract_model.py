@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import Concrete, ParentOfAbstract, ConcreteChild, ConcreteSubchild, ConcreteWithForeignKey
+from ..models import Concrete, ParentOfAbstract, ConcreteChild, ConcreteSubchild, ConcreteWithForeignKey, ConcreteWithForeignKey2
 
 
 class AbstractModel(TestCase):
@@ -61,3 +61,19 @@ class AbstractModel(TestCase):
         self.assertEqual(parent.children_count, 2)
         self.assertEqual(parent.subchildren_count, 3)
         self.assertEqual(parent.subchildren_count_proxy, 3)
+
+    def test_multi_concrete_models_inheriting_same_abstract_model(self):
+        target = Concrete.objects.create()
+        concrete_target = Concrete.objects.create()
+
+        concrete = ConcreteWithForeignKey.objects.create(target=target, concrete_target=concrete_target)
+        concrete2 = ConcreteWithForeignKey2.objects.create(target=target)
+
+        target.d = 1337
+        target.save()
+
+        concrete.refresh_from_db()
+        concrete2.refresh_from_db()
+
+        self.assertEqual(concrete.d, 1337)
+        self.assertEqual(concrete2.d2, 1337)
