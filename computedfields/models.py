@@ -11,11 +11,18 @@ compute = active_resolver.compute
 computed = active_resolver.computed
 has_computedfields = active_resolver.has_computedfields
 get_contributing_fks = active_resolver.get_contributing_fks
+update_computedfields = active_resolver.update_computedfields
 
-# FIXME: remove stub with final beta version
+
 class ComputedFieldsModel(models.Model):
     class Meta:
         abstract = True
+    
+    def save(self, *args, **kwargs):
+        new_update_fields = update_computedfields(self, kwargs.get('update_fields'))
+        if new_update_fields:
+            kwargs['update_fields'] = new_update_fields
+        return super(ComputedFieldsModel, self).save(*args, **kwargs)
 
 
 class ComputedModelManager(models.Manager):

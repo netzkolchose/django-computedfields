@@ -49,9 +49,6 @@ class Resolver:
         self._local_mro = {}
         self._map_loaded = False
         self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
-
-        # decorated save methods
-        self.wrapped_save_methods = {}
     
     def seal(self):
         self.sealed = True
@@ -131,7 +128,6 @@ class Resolver:
             for field in computedfields:
                 computed_models[model][field.name] = field._computed['depends']
                 _computed_fields[field.name] = field
-            model.save = self.decorate_save(model.save)
             model._computed_fields = _computed_fields  # FIXME: to be removed
         return computed_models
     
@@ -631,23 +627,6 @@ class Resolver:
             return update_fields
         return None
 
-    def decorate_save(self, f):
-        def wrap(self, *args, **kwargs):
-            new_update_fields = active_resolver.update_computedfields(self, kwargs.get('update_fields'))
-            if new_update_fields:
-                kwargs['update_fields'] = new_update_fields
-            return f(self, *args, **kwargs)
-        if f in self.wrapped_save_methods.values():
-            return f
-        if not self.wrapped_save_methods.get(f):
-            self.wrapped_save_methods[f] = wrap
-        return self.wrapped_save_methods[f]
-
-    def undecorate_save(self, f):
-        for orig, wrapped in self.wrapped_save_methods.items():
-            if wrapped == f:
-                return orig
-        return f
 
 # active_resolver is currently treated as global singleton (used in imports)
 active_resolver = Resolver()
