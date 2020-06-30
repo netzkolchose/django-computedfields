@@ -1,5 +1,5 @@
 from django.db import models
-from .resolver import active_resolver
+from .resolver import active_resolver, _ComputedFieldsModelBase
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 
@@ -21,7 +21,7 @@ has_computedfields = active_resolver.has_computedfields
 get_contributing_fks = active_resolver.get_contributing_fks
 
 
-class ComputedFieldsModel(models.Model):
+class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     class Meta:
         abstract = True
     

@@ -123,6 +123,8 @@ class Resolver:
         for model, computedfields in self.models_with_computedfields:
             if not computedfields:
                 continue
+            if not issubclass(model, _ComputedFieldsModelBase):
+                raise ResolverException('{} must be a subclass of ComputedFieldsModel'.format(model))
             computed_models[model] = {}
             _computed_fields = {}       # FIXME: remove from codebase
             for field in computedfields:
@@ -649,3 +651,9 @@ active_resolver = Resolver()
 # new computed fields and add their resolve rules at runtime
 # TODO: investigate on custom resolvers at runtime to be bootstrapped from BOOT_RESOLVER
 BOOT_RESOLVER = active_resolver
+
+
+# placeholder class to test for correct model inheritance
+# during initial field resolving
+class _ComputedFieldsModelBase:
+    pass
