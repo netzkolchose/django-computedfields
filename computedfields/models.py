@@ -3,15 +3,22 @@ from .resolver import active_resolver
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 
+
+# computed field updates
+compute = active_resolver.compute
+update_computedfields = active_resolver.update_computedfields
 update_dependent = active_resolver.update_dependent
 update_dependent_multi = active_resolver.update_dependent_multi
 preupdate_dependent = active_resolver.preupdate_dependent
 preupdate_dependent_multi = active_resolver.preupdate_dependent_multi
-compute = active_resolver.compute
+
+# decorators
 computed = active_resolver.computed
+precomputed = active_resolver.precomputed
+
+# helper
 has_computedfields = active_resolver.has_computedfields
 get_contributing_fks = active_resolver.get_contributing_fks
-update_computedfields = active_resolver.update_computedfields
 
 
 class ComputedFieldsModel(models.Model):

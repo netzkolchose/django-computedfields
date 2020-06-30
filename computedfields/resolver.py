@@ -106,7 +106,7 @@ class Resolver:
         This method returns computed fields as self dependent to simplify field calculation in ``save``.
         """
         # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
-        entry = self._local_mro[model]  # raise here, if model is not a CMFT - FIXME: can happen, if model has no cf
+        entry = self._local_mro[model]  # raise here, if model is not a CMFT
         if update_fields is None:
             return entry['base']
         update_fields = frozenset(update_fields)
@@ -611,12 +611,13 @@ class Resolver:
     def update_computedfields(self, instance, update_fields=None):
         """
         Update values of local computed fields of ``instance``. The values are written
-        to the instance itself (other than for ``compute(fieldname)``). This method is helpful
-        to get updated computed field values in a custom `save` method..............................
+        to the instance itself (other than for ``compute(fieldname)``).
 
         Returns ``None`` or an updated set of field names for ``update_fields``.
         """
         model = type(instance)
+        if not self.has_computedfields(model):
+            return update_fields
         cf_mro = self.cf_mro(model, update_fields)
         if update_fields:
             update_fields = set(update_fields)
@@ -626,6 +627,18 @@ class Resolver:
         if update_fields:
             return update_fields
         return None
+
+    def precomputed(self, f):
+        """
+        Decorator for custom `save` methods, that expect local computed fields
+        to contain already updated values.
+        """
+        def wrap(instance, *args, **kwargs):
+            new_update_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
+            if new_update_fields:
+                kwargs['update_fields'] = new_update_fields
+            return f(instance, *args, **kwargs)
+        return wrap
 
 
 # active_resolver is currently treated as global singleton (used in imports)

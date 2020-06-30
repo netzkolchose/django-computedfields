@@ -1,6 +1,6 @@
 from django.db import models
 import sys
-from computedfields.models import ComputedFieldsModel, computed
+from computedfields.models import ComputedFieldsModel, computed, precomputed
 
 
 def model_factory(name, keys):
@@ -642,3 +642,30 @@ class Group(ComputedFieldsModel):
 class Membership(models.Model):
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='membership')
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='membership')
+
+
+# test precomputed decorator with custom save methods
+class NotPrecomputed(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+    
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(NotPrecomputed, self).save(*args, **kwargs)
+
+class Precomputed(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+    
+    @precomputed
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(Precomputed, self).save(*args, **kwargs)
