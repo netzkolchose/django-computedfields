@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
-from computedfields.models import Resolver
+from computedfields.models import active_resolver
 from django.conf import settings
 from computedfields.graph import ComputedModelsGraph
 import pickle
@@ -13,7 +13,7 @@ class Command(BaseCommand):
             raise CommandError('COMPUTEDFIELDS_MAP is not set in settings.py, abort.')
 
         with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
-            graph = ComputedModelsGraph(Resolver._computed_models)
+            graph = ComputedModelsGraph(active_resolver._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 graph.remove_redundant()
                 graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?

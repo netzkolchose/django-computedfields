@@ -1,14 +1,16 @@
 from django.db import models
-from .resolver import Resolver, has_computedfields, computed
+from .resolver import active_resolver
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
 
-update_dependent = Resolver.update_dependent
-update_dependent_multi = Resolver.update_dependent_multi
-preupdate_dependent = Resolver.preupdate_dependent
-preupdate_dependent_multi = Resolver.preupdate_dependent_multi
-compute = Resolver.compute
-get_contributing_fks = Resolver.get_contributing_fks
+update_dependent = active_resolver.update_dependent
+update_dependent_multi = active_resolver.update_dependent_multi
+preupdate_dependent = active_resolver.preupdate_dependent
+preupdate_dependent_multi = active_resolver.preupdate_dependent_multi
+compute = active_resolver.compute
+computed = active_resolver.computed
+has_computedfields = active_resolver.has_computedfields
+get_contributing_fks = active_resolver.get_contributing_fks
 
 # FIXME: remove stub with final beta version
 class ComputedFieldsModel(models.Model):
@@ -19,7 +21,7 @@ class ComputedFieldsModel(models.Model):
 class ComputedModelManager(models.Manager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
-            *Resolver._computed_models.keys()).values()
+            *active_resolver._computed_models.keys()).values()
         pks = [model.pk for model in objs]
         return ContentType.objects.filter(pk__in=pks)
 
@@ -43,7 +45,7 @@ class ComputedFieldsAdminModel(ContentType):
 class ModelsWithContributingFkFieldsManager(models.Manager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
-            *Resolver._fk_map.keys()).values()
+            *active_resolver._fk_map.keys()).values()
         pks = [model.pk for model in objs]
         return ContentType.objects.filter(pk__in=pks)
 

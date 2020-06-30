@@ -1,5 +1,5 @@
 from django.contrib import admin
-from computedfields.models import ComputedFieldsAdminModel, Resolver, ContributingModelsModel
+from computedfields.models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
 from django.apps import apps
 from django.conf import settings
 from json import dumps
@@ -41,7 +41,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
 
     def dependencies(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        deps = Resolver._computed_models
+        deps = active_resolver._computed_models
         s = dumps(deps.get(model), indent=4, sort_keys=True)
         if pygments:
             s = mark_safe(
@@ -62,7 +62,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     def local_computed_fields_mro(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
         cfs = model._computed_fields.keys()
-        entry = Resolver._local_mro[model]
+        entry = active_resolver._local_mro[model]
         base = entry['base']
         deps = {'mro': base, 'fields': {}}
         for field, value in entry['fields'].items():
@@ -99,7 +99,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
 
     def modelgraph(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        if not Resolver._local_mro.get(model, None):
+        if not active_resolver._local_mro.get(model, None):
             return 'None'
         url = reverse('admin:%s_%s_computedfields_modelgraph' %
                 (self.model._meta.app_label,  self.model._meta.model_name),  args=[inst.id])
@@ -111,11 +111,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         dot = ''
         if Digraph:
             error = ''
-            graph = Resolver._graph
+            graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(Resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver._computed_models)
                 graph.remove_redundant()
             dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
@@ -125,11 +125,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         dot = ''
         if Digraph:
             error = ''
-            graph = Resolver._graph
+            graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(Resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver._computed_models)
                 graph.remove_redundant()
             uniongraph = graph.get_uniongraph()
             dot = mark_safe(str(uniongraph.get_dot()).replace('\n', ' '))
@@ -146,11 +146,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         dot = ''
         if Digraph:
             error = ''
-            graph = Resolver._graph
+            graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(Resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver._computed_models)
                 graph.remove_redundant()
                 graph.get_uniongraph()
             modelgraph = graph.modelgraphs.get(model, None)
@@ -179,7 +179,7 @@ class ContributingModelsAdmin(admin.ModelAdmin):
     
     def vulerable_fk_fields(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        vul = Resolver._fk_map.get(model)
+        vul = active_resolver._fk_map.get(model)
         if vul:
             vul = list(vul)
         vul = dumps(vul, indent=4, sort_keys=True)

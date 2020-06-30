@@ -15,218 +15,7 @@ class ResolverException(ComputedFieldsException):
     pass
 
 
-class Collector:
-    """
-    Collector to track model registration and computed fields during decoration stage.
-    The collected fields and models are used by a resolver to build its resolver maps.
-    """
-    def __init__(self):
-        self.models = set()
-        self.computedfields = set()
-        self.sealed = False
-    
-    def seal(self):
-        self.sealed = True
-
-    def add_model(self, sender, **kwargs):
-        """
-        Endpoint of the class_prepared signal to collect models
-        during ORM registration.
-        """
-        if self.sealed:
-            raise ResolverException('cannot add models on sealed collector')
-        self.models.add(sender)
-
-    def add_field(self, field):
-        """
-        Collects fields from decoration stage of @computed.
-        """
-        if self.sealed:
-            raise ResolverException('cannot add computed fields on sealed collector')
-        self.computedfields.add(field)
-
-    @property
-    def models_with_computedfields(self):
-        """
-        Generator of all traced models and computed fields
-        returning (model, list_of_computedfields).
-        """
-        if not self.sealed:
-            raise ResolverException('collector must be sealed before accessing model field associations')
-        for model in self.models:
-            fields = set()
-            for field in model._meta.fields:
-                if field in self.computedfields:
-                    fields.add(field)
-            yield (model, fields)
-    
-    @property
-    def computedfields_with_models(self):
-        """
-        Generator of all traced models and computed fields
-        returning (computedfield, list_of_models).
-        """
-        if not self.sealed:
-            raise ResolverException('collector must be sealed before accessing model field associations')
-        for field in self.computedfields:
-            models = set()
-            for model in self.models:
-                if field in model._meta.fields:
-                    models.add(model)
-            yield (field, models)
-
-
-# separate boot definitions from later runtime ones
-BOOT_COLLECTOR = Collector()
-
-# runtime collector, initially set to boot collector
-# after resolver init changed to custom collector
-ACTIVE_COLLECTOR = BOOT_COLLECTOR
-
-
-def computed(field, depends=None, select_related=None, prefetch_related=None):
-    """
-    Decorator to create computed fields.
-
-    ``field`` should be a model concrete field instance suitable to hold the result
-    of the decorated method. The decorator expects a
-    keyword argument ``depends`` to indicate dependencies to
-    model fields (local or related). Listed dependencies will automatically
-    update the computed field.
-
-    Examples:
-
-        - create a char field with no further dependencies (not very useful)
-
-            .. code-block:: python
-
-            @computed(models.CharField(max_length=32), depends=[])
-            def ...
-
-        - create a char field with one dependency to the field
-            ``name`` of a foreign key relation ``fk``
-
-            .. code-block:: python
-
-            @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
-            def ...
-
-    Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
-    The relation can span serveral models, simply name the relation
-    in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
-    foreign key, m2m, o2o and their back relations.
-    The fieldnames should be a list of strings of concrete fields on the foreign model.
-
-    With `select_related` and `prefetch_related` you can instruct the dependency resolver
-    to apply certain optimizations on the select for update queryset later on
-    `(currently alpha)`.
-
-    .. NOTE::
-
-        `select_related` and `prefetch_related` are stacked over computed fields
-        of the same model during updates, that are going to be updated.
-        They call the underlying queryset methods of the default model manager,
-        e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
-        If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
-        these attributes will only be available during updates from the resolver, never during
-        instance construction or instances from other queries, unless you applied the same
-        lookups manually. To keep the computed field methods working under any circumstances,
-        it is a good idea not to rely on lookups with custom attributes,
-        or to test explicitly for them in the method.
-
-    .. CAUTION::
-
-        With the dependency auto resolver you can easily create
-        recursive dependencies by accident. Imagine the following:
-
-        .. code-block:: python
-
-            class A(ComputedFieldsModel):
-                @computed(models.CharField(max_length=32), depends=[['b_set', ['comp']]])
-                def comp(self):
-                    return ''.join(b.comp for b in self.b_set.all())
-
-            class B(ComputedFieldsModel):
-                a = models.ForeignKey(A)
-
-                @computed(models.CharField(max_length=32), depends=[['a', ['comp']]])
-                def comp(self):
-                    return a.comp
-
-        Neither an object of ``A`` or ``B`` can be saved, since the
-        ``comp`` fields depend on each other. While it is quite easy
-        to spot for this simple case it might get tricky for more
-        complicated dependencies. Therefore the dependency resolver tries
-        to detect cyclic dependencies and raises a ``CycleNodeException``
-        in case a cycle was found.
-
-        If you experience this in your project try to get in-depth cycle
-        information, either by using the ``rendergraph`` management command or
-        by directly accessing the graph objects:
-
-        - intermodel dependency graph: ``your_model._graph``
-        - mode local dependency graphs: ``your_model._graph.modelgraphs[your_model]``
-        - union graph: ``your_model._graph.get_uniongraph()``
-
-        Also see the graph documentation :ref:`here<graph>`.
-    """
-    def wrap(f):
-        field._computed = {
-            'func': f,
-            'depends': depends,
-            'select_related': select_related,
-            'prefetch_related': prefetch_related
-        }
-        ACTIVE_COLLECTOR.add_field(field)
-        return field
-    return wrap
-
-
-
-
-def update_computedfields(instance, update_fields=None):
-    model = type(instance)
-    cf_mro = Resolver.cf_mro(model, update_fields)
-    if update_fields:
-        update_fields = set(update_fields)
-        update_fields.update(set(cf_mro))
-    for fieldname in cf_mro:
-        setattr(instance, fieldname, Resolver._compute(instance, fieldname))
-    if update_fields:
-        return update_fields
-    return None
-
-
-
-
-wrapped_save_methods = {}
-def decorate_save(f):
-    def wrap(self, *args, **kwargs):
-        new_update_fields = update_computedfields(self, kwargs.get('update_fields'))
-        if new_update_fields:
-            kwargs['update_fields'] = new_update_fields
-        return f(self, *args, **kwargs)
-    if f in wrapped_save_methods.values():
-        return f
-    if not wrapped_save_methods.get(f):
-        wrapped_save_methods[f] = wrap
-    return wrapped_save_methods[f]
-
-def undecorate_save(f):
-    for orig, wrapped in wrapped_save_methods.items():
-        if wrapped == f:
-            return orig
-    return f
-
-
-# replacement for isinstance(model, ComputedFieldsModelType)
-# TODO: move to resolver
-def has_computedfields(model):
-    return model in Resolver._computed_models
-
-
-# TODO: make this instance based with DEFAULT_RESOLVER and custom resolvers?
-class ResolverBase:
+class Resolver:
     """
     Holds the needed data for graph calculations and dependency resolving.
 
@@ -247,6 +36,12 @@ class ResolverBase:
 
 
     def __init__(self):
+        # collector phase data
+        self.models = set()
+        self.computedfields = set()
+        self.sealed = False
+
+        # resolving phase data and final maps
         self._graph = None
         self._computed_models = {}
         self._map = {}
@@ -254,6 +49,59 @@ class ResolverBase:
         self._local_mro = {}
         self._map_loaded = False
         self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+
+        # decorated save methods
+        self.wrapped_save_methods = {}
+    
+    def seal(self):
+        self.sealed = True
+
+    def add_model(self, sender, **kwargs):
+        """
+        Endpoint of the class_prepared signal to collect models
+        during ORM registration.
+        """
+        if self.sealed:
+            raise ResolverException('cannot add models on sealed resolver')
+        self.models.add(sender)
+
+    def add_field(self, field):
+        """
+        Collects fields from decoration stage of @computed.
+        """
+        if self.sealed:
+            raise ResolverException('cannot add computed fields on sealed resolver')
+        self.computedfields.add(field)
+
+    @property
+    def models_with_computedfields(self):
+        """
+        Generator of all traced models and computed fields
+        returning (model, list_of_computedfields).
+        """
+        if not self.sealed:
+            raise ResolverException('resolver must be sealed before accessing model field associations')
+        for model in self.models:
+            fields = set()
+            for field in model._meta.fields:
+                if field in self.computedfields:
+                    fields.add(field)
+            yield (model, fields)
+    
+    @property
+    def computedfields_with_models(self):
+        """
+        Generator of all traced models and computed fields
+        returning (computedfield, list_of_models).
+        """
+        if not self.sealed:
+            raise ResolverException('resolver must be sealed before accessing model field associations')
+        for field in self.computedfields:
+            models = set()
+            for model in self.models:
+                if field in model._meta.fields:
+                    models.add(model)
+            yield (field, models)
 
     def cf_mro(self, model, update_fields=None):
         """
@@ -275,7 +123,7 @@ class ResolverBase:
     def extract_computed_models(self):
         # pull _computed_fields from collector
         computed_models = {}
-        for model, computedfields in ACTIVE_COLLECTOR.models_with_computedfields:
+        for model, computedfields in self.models_with_computedfields:
             if not computedfields:
                 continue
             computed_models[model] = {}
@@ -283,11 +131,14 @@ class ResolverBase:
             for field in computedfields:
                 computed_models[model][field.name] = field._computed['depends']
                 _computed_fields[field.name] = field
-            model.save = decorate_save(model.save)
+            model.save = self.decorate_save(model.save)
             model._computed_fields = _computed_fields  # FIXME: to be removed
         return computed_models
     
     def initialize(self):
+        # resolver must be sealed before doing any map calculations
+        self.seal()
+        # FIXME: skip this step in static map mode
         self._computed_models = self.extract_computed_models()
         self._resolve_dependencies()
 
@@ -332,7 +183,7 @@ class ResolverBase:
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 self._graph.remove_redundant()
                 self._graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
-            self._map = Resolver._graph.generate_lookup_map()
+            self._map = self._graph.generate_lookup_map()
             self._fk_map = self._graph._fk_map
             self._local_mro = self._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
             self._map_loaded = True
@@ -469,7 +320,7 @@ class ResolverBase:
         
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
-        if update_local and has_computedfields(model):
+        if update_local and self.has_computedfields(model):
             # We skip a transaction here in the same sense, as local cf updates are not guarded either.
             qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
             if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
@@ -529,7 +380,7 @@ class ResolverBase:
         for instance in instances:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
 
-            if update_local and has_computedfields(model):
+            if update_local and self.has_computedfields(model):
                 qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
                 self._bulker(qs, None, local_only=True)
 
@@ -657,5 +508,152 @@ class ResolverBase:
             raise AppRegistryNotReady
         return self._fk_map
 
-Resolver = ResolverBase()
-BOOT_RESOLVER = Resolver
+    def computed(self, field, depends=None, select_related=None, prefetch_related=None):
+        """
+        Decorator to create computed fields.
+
+        ``field`` should be a model concrete field instance suitable to hold the result
+        of the decorated method. The decorator expects a
+        keyword argument ``depends`` to indicate dependencies to
+        model fields (local or related). Listed dependencies will automatically
+        update the computed field.
+
+        Examples:
+
+            - create a char field with no further dependencies (not very useful)
+
+                .. code-block:: python
+
+                @computed(models.CharField(max_length=32), depends=[])
+                def ...
+
+            - create a char field with one dependency to the field
+                ``name`` of a foreign key relation ``fk``
+
+                .. code-block:: python
+
+                @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
+                def ...
+
+        Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+        The relation can span serveral models, simply name the relation
+        in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
+        foreign key, m2m, o2o and their back relations.
+        The fieldnames should be a list of strings of concrete fields on the foreign model.
+
+        With `select_related` and `prefetch_related` you can instruct the dependency resolver
+        to apply certain optimizations on the select for update queryset later on
+        `(currently alpha)`.
+
+        .. NOTE::
+
+            `select_related` and `prefetch_related` are stacked over computed fields
+            of the same model during updates, that are going to be updated.
+            They call the underlying queryset methods of the default model manager,
+            e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
+            If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
+            these attributes will only be available during updates from the resolver, never during
+            instance construction or instances from other queries, unless you applied the same
+            lookups manually. To keep the computed field methods working under any circumstances,
+            it is a good idea not to rely on lookups with custom attributes,
+            or to test explicitly for them in the method.
+
+        .. CAUTION::
+
+            With the dependency auto resolver you can easily create
+            recursive dependencies by accident. Imagine the following:
+
+            .. code-block:: python
+
+                class A(ComputedFieldsModel):
+                    @computed(models.CharField(max_length=32), depends=[['b_set', ['comp']]])
+                    def comp(self):
+                        return ''.join(b.comp for b in self.b_set.all())
+
+                class B(ComputedFieldsModel):
+                    a = models.ForeignKey(A)
+
+                    @computed(models.CharField(max_length=32), depends=[['a', ['comp']]])
+                    def comp(self):
+                        return a.comp
+
+            Neither an object of ``A`` or ``B`` can be saved, since the
+            ``comp`` fields depend on each other. While it is quite easy
+            to spot for this simple case it might get tricky for more
+            complicated dependencies. Therefore the dependency resolver tries
+            to detect cyclic dependencies and raises a ``CycleNodeException``
+            in case a cycle was found.
+
+            If you experience this in your project try to get in-depth cycle
+            information, either by using the ``rendergraph`` management command or
+            by directly accessing the graph objects:
+
+            - intermodel dependency graph: ``your_model._graph``
+            - mode local dependency graphs: ``your_model._graph.modelgraphs[your_model]``
+            - union graph: ``your_model._graph.get_uniongraph()``
+
+            Also see the graph documentation :ref:`here<graph>`.
+        """
+        def wrap(f):
+            field._computed = {
+                'func': f,
+                'depends': depends,
+                'select_related': select_related,
+                'prefetch_related': prefetch_related
+            }
+            field.editable = False
+            self.add_field(field)
+            return field
+        return wrap
+
+    def has_computedfields(self, model):
+        """
+        Indicate whether a model has computed fields.
+        """
+        return model in self._computed_models
+
+    def update_computedfields(self, instance, update_fields=None):
+        """
+        Update values of local computed fields of ``instance``. The values are written
+        to the instance itself (other than for ``compute(fieldname)``). This method is helpful
+        to get updated computed field values in a custom `save` method..............................
+
+        Returns ``None`` or an updated set of field names for ``update_fields``.
+        """
+        model = type(instance)
+        cf_mro = self.cf_mro(model, update_fields)
+        if update_fields:
+            update_fields = set(update_fields)
+            update_fields.update(set(cf_mro))
+        for fieldname in cf_mro:
+            setattr(instance, fieldname, self._compute(instance, fieldname))
+        if update_fields:
+            return update_fields
+        return None
+
+    def decorate_save(self, f):
+        def wrap(self, *args, **kwargs):
+            new_update_fields = active_resolver.update_computedfields(self, kwargs.get('update_fields'))
+            if new_update_fields:
+                kwargs['update_fields'] = new_update_fields
+            return f(self, *args, **kwargs)
+        if f in self.wrapped_save_methods.values():
+            return f
+        if not self.wrapped_save_methods.get(f):
+            self.wrapped_save_methods[f] = wrap
+        return self.wrapped_save_methods[f]
+
+    def undecorate_save(self, f):
+        for orig, wrapped in self.wrapped_save_methods.items():
+            if wrapped == f:
+                return orig
+        return f
+
+# active_resolver is currently treated as global singleton (used in imports)
+active_resolver = Resolver()
+
+# BOOT_RESOLVER: resolver that holds all startup declarations and resolve maps
+# gets deactivated after startup, thus it is currently not possible to define
+# new computed fields and add their resolve rules at runtime
+# TODO: investigate on custom resolvers at runtime to be bootstrapped from BOOT_RESOLVER
+BOOT_RESOLVER = active_resolver

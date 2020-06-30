@@ -1,7 +1,7 @@
 from django.apps import AppConfig
 import sys
 from django.db.models.signals import class_prepared
-from .resolver import BOOT_COLLECTOR
+from .resolver import BOOT_RESOLVER
 
 
 class ComputedfieldsConfig(AppConfig):
@@ -16,7 +16,7 @@ class ComputedfieldsConfig(AppConfig):
             if token in sys.argv:  # pragma: no cover
                 break
         else:
-            class_prepared.connect(BOOT_COLLECTOR.add_model)
+            class_prepared.connect(BOOT_RESOLVER.add_model)
             self.track_bootmodels = True
 
 
@@ -24,8 +24,7 @@ class ComputedfieldsConfig(AppConfig):
         # disconnect model discovery to avoid resolver issues with models created later at runtime
         # FIXME: establish a way to re-init resolver after model changes at runtime
         if self.track_bootmodels:
-            class_prepared.disconnect(BOOT_COLLECTOR.add_model)
-            BOOT_COLLECTOR.seal()
+            class_prepared.disconnect(BOOT_RESOLVER.add_model)
 
         # do not run graph reduction in migrations
         for token in ('makemigrations', 'migrate', 'help', 'rendergraph', 'createmap'):
@@ -33,8 +32,7 @@ class ComputedfieldsConfig(AppConfig):
                 return
 
         # normal startup
-        from computedfields.models import Resolver
-        Resolver.initialize()
+        BOOT_RESOLVER.initialize()
 
         # connect signals
         from computedfields.handlers import (
