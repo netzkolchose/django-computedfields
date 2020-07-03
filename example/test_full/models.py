@@ -379,28 +379,6 @@ class SelfB(ComputedFieldsModel):
         return 'C2' + self.c1 + self.a.c4
 
 
-# old depends notation still working
-# FIXME: to be removed with furture version
-class OldDependsParent(ComputedFieldsModel):
-    name = models.CharField(max_length=32)
-
-    @computed(models.CharField(max_length=32), depends=['self#name'])
-    def upper(self):
-        return self.name.upper()
-
-    @computed(models.CharField(max_length=32), depends=['self#upper', 'children'])
-    def proxy(self):
-        return self.upper + str(self.children.all().count())
-
-class OldDependsChild(ComputedFieldsModel):
-    name = models.CharField(max_length=32)
-    parent = models.ForeignKey(OldDependsParent, related_name='children', on_delete=models.CASCADE)
-
-    @computed(models.CharField(max_length=32), depends=['self#name', 'parent#upper'])
-    def parent_and_self(self):
-        return self.parent.upper + self.name
-
-
 # test update_fields expansion, see https://github.com/netzkolchose/django-computedfields/issues/27
 class ChainA(models.Model):
     name = models.CharField(max_length=32)
@@ -573,7 +551,7 @@ class ComputeLocal(ComputedFieldsModel):
     def c7(self):
         return 'c7' + self.c8
 
-    @computed(models.CharField(max_length=32, default=''), depends=[])
+    @computed(models.CharField(max_length=32, default=''))
     def c8(self):
         return 'c8'
 

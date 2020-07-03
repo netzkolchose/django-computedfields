@@ -7,10 +7,6 @@ def pairwise(iterable):
     return zip(a, b)
 
 
-def is_computedfield(model, field):
-    return hasattr(model, '_computed_fields') and field in model._computed_fields
-
-
 def modelname(model):
     return '%s.%s' % (model._meta.app_label, model._meta.verbose_name)
 

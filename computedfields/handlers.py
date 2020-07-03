@@ -103,7 +103,7 @@ def postdelete_handler(sender, instance, **kwargs):
     for model, data in updates.items():
         pks, fields = data
         qs = model.objects.filter(pk__in=pks)
-        active_resolver._bulker(qs, fields)
+        active_resolver.bulk_updater(qs, fields)
 
 
 def merge_pk_maps(m1, m2):
@@ -156,7 +156,7 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            active_resolver._bulker(qs, fields)
+            active_resolver.bulk_updater(qs, fields)
 
     elif action == 'pre_clear':
         # instance updates
@@ -188,4 +188,4 @@ def m2m_handler(sender, instance, **kwargs):
         for model, data in updates.items():
             pks, fields = data
             qs = model.objects.filter(pk__in=pks)
-            active_resolver._bulker(qs, fields)
+            active_resolver.bulk_updater(qs, fields)

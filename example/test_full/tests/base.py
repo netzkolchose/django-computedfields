@@ -22,9 +22,9 @@ class GenericModelTestBase(TestCase):
         models = active_resolver._computed_models
         for modelname, data in mapping.items():
             if data.get('depends'):
-                models[MODELS[modelname]] = {'comp': data.get('depends')}
+                models[MODELS[modelname]]['comp']._computed['depends'] = data.get('depends')
             if data.get('func'):
-                MODELS[modelname]._computed_fields['comp']._computed['func'] = data.get('func')
+                models[MODELS[modelname]]['comp']._computed['func'] = data.get('func')
         active_resolver._resolve_dependencies(_force=True)
         self.graph = active_resolver._graph
 
@@ -37,7 +37,7 @@ class GenericModelTestBase(TestCase):
         for model in models:
             if not hasattr(model, 'needs_reset'):
                 continue
-            models[model] = {}
-            for fielddata in model._computed_fields.values():
-                fielddata._computed['func'] = lambda x: ''
+            models[model]['comp']._computed['depends'] = {}
+            for fieldname, f in models[model].items():
+                f._computed['func'] = lambda x: ''
         self.graph = None

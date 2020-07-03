@@ -41,8 +41,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
 
     def dependencies(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        deps = active_resolver._computed_models
-        s = dumps(deps.get(model), indent=4, sort_keys=True)
+        cf_models = active_resolver._computed_models
+        deps = {}
+        for fieldname, f in cf_models.get(model).items():
+            deps[fieldname] = f._computed['depends']
+        s = dumps(deps, indent=4, sort_keys=True)
         if pygments:
             s = mark_safe(
                     pygments.highlight(s, JsonLexer(stripnl=False),
@@ -51,7 +54,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     
     def computed_fields(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        cfs = list(model._computed_fields.keys())
+        cfs = list(active_resolver._computed_models[model].keys())
         s = dumps(cfs, indent=4, sort_keys=True)
         if pygments:
             s = mark_safe(
@@ -61,7 +64,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     
     def local_computed_fields_mro(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        cfs = model._computed_fields.keys()
+        cfs = active_resolver._computed_models[model].keys()
         entry = active_resolver._local_mro[model]
         base = entry['base']
         deps = {'mro': base, 'fields': {}}

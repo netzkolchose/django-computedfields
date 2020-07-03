@@ -10,7 +10,8 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname, is_computedfield
+from computedfields.helper import pairwise, is_sublist, modelname
+
 
 class ComputedFieldsException(Exception):
     """
@@ -399,6 +400,7 @@ class ComputedModelsGraph(Graph):
         created during model initialization.
         """
         super(ComputedModelsGraph, self).__init__()
+        self._computed_models = computed_models
         self.models = {}
         self.resolved = self.resolve_dependencies(computed_models)
         self.cleaned_data = self._clean_data(self.resolved['global'])
@@ -406,65 +408,6 @@ class ComputedModelsGraph(Graph):
         self._fk_map = self._generate_fk_map()
         self.modelgraphs = {}
         self.union = None
-
-    # FIXME: remove once transition to new depends format is done
-    def _is_old_depends(self, depends):
-        if depends is None:
-            return True
-        return any(isinstance(el, str) for el in depends)
-
-    # FIXME: remove once transition to new depends format is done
-    def _get_local_non_cf_fields(self, model):
-        # get all local fields of a model that are:
-        # - concrete
-        # - not a relation
-        # - not primary key
-        # - not a computed field
-        cfields = getattr(model, '_computed_fields', {}).keys()
-        return {f.name
-            for f in model._meta.get_fields()
-                if f.concrete
-                and not f.auto_created
-                and not f.is_relation
-                and not f.primary_key
-                and not f.name in cfields
-        }
-
-    # FIXME: remove once transition to new depends format is done
-    def _resolve_relational_fields(self, model, path):
-        cls = model
-        for symbol in path.split('.'):
-            try:
-                rel = cls._meta.get_field(symbol)
-            except FieldDoesNotExist:
-                rel = getattr(cls, symbol).rel
-                symbol = (rel.related_name
-                          or rel.related_query_name
-                          or rel.related_model._meta.model_name)
-            cls = rel.related_model
-        return self._get_local_non_cf_fields(cls)
-
-    # FIXME: remove once transition to new depends format is done
-    def _convert_depends(self, local_fields, depends, model):
-        # convert old style depends string into new style
-        result = []
-
-        if depends:
-            path_data = {'self': set(local_fields)} if local_fields else {}
-            for dep in depends:
-                try:
-                    path, field = dep.split('#')
-                    fields = (field,)
-                except ValueError:
-                    path = dep
-                    fields = self._resolve_relational_fields(model, path)
-                path_data.setdefault(path, set()).update(fields)
-            for path, fields in path_data.items():
-                result.append((path, fields))
-        else:
-            # always append local fields
-            result.append(('self', set(local_fields)))
-        return result
 
     def _check_concrete_field(self, model, fieldname):
         if not model._meta.get_field(fieldname).concrete:
@@ -487,24 +430,12 @@ class ComputedModelsGraph(Graph):
         local_deps = {}
         for model, fields in computed_models.items():
             local_fields = None
-            local_deps.setdefault(model, {}) # always add to local to get a result from mro later on
-            for field, depends in fields.items():
+            local_deps.setdefault(model, {})    # always add to local to get a result from mro later on
+            for field, f in fields.items():
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
                 local_deps.setdefault(model, {}).setdefault(field, set())
 
-                if self._is_old_depends(depends):
-                    # print a warning about old depends string
-                    # FIXME: to be removed with future version
-                    # silence test cases
-                    if not model._meta.model_name in ('olddependsparent', 'olddependschild'):
-                        print('WARNING: "%s" on %s contains old depends string format.'
-                            % (field, model))
-                    # translate old depends listing into new format
-                    # note that this pulls all model local fields of underdetemined depends
-                    # declarations:   depends=['relA'] => (('relA', local_fields_on_A),)
-                    if not local_fields:
-                        local_fields = self._get_local_non_cf_fields(model)
-                    depends = self._convert_depends(local_fields, depends, model)
+                depends = f._computed['depends']
 
                 for path, fieldnames in depends:
                     if path == 'self':
@@ -735,7 +666,7 @@ class ComputedModelsGraph(Graph):
             return
         data = self.resolved['local']
         for model, local_deps in data.items():
-            self.modelgraphs[model] = ModelGraph(model, local_deps)
+            self.modelgraphs[model] = ModelGraph(model, local_deps, self._computed_models[model])
             # modelgraph always must be cyclefree, thus we can always do the reduction here
             self.modelgraphs[model].transitive_reduction()
 
@@ -807,7 +738,7 @@ class ModelGraph(Graph):
     """
     Graph to resolve model local computed field dependencies in right calculation order.
     """
-    def __init__(self, model, local_dependencies):
+    def __init__(self, model, local_dependencies, computed_fields):
         super(ModelGraph, self).__init__()
         self.model = model
 
@@ -820,7 +751,7 @@ class ModelGraph(Graph):
         # --> None explicitly updates all computed fields
         # Note: this has to be on all cfs to not skip a non local dependent one by accident
         left = Node('##')
-        for cf in self.model._computed_fields.keys():
+        for cf in computed_fields:
             self.add_edge(Edge(left, Node(cf)))
 
     def transitive_reduction(self):

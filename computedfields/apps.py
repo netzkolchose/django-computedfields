@@ -22,7 +22,6 @@ class ComputedfieldsConfig(AppConfig):
 
     def ready(self):
         # disconnect model discovery to avoid resolver issues with models created later at runtime
-        # FIXME: establish a way to re-init resolver after model changes at runtime
         if self.track_bootmodels:
             class_prepared.disconnect(BOOT_RESOLVER.add_model)
 

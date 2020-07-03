@@ -73,7 +73,7 @@ class Resolver:
     @property
     def models_with_computedfields(self):
         """
-        Generator of all traced models and computed fields
+        Generator of traced models and computed fields
         returning (model, list_of_computedfields).
         """
         if not self.sealed:
@@ -83,7 +83,8 @@ class Resolver:
             for field in model._meta.fields:
                 if field in self.computedfields:
                     fields.add(field)
-            yield (model, fields)
+            if fields:
+                yield (model, fields)
     
     @property
     def computedfields_with_models(self):
@@ -101,26 +102,19 @@ class Resolver:
             yield (field, models)
     
     def extract_computed_models(self):
-        # pull _computed_fields from collected fields and models
-        # note: replaces the old metaclass logic
+        # merge collected computed fields onto models
         computed_models = {}
         for model, computedfields in self.models_with_computedfields:
-            if not computedfields:
-                continue
             if not issubclass(model, _ComputedFieldsModelBase):
                 raise ResolverException('{} must be a subclass of ComputedFieldsModel'.format(model))
             computed_models[model] = {}
-            _computed_fields = {}       # FIXME: remove from codebase
             for field in computedfields:
-                computed_models[model][field.name] = field._computed['depends']
-                _computed_fields[field.name] = field
-            model._computed_fields = _computed_fields  # FIXME: to be removed
+                computed_models[model][field.name] = field
         return computed_models
     
     def initialize(self):
         # resolver must be sealed before doing any map calculations
         self.seal()
-        # FIXME: skip this step in static map mode
         self._computed_models = self.extract_computed_models()
         self._resolve_dependencies()
 
@@ -148,6 +142,12 @@ class Resolver:
         Never do this at runtime in a multithreaded environment or hell
         will break loose. You have been warned ;)
         """
+
+        # TODO: due to the changed bootstrap implementation we can now decide
+        #       on startup, whether a static map has to be re-created
+        #       --> build hash from _computed_models and save in static map
+        #           investigate hot reload?
+
         with self._lock:
             if self._map_loaded and not _force:  # pragma: no cover
                 return
@@ -326,19 +326,19 @@ class Resolver:
             qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
             if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
                 update_fields = set(update_fields)
-            self._bulker(qs, update_fields, local_only=True)
+            self.bulk_updater(qs, update_fields, local_only=True)
         
         updates = self._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
                 pks_updated = {}
                 for qs, fields in updates:
-                    pks_updated[qs.model] = self._bulker(qs, fields, True)
+                    pks_updated[qs.model] = self.bulk_updater(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        self._bulker(qs, fields)
+                        self.bulk_updater(qs, fields)
 
     def update_dependent_multi(self, instances, old=None, update_local=True):
         """
@@ -383,7 +383,7 @@ class Resolver:
 
             if update_local and self.has_computedfields(model):
                 qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
-                self._bulker(qs, None, local_only=True)
+                self.bulk_updater(qs, None, local_only=True)
 
             updates = self._querysets_for_update(model, instance, None)
             for model, data in updates.items():
@@ -394,16 +394,16 @@ class Resolver:
             with transaction.atomic():
                 pks_updated = {}
                 for qs, fields in final.values():
-                    pks_updated[qs.model] = self._bulker(qs, fields, True)
+                    pks_updated[qs.model] = self.bulk_updater(qs, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
                         qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        self._bulker(qs, fields)
+                        self.bulk_updater(qs, fields)
 
-    def _bulker(self, qs, update_fields, return_pks=False, local_only=False):
+    def bulk_updater(self, qs, update_fields, return_pks=False, local_only=False):
         """
-        Update computed fields with `bulk_update`, which gives a speedup of 10-35%.
+        Updates computed fields with optimized `bulk_update`.
         """
         qs = qs.distinct()
 
@@ -413,12 +413,16 @@ class Resolver:
         if update_fields:
             update_fields.update(fields)
 
-        # FIXME: precalc and check prefetch/select related entries during map creation somehow?
+        # TODO: precalc and check prefetch/select related entries during map creation somehow?
         select = set()
         prefetch = []
         for field in fields:
-            select.update(qs.model._computed_fields[field]._computed['select_related'] or [])
-            prefetch.extend(qs.model._computed_fields[field]._computed['prefetch_related'] or [])
+            s_rel = self._computed_models[qs.model][field]._computed['select_related']
+            if s_rel:
+                select.update(s_rel)
+            p_rel = self._computed_models[qs.model][field]._computed['prefetch_related']
+            if p_rel:
+                prefetch.extend(p_rel)
         if select:
             qs = qs.select_related(*select)
         if prefetch:
@@ -431,7 +435,7 @@ class Resolver:
             for el in qs:
                 has_changed = False
                 for comp_field in mro:
-                    new_value = self._compute(el, comp_field)
+                    new_value = self._compute(el, qs.model, comp_field)
                     if new_value != getattr(el, comp_field):
                         has_changed = True
                         setattr(el, comp_field, new_value)
@@ -440,7 +444,8 @@ class Resolver:
                 if len(change) >= self._batchsize:
                     qs.model.objects.bulk_update(change, fields)
                     change = []
-            qs.model.objects.bulk_update(change, fields)
+            if change:
+                qs.model.objects.bulk_update(change, fields)
 
         # trigger dependent comp field updates on all records
         if not local_only:
@@ -449,7 +454,7 @@ class Resolver:
             return set(el.pk for el in qs)
         return
     
-    def _compute(self, instance, fieldname):
+    def _compute(self, instance, model, fieldname):
         """
         Returns the computed field value for ``fieldname``.
         Note that this is just a shorthand method for calling the underlying computed
@@ -458,7 +463,7 @@ class Resolver:
         For quick inspection of a single computed field value that gonna be written
         to the database, always use ``compute(fieldname)`` instead.
         """
-        field = instance._computed_fields[fieldname]
+        field = self._computed_models[model][fieldname]
         return field._computed['func'](instance)
 
     def compute(self, instance, fieldname):
@@ -479,9 +484,10 @@ class Resolver:
         entries = self._local_mro[type(instance)]['fields']
         pos = 1 << mro.index(fieldname)
         stack = []
+        model = type(instance)
         for field in mro:
             if field == fieldname:
-                ret = self._compute(instance, fieldname)
+                ret = self._compute(instance, model, fieldname)
                 for field, old in stack:
                     # reapply old stack values
                     setattr(instance, field, old)
@@ -491,7 +497,7 @@ class Resolver:
                 # append old value to stack for later rewinding
                 # calc and set new value for field, if the requested one depends on it
                 stack.append((field, getattr(instance, field)))
-                setattr(instance, field, self._compute(instance, field))
+                setattr(instance, field, self._compute(instance, model, field))
 
     def get_contributing_fks(self):
         """
@@ -598,7 +604,7 @@ class Resolver:
         def wrap(f):
             field._computed = {
                 'func': f,
-                'depends': depends,
+                'depends': depends or [],
                 'select_related': select_related,
                 'prefetch_related': prefetch_related
             }
@@ -606,12 +612,6 @@ class Resolver:
             self.add_field(field)
             return field
         return wrap
-
-    def has_computedfields(self, model):
-        """
-        Indicate whether a model has computed fields.
-        """
-        return model in self._computed_models
 
     def update_computedfields(self, instance, update_fields=None):
         """
@@ -628,7 +628,7 @@ class Resolver:
             update_fields = set(update_fields)
             update_fields.update(set(cf_mro))
         for fieldname in cf_mro:
-            setattr(instance, fieldname, self._compute(instance, fieldname))
+            setattr(instance, fieldname, self._compute(instance, model, fieldname))
         if update_fields:
             return update_fields
         return None
@@ -644,6 +644,18 @@ class Resolver:
                 kwargs['update_fields'] = new_update_fields
             return f(instance, *args, **kwargs)
         return wrap
+
+    def has_computedfields(self, model):
+        """
+        Indicate whether a model has computed fields.
+        """
+        return model in self._computed_models
+
+    def is_computedfield(self, model, fieldname):
+        """
+        Indicate whether `fieldname` on `model` is a computed field.
+        """
+        return fieldname in self._computed_models.get(model, {}).keys()
 
 
 # active_resolver is currently treated as global singleton (used in imports)
