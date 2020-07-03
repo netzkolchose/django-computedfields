@@ -99,26 +99,10 @@ class Resolver:
                 if field in model._meta.fields:
                     models.add(model)
             yield (field, models)
-
-    def cf_mro(self, model, update_fields=None):
-        """
-        Return mro for local computed field methods for a given set of ``update_fields``.
-        This method returns computed fields as self dependent to simplify field calculation in ``save``.
-        """
-        # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
-        entry = self._local_mro[model]  # raise here, if model is not a CMFT
-        if update_fields is None:
-            return entry['base']
-        update_fields = frozenset(update_fields)
-        base = entry['base']
-        fields = entry['fields']
-        mro = 0
-        for f in update_fields:
-            mro |= fields.get(f, 0)
-        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
     
     def extract_computed_models(self):
-        # pull _computed_fields from collector
+        # pull _computed_fields from collected fields and models
+        # note: replaces the old metaclass logic
         computed_models = {}
         for model, computedfields in self.models_with_computedfields:
             if not computedfields:
@@ -185,6 +169,25 @@ class Resolver:
             self._fk_map = self._graph._fk_map
             self._local_mro = self._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
             self._map_loaded = True
+
+    def get_local_mro(self, model, update_fields=None):
+        """
+        Return mro for local computed field methods for a given set of ``update_fields``.
+        This method returns computed fields as self dependent to simplify field calculation.
+        """
+        # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+        entry = self._local_mro.get(model)
+        if not entry:
+            return []
+        if update_fields is None:
+            return entry['base']
+        update_fields = frozenset(update_fields)
+        base = entry['base']
+        fields = entry['fields']
+        mro = 0
+        for f in update_fields:
+            mro |= fields.get(f, 0)
+        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
     def _querysets_for_update(self, model, instance, update_fields=None, pk_list=False):
         """
@@ -405,7 +408,7 @@ class Resolver:
         qs = qs.distinct()
 
         # correct update_fields by local mro
-        mro = self.cf_mro(qs.model, update_fields)
+        mro = self.get_local_mro(qs.model, update_fields)
         fields = set(mro)
         if update_fields:
             update_fields.update(fields)
@@ -470,10 +473,10 @@ class Resolver:
         # - calc all local cfs, that the requested one depends on
         # - stack and rewind interim values, as we dont want to introduce side effects here
         #   (in fact the save/bulker logic might try to save db calls based on changes)
-        entries = self._local_mro[type(instance)]['fields']
-        mro = self.cf_mro(type(instance), None)
+        mro = self.get_local_mro(type(instance), None)
         if not fieldname in mro:
             return getattr(instance, fieldname)
+        entries = self._local_mro[type(instance)]['fields']
         pos = 1 << mro.index(fieldname)
         stack = []
         for field in mro:
@@ -620,7 +623,7 @@ class Resolver:
         model = type(instance)
         if not self.has_computedfields(model):
             return update_fields
-        cf_mro = self.cf_mro(model, update_fields)
+        cf_mro = self.get_local_mro(model, update_fields)
         if update_fields:
             update_fields = set(update_fields)
             update_fields.update(set(cf_mro))
