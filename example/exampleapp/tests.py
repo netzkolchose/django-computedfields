@@ -1,7 +1,7 @@
 from django.test import TestCase
 from .models import Foo, Bar, Baz
-from computedfields.models import ComputedFieldsAdminModel, active_resolver
-from computedfields.admin import ComputedModelsAdmin
+from computedfields.models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
+from computedfields.admin import ComputedModelsAdmin, ContributingModelsAdmin
 from django.contrib.admin.sites import AdminSite
 
 
@@ -38,6 +38,7 @@ class TestModelClassesForAdmin(TestCase):
         active_resolver._resolve_dependencies(_force=True)
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
+        self.adminobj_contributing = ContributingModelsAdmin(ContributingModelsModel, self.site)
         self.models = set(active_resolver._computed_models.keys())
 
     def test_models_listed(self):
@@ -51,5 +52,15 @@ class TestModelClassesForAdmin(TestCase):
         for instance in ComputedFieldsAdminModel.objects.all():
             self.adminobj.dependencies(instance)
             self.adminobj.name(instance)
+            self.adminobj.computed_fields(instance)
+            self.adminobj.local_computed_fields_mro(instance)
+            self.adminobj.modelgraph(instance)
+            self.adminobj.render_modelgraph({}, instance.pk)
         self.adminobj.get_urls()
         self.adminobj.render_graph({})
+        self.adminobj.render_uniongraph({})
+
+    def test_run_adminclass_contributing_methods(self):
+        for instance in ContributingModelsModel.objects.all():
+            self.adminobj_contributing.vulerable_fk_fields(instance)
+            self.adminobj_contributing.name(instance)
