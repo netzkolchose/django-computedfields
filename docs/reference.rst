@@ -1,33 +1,40 @@
 API Reference
 =============
 
-models
-------
+models.py
+---------
 
 .. automodule:: computedfields.models
    :members:
    :show-inheritance:
 
+resolver.py
+-----------
 
-admin
------
-
-.. automodule:: computedfields.admin
+.. automodule:: computedfields.resolver
    :members:
    :show-inheritance:
 
 
-graph
------
+graph.py
+--------
 
 .. automodule:: computedfields.graph
    :members:
    :show-inheritance:
 
 
-handlers
---------
+handlers.py
+-----------
 
 .. automodule:: computedfields.handlers
+   :members:
+   :show-inheritance:
+
+
+admin.py
+--------
+
+.. automodule:: computedfields.admin
    :members:
    :show-inheritance:

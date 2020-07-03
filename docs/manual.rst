@@ -46,7 +46,7 @@ The module respects optional settings in settings.py:
     recursion check. This comes with the drawback, that the underlying graph cannot
     linearize and optimize the update paths anymore.
 
-- ``COMPUTEDFIELDS_BATCHSIZE`` `new in v0.0.20`
+- ``COMPUTEDFIELDS_BATCHSIZE``
     Set the batch size used for computed field updates by the auto resolver (default 100).
     Internally the updates are done by a `bulk_update` on a computed fields model for all
     affected rows and computed fields. Note that taking a rather high value here might

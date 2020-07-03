@@ -17,29 +17,38 @@ class ResolverException(ComputedFieldsException):
 
 class Resolver:
     """
-    Holds the needed data for graph calculations and dependency resolving.
+    Holds the needed data for graph calculations and runtime dependency resolving.
 
-    After startup the method ``_resolve_dependencies`` gets called by
-    ``app.ready`` to build the dependency resolving map.
-    To avoid the expensive calculations in production mode the map
-    can be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
-    in settings.py to a writable file path and calling the management
-    command ``createmap``.
+    Basic workflow:
+
+        - On django startup a resolver gets instantiated early to track all project-wide
+          model registrations and computed field definitions.
+        - On `app.ready` the computed fields are associated with their models to build
+          a resolver-wide map of models with computed fields (`._computed_models`).
+        - Next the method ``_resolve_dependencies`` builds the resolving maps,
+          either from scratch or by loading them from a pickled map file.
 
     .. NOTE::
 
-        The map file will not be updated automatically and therefore
-        must be recreated by calling the management command
-        ``createmap`` after model changes.
+        To avoid the rather expensive map creation from scratch in production mode later on
+        the map data should be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
+        in settings.py to a writable file path and calling the management
+        command ``createmap``.
+
+        Currently the map file does not support hot recreation/reloading, therefore it must be
+        recreated manually by calling ``createmap`` after model code changes.
+        (This might change in future versions.)
     """
     _lock = RLock()
 
 
     def __init__(self):
         # collector phase data
+        #: Models collected from `class_prepared` signal hook.
         self.models = set()
+        #: Computed field definitions collected from decoration phase.
         self.computedfields = set()
-        self.sealed = False
+        self._sealed = False
 
         # resolving phase data and final maps
         self._graph = None
@@ -51,14 +60,19 @@ class Resolver:
         self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
     
     def seal(self):
-        self.sealed = True
+        """
+        Seal the resolver, so no new models or computed fields can be added anymore.
+        This is a basic security measure to catch runtime model creation with
+        computed fields. Currently this is not supported, trying to do so will raise
+        an exception. (Might change in future versions.)
+        """
+        self._sealed = True
 
     def add_model(self, sender, **kwargs):
         """
-        Endpoint of the class_prepared signal to collect models
-        during ORM registration.
+        `class_prepared` signal hook to collect models during ORM registration.
         """
-        if self.sealed:
+        if self._sealed:
             raise ResolverException('cannot add models on sealed resolver')
         self.models.add(sender)
 
@@ -66,17 +80,17 @@ class Resolver:
         """
         Collects fields from decoration stage of @computed.
         """
-        if self.sealed:
+        if self._sealed:
             raise ResolverException('cannot add computed fields on sealed resolver')
         self.computedfields.add(field)
 
     @property
     def models_with_computedfields(self):
         """
-        Generator of traced models and computed fields
+        Generator of tracked models with computed fields
         returning (model, list_of_computedfields).
         """
-        if not self.sealed:
+        if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing model field associations')
         for model in self.models:
             fields = set()
@@ -89,10 +103,10 @@ class Resolver:
     @property
     def computedfields_with_models(self):
         """
-        Generator of all traced models and computed fields
+        Generator of tracked computed fields and models
         returning (computedfield, list_of_models).
         """
-        if not self.sealed:
+        if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing model field associations')
         for field in self.computedfields:
             models = set()
@@ -102,7 +116,19 @@ class Resolver:
             yield (field, models)
     
     def extract_computed_models(self):
-        # merge collected computed fields onto models
+        """
+        Merge collected computed fields onto their models.
+        Does a mode class type check (must be of `ComputedFieldsModel`).
+
+        Returns a mapping of models with computed field names and fields:
+
+        .. code-block:: python
+
+            {model: {
+                fieldnameA: computed_fieldA,
+                fieldnameB: computed_fieldB}
+            }
+        """
         computed_models = {}
         for model, computedfields in self.models_with_computedfields:
             if not issubclass(model, _ComputedFieldsModelBase):
@@ -113,6 +139,17 @@ class Resolver:
         return computed_models
     
     def initialize(self):
+        """
+        Entrypoint for ``app.ready`` to seal the resolver and trigger
+        the resolver map creation.
+
+        Upon instantiation the resolver is in the collector phase, where it tracks
+        model registrations and computed field decorations.
+
+        After calling `initialize` no more models or fields can be registered
+        to the resolver, and the resolver maps get calculated as static assets
+        on the resolver object.
+        """
         # resolver must be sealed before doing any map calculations
         self.seal()
         self._computed_models = self.extract_computed_models()
@@ -121,7 +158,6 @@ class Resolver:
 
     def _resolve_dependencies(self, force=False, _force=False):
         """
-        This method triggers all the ugly stuff.
         Without providing a map file the calculations are done
         once per process by ``app.ready``. The steps are:
             - create a graph of the dependencies
@@ -133,14 +169,6 @@ class Resolver:
         using a map file for production mode. This method will
         transparently load the map file omitting the graph and map
         creation upon every process creation.
-
-        NOTE: The test cases rely on runtime overrides of the
-        computed model fields dependencies and therefore override the
-        "once per process" rule with ``_force``. Dont use this
-        for your regular model development. If you really need to
-        force the recreation of the graph and map, use ``force`` instead.
-        Never do this at runtime in a multithreaded environment or hell
-        will break loose. You have been warned ;)
         """
 
         # TODO: due to the changed bootstrap implementation we can now decide
@@ -164,16 +192,19 @@ class Resolver:
             self._graph = ComputedModelsGraph(self._computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 self._graph.remove_redundant()
-                self._graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
+                self._graph.get_uniongraph().get_edgepaths()
             self._map = self._graph.generate_lookup_map()
             self._fk_map = self._graph._fk_map
-            self._local_mro = self._graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
+            self._local_mro = self._graph.generate_local_mro_map()
             self._map_loaded = True
 
     def get_local_mro(self, model, update_fields=None):
         """
-        Return mro for local computed field methods for a given set of ``update_fields``.
-        This method returns computed fields as self dependent to simplify field calculation.
+        Return MRO for local computed field methods for a given set of ``update_fields``.
+        The returned list of fieldnames must be calculated in order to correctly update
+        dependent computed field values.
+
+        Returns computed fields as self dependent to simplify local field dependency calculation.
         """
         # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
         entry = self._local_mro.get(model)
@@ -403,7 +434,7 @@ class Resolver:
 
     def bulk_updater(self, qs, update_fields, return_pks=False, local_only=False):
         """
-        Updates computed fields with optimized `bulk_update`.
+        Update dependent computed fields on foreign models with optimized `bulk_update`.
         """
         qs = qs.distinct()
 
@@ -471,6 +502,9 @@ class Resolver:
         Returns the computed field value for ``fieldname``. This method allows
         to inspect the new calculated value, that would be written to the database
         by a following ``save()``.
+
+        Other than calling ``update_computedfields`` on an model instance this call
+        is not destructive for old computed field values.
         """
         # Getting a single computed value prehand is quite complicated,
         # as we have to:
@@ -508,8 +542,8 @@ class Resolver:
         a listing of the currently associated  records with ``preupdate_dependent`` and,
         after doing the bulk change, feed the listing back to ``update_dependent``.
 
-        This mapping can also be inspected as admin view,
-        if ``COMPUTEDFIELDS_ADMIN`` is set to ``True``.
+        This mapping can also be inspected as admin view (set ``COMPUTEDFIELDS_ADMIN``
+        in `settings.py` to ``True``).
         """
         if not self._map_loaded:  # pragma: no cover
             raise AppRegistryNotReady
@@ -529,41 +563,45 @@ class Resolver:
 
             - create a char field with no further dependencies (not very useful)
 
-                .. code-block:: python
+            .. code-block:: python
 
-                @computed(models.CharField(max_length=32), depends=[])
+                @computed(models.CharField(max_length=32))
                 def ...
 
-            - create a char field with one dependency to the field
-                ``name`` of a foreign key relation ``fk``
+            - create a char field with one dependency to the field ``name`` of a foreign key relation ``fk``
 
-                .. code-block:: python
+            .. code-block:: python
 
                 @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
                 def ...
 
-        Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+        Dependencies should be listed as ``['relation_name', concrete_fieldnames]``.
         The relation can span serveral models, simply name the relation
-        in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
-        foreign key, m2m, o2o and their back relations.
-        The fieldnames should be a list of strings of concrete fields on the foreign model.
+        in python style with a dot (e.g. ``'a.b.c'``). A relation can be any of
+        foreign key, m2m, o2o and their back relations. The fieldnames must point to
+        concrete fields on the foreign model.
+
+        .. NOTE::
+
+            Dependencies to model local fields should be list with ``'self'`` as relation name.
 
         With `select_related` and `prefetch_related` you can instruct the dependency resolver
-        to apply certain optimizations on the select for update queryset later on
-        `(currently alpha)`.
+        to apply certain optimizations on the update queryset.
 
         .. NOTE::
 
             `select_related` and `prefetch_related` are stacked over computed fields
-            of the same model during updates, that are going to be updated.
+            of the same model during updates, that are marked for update.
             They call the underlying queryset methods of the default model manager,
             e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
             If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
-            these attributes will only be available during updates from the resolver, never during
-            instance construction or instances from other queries, unless you applied the same
-            lookups manually. To keep the computed field methods working under any circumstances,
+            these attributes will only be available on instances during updates from the resolver, never
+            on newly constructed instances or model instances pulled by other means,
+            unless you applied the same lookups manually.
+
+            To keep the computed field methods working under any circumstances,
             it is a good idea not to rely on lookups with custom attributes,
-            or to test explicitly for them in the method.
+            or to test explicitly for them in the method with an appropriate plan B.
 
         .. CAUTION::
 
@@ -588,8 +626,7 @@ class Resolver:
             ``comp`` fields depend on each other. While it is quite easy
             to spot for this simple case it might get tricky for more
             complicated dependencies. Therefore the dependency resolver tries
-            to detect cyclic dependencies and raises a ``CycleNodeException``
-            in case a cycle was found.
+            to detect cyclic dependencies and might raise a ``CycleNodeException``.
 
             If you experience this in your project try to get in-depth cycle
             information, either by using the ``rendergraph`` management command or
@@ -615,10 +652,22 @@ class Resolver:
 
     def update_computedfields(self, instance, update_fields=None):
         """
-        Update values of local computed fields of ``instance``. The values are written
-        to the instance itself (other than for ``compute(fieldname)``).
+        Update values of local computed fields of ``instance``.
+
+        Other than calling ``.compute`` on an instance, this call overwrites
+        computed field values.
 
         Returns ``None`` or an updated set of field names for ``update_fields``.
+
+        .. NOTE::
+
+            Normally you dont need to call this method yourself, if you respect
+            the inheritance remarks in :class:`.models.ComputedFieldsModel`.
+            Still for complicated late field access and changes in a custom `save` method
+            it might be necessary. For this consult the source code of
+            :meth:`save<.models.ComputedFieldsModel.save>` and
+            :meth:`precomputed<.resolver.Resolver.precomputed>` to get an idea,
+            how to correctly handle `update_fields`.
         """
         model = type(instance)
         if not self.has_computedfields(model):
@@ -636,7 +685,14 @@ class Resolver:
     def precomputed(self, f):
         """
         Decorator for custom `save` methods, that expect local computed fields
-        to contain already updated values.
+        to contain already updated values on enter.
+
+        By default local computed field values are only calculated once by the
+        `ComputedFieldModel.save` method after your own `save` method.
+
+        By placing this decorator on your save method, the values will be updated
+        before entering your method as well. Note that this comes for the price of
+        doubled local computed field calculations (before and after your save method).
         """
         def wrap(instance, *args, **kwargs):
             new_update_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
@@ -647,7 +703,7 @@ class Resolver:
 
     def has_computedfields(self, model):
         """
-        Indicate whether a model has computed fields.
+        Indicate whether `model` has computed fields.
         """
         return model in self._computed_models
 
@@ -659,12 +715,15 @@ class Resolver:
 
 
 # active_resolver is currently treated as global singleton (used in imports)
+#: Currently active resolver.
 active_resolver = Resolver()
 
 # BOOT_RESOLVER: resolver that holds all startup declarations and resolve maps
 # gets deactivated after startup, thus it is currently not possible to define
 # new computed fields and add their resolve rules at runtime
 # TODO: investigate on custom resolvers at runtime to be bootstrapped from BOOT_RESOLVER
+#: Resolver used during django bootstrapping.
+#: This is currently the same as `active_resolver` (treated as global singleton).
 BOOT_RESOLVER = active_resolver
 
 
