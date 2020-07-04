@@ -9,25 +9,18 @@ class ComputedfieldsConfig(AppConfig):
 
     def __init__(self, *args, **kwargs):
         super(ComputedfieldsConfig, self).__init__(*args, **kwargs)
-
-        # register bootup model discovery
-        self.track_bootmodels = False
-        for token in ('makemigrations', 'migrate', 'help'):
-            if token in sys.argv:  # pragma: no cover
-                break
-        else:
-            class_prepared.connect(BOOT_RESOLVER.add_model)
-            self.track_bootmodels = True
+        class_prepared.connect(BOOT_RESOLVER.add_model)
 
 
     def ready(self):
         # disconnect model discovery to avoid resolver issues with models created later at runtime
-        if self.track_bootmodels:
-            class_prepared.disconnect(BOOT_RESOLVER.add_model)
+        class_prepared.disconnect(BOOT_RESOLVER.add_model)
 
-        # do not run graph reduction in migrations
+        # do not run graph reduction in migrations and own commands,
+        # that deal with it in their own specific way
         for token in ('makemigrations', 'migrate', 'help', 'rendergraph', 'createmap'):
             if token in sys.argv:  # pragma: no cover
+                BOOT_RESOLVER.initialize(True)
                 return
 
         # normal startup

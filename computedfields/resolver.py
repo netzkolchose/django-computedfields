@@ -138,7 +138,7 @@ class Resolver:
                 computed_models[model][field.name] = field
         return computed_models
     
-    def initialize(self):
+    def initialize(self, models_only=False):
         """
         Entrypoint for ``app.ready`` to seal the resolver and trigger
         the resolver map creation.
@@ -153,7 +153,8 @@ class Resolver:
         # resolver must be sealed before doing any map calculations
         self.seal()
         self._computed_models = self.extract_computed_models()
-        self._resolve_dependencies()
+        if not models_only:
+            self._resolve_dependencies()
 
 
     def _resolve_dependencies(self, force=False, _force=False):
