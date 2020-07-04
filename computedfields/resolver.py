@@ -5,7 +5,12 @@ from computedfields.graph import ComputedModelsGraph, ComputedFieldsException
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from threading import RLock
-from django.core.exceptions import AppRegistryNotReady
+from .helper import modelname
+from . import __version__
+from hashlib import sha256
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class ResolverException(ComputedFieldsException):
@@ -48,7 +53,6 @@ class Resolver:
         self.models = set()
         #: Computed field definitions collected from decoration phase.
         self.computedfields = set()
-        self._sealed = False
 
         # resolving phase data and final maps
         self._graph = None
@@ -56,8 +60,12 @@ class Resolver:
         self._map = {}
         self._fk_map = {}
         self._local_mro = {}
-        self._map_loaded = False
         self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+
+        # some internal states
+        self._sealed = False        # initial boot phase
+        self._initialized = False   # resolver initialized (computed_models populated)?
+        self._map_loaded = False    # final stage with fully loaded maps
     
     def seal(self):
         """
@@ -114,7 +122,16 @@ class Resolver:
                 if field in model._meta.fields:
                     models.add(model)
             yield (field, models)
-    
+
+    @property
+    def computed_models(self):
+        """
+        Mapping of `ComputedFieldModel` models and their computed fields.
+        """
+        if self._initialized:
+            return self._computed_models
+        raise ResolverException('resolver is not properly initialized')
+
     def extract_computed_models(self):
         """
         Merge collected computed fields onto their models.
@@ -137,7 +154,7 @@ class Resolver:
             for field in computedfields:
                 computed_models[model][field.name] = field
         return computed_models
-    
+
     def initialize(self, models_only=False):
         """
         Entrypoint for ``app.ready`` to seal the resolver and trigger
@@ -153,8 +170,10 @@ class Resolver:
         # resolver must be sealed before doing any map calculations
         self.seal()
         self._computed_models = self.extract_computed_models()
+        self._initialized = True
         if not models_only:
             self._resolve_dependencies()
+            self._map_loaded = True
 
 
     def _resolve_dependencies(self, force=False, _force=False):
@@ -180,24 +199,40 @@ class Resolver:
         with self._lock:
             if self._map_loaded and not _force:  # pragma: no cover
                 return
-            if (getattr(settings, 'COMPUTEDFIELDS_MAP', False)
-                    and not force and not _force):
+            if hasattr(settings, 'COMPUTEDFIELDS_MAP') and not force and not _force:
                 import pickle
                 with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
                     pickled_data = pickle.load(f)
-                    self._map = pickled_data['lookup_map']
-                    self._fk_map = pickled_data['fk_map']
-                    self._local_mro = pickled_data['local_mro']
-                    self._map_loaded = True
-                return
-            self._graph = ComputedModelsGraph(self._computed_models)
+                    if self._calc_modelhash() == pickled_data.get('hash'):
+                        self._map = pickled_data['lookup_map']
+                        self._fk_map = pickled_data['fk_map']
+                        self._local_mro = pickled_data['local_mro']
+                        logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
+                        return
+                logger.warning('COMPUTEDFIELDS_MAP is outdated, doing a full bootstrap.')
+            self._graph = ComputedModelsGraph(self.computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 self._graph.remove_redundant()
                 self._graph.get_uniongraph().get_edgepaths()
             self._map = self._graph.generate_lookup_map()
             self._fk_map = self._graph._fk_map
             self._local_mro = self._graph.generate_local_mro_map()
-            self._map_loaded = True
+
+    def _calc_modelhash(self):
+        """
+        Create a hash from computed models data. This is used to determine,
+        whether a static map is outdated and needs to be re-created.
+        """
+        data = [__version__]
+        for models, fields in self.computed_models.items():
+            field_data = []
+            for fieldname, field in fields.items():
+                rel_data = []
+                for rel, concretes in field._computed['depends']:
+                    rel_data.append(rel + ''.join(sorted(list(concretes))))
+                field_data.append(fieldname + field.get_internal_type() + ''.join(sorted(rel_data)))
+            data.append(modelname(models) + ''.join(sorted(field_data)))
+        return sha256(''.join(sorted(data)).encode('utf-8')).hexdigest()
 
     def get_local_mro(self, model, update_fields=None):
         """
@@ -547,7 +582,7 @@ class Resolver:
         in `settings.py` to ``True``).
         """
         if not self._map_loaded:  # pragma: no cover
-            raise AppRegistryNotReady
+            raise ResolverException('resolver has no maps loaded yet')
         return self._fk_map
 
     def computed(self, field, depends=None, select_related=None, prefetch_related=None):

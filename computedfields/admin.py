@@ -41,7 +41,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
 
     def dependencies(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        cf_models = active_resolver._computed_models
+        cf_models = active_resolver.computed_models
         deps = {}
         for fieldname, f in cf_models.get(model).items():
             deps[fieldname] = f._computed['depends']
@@ -54,7 +54,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     
     def computed_fields(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        cfs = list(active_resolver._computed_models[model].keys())
+        cfs = list(active_resolver.computed_models[model].keys())
         s = dumps(cfs, indent=4, sort_keys=True)
         if pygments:
             s = mark_safe(
@@ -64,7 +64,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
     
     def local_computed_fields_mro(self, inst):
         model = apps.get_model(inst.app_label, inst.model)
-        cfs = active_resolver._computed_models[model].keys()
+        cfs = active_resolver.computed_models[model].keys()
         entry = active_resolver._local_mro[model]
         base = entry['base']
         deps = {'mro': base, 'fields': {}}
@@ -118,7 +118,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(active_resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
             dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
@@ -132,7 +132,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(active_resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
             uniongraph = graph.get_uniongraph()
             dot = mark_safe(str(uniongraph.get_dot()).replace('\n', ' '))
@@ -153,7 +153,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 from computedfields.graph import ComputedModelsGraph
-                graph = ComputedModelsGraph(active_resolver._computed_models)
+                graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
                 graph.get_uniongraph()
             modelgraph = graph.modelgraphs.get(model, None)

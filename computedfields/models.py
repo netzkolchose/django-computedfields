@@ -65,7 +65,7 @@ get_contributing_fks = active_resolver.get_contributing_fks
 class ComputedModelManager(models.Manager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
-            *active_resolver._computed_models.keys()).values()
+            *active_resolver.computed_models.keys()).values()
         pks = [model.pk for model in objs]
         return ContentType.objects.filter(pk__in=pks)
 

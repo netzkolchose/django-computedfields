@@ -38,7 +38,7 @@ class Command(BaseCommand):
         parser.add_argument('filename', nargs='+', type=str)
 
     def handle(self, *args, **options):
-        graph = ComputedModelsGraph(active_resolver._computed_models)
+        graph = ComputedModelsGraph(active_resolver.computed_models)
         try:
             graph.remove_redundant()
             graph.render(filename=options['filename'][0])

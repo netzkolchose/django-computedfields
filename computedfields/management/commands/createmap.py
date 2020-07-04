@@ -13,11 +13,12 @@ class Command(BaseCommand):
             raise CommandError('COMPUTEDFIELDS_MAP is not set in settings.py, abort.')
 
         with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
-            graph = ComputedModelsGraph(active_resolver._computed_models)
+            graph = ComputedModelsGraph(active_resolver.computed_models)
             if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
                 graph.remove_redundant()
                 graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
             pickle.dump({
+                'hash': active_resolver._calc_modelhash(),
                 'lookup_map': graph.generate_lookup_map(),
                 'fk_map': graph._fk_map,
                 'local_mro': graph.generate_local_mro_map()  # also tests for cycles on modelgraphs

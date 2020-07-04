@@ -79,9 +79,11 @@ class CommandTests(GenericModelTestBase):
             map = pickled_data['lookup_map']
             fk_map = pickled_data['fk_map']
             local_mro = pickled_data['local_mro']
+            hash = pickled_data['hash']
             self.assertDictEqual(map, active_resolver._map)
             self.assertDictEqual(fk_map, active_resolver._fk_map)
             self.assertDictEqual(local_mro, active_resolver._local_mro)
+            self.assertEqual(hash, active_resolver._calc_modelhash())
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value
