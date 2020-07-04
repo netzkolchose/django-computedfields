@@ -58,12 +58,35 @@ class MyModel(ComputedFieldsModel):
 
 Now changes to `self.name` or `fk.fieldname` will update `computed_field`.
 
-**NOTE:** The old depends syntax is deprecated and should be replaced with the new syntax.
-It also should contain a `self` entry with local fields to get reliable updates from local field changes.
-This is especially true for advanced usage with `save(update_fields=[...])` or bulk actions.
-The old syntax will be removed with a future version.
-
 
 #### Documentation ####
 
 The documentation can be found [here](https://django-computedfields.readthedocs.io/en/latest/index.html).
+
+
+#### Changelog ####
+
+- *master* - in preparation for  0.1.0
+    - remove custom metaclass, introducing *Resolver* class
+    - new decorator `@precomputed` for custom save methods
+    - old *depends* syntax removed
+    - docs update
+- 0.0.23:
+    - Bugfix: Fixing leaking computed fields in model inheritance.
+- 0.0.22:
+    - Automatic dependency expansion on reverse relations.
+    - Example documentation.
+- 0.0.21:
+    - Bugfix: Fixing undefined _batchsize for pickled map usage.
+- 0.0.20
+    - Use `bulk_update` for computed field updates.
+    - Allow custom update optimizations with *select_related* and *prefetch_related*.
+    - Respect computed field MRO in `compute`.
+    - Allow updates on local computed fields from `update_dependent` simplifying bulk actions on `ComputedFieldsModel`.
+- 0.0.19
+    - Better graph expansion on relation paths with support for *update_fields*.
+- 0.0.18
+    - New *depends* syntax deprecating the old one.
+    - MRO of local computed field methods implemented.
+- 0.0.17
+    - Dropped Python 2.7 and Django 1.11 support.
