@@ -33,7 +33,7 @@ The module respects optional settings in settings.py:
     point this setting to a writeable path and call the management command ``createmap``.
     This should always be used in production mode in multi process environments
     to avoid the expensive map creation on every process launch. If set, the file must
-    be recreated after model changes.
+    be recreated after model changes to get used by the resolver.
 
 - ``COMPUTEDFIELDS_ADMIN``
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
@@ -310,8 +310,7 @@ Management Commands
 -------------------
 
 - ``createmap``
-    recreates the pickled resolver map. Set the file path with ``COMPUTEDFIELDS_MAP``
-    in settings.py.
+    recreates the pickled resolver map file. Set the path with ``COMPUTEDFIELDS_MAP`` in settings.py.
 
 - ``rendergraph <filename>``
     renders the intermodel dependency graph to <filename>. Note that with version 0.0.18

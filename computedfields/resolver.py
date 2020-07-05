@@ -40,9 +40,10 @@ class Resolver:
         in settings.py to a writable file path and calling the management
         command ``createmap``.
 
-        Currently the map file does not support hot recreation/reloading, therefore it must be
-        recreated manually by calling ``createmap`` after model code changes.
-        (This might change in future versions.)
+        Currently the map file does not support automatic recreation, therefore it must be
+        recreated manually by calling ``createmap`` after model code changes. The resolver
+        tracks changes to dependency rules and might warn you about an outdated map file.
+        An outdated map file will not be used, instead a full graph reduction will be done.
     """
     _lock = RLock()
 
