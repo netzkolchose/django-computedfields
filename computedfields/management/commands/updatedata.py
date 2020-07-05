@@ -8,6 +8,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         # simply run save on all computed models for now
         # dependencies will be resolved by the post_save handler
-        for model in active_resolver._computed_models:
+        for model in active_resolver.computed_models:
             for obj in model.objects.all():
                 obj.save()

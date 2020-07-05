@@ -43,14 +43,21 @@ class CommandTests(GenericModelTestBase):
     def test_rendergraph_with_cycle(self):
         import sys
 
-        # raises due to get_nodepaths() in _resolve_dependencies()
+        # normally raises due to get_nodepaths() in _resolve_dependencies()
         self.assertRaises(
             CycleNodeException,
             lambda: self.setDeps({
                     'A': {'depends': [['f_ag', ['comp']]]},
                     'G': {'depends': [['f_ga', ['comp']]]},
-                })
+            })
         )
+
+        # does not raise anymore with COMPUTEDFIELDS_ALLOW_RECURSION
+        setattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', True)
+        self.setDeps({
+            'A': {'depends': [['f_ag', ['comp']]]},
+            'G': {'depends': [['f_ga', ['comp']]]},
+        })
         self.assertEqual(active_resolver._graph.is_cyclefree, False)
         stdout = sys.stdout
         sys.stdout = StringIO()
@@ -58,6 +65,7 @@ class CommandTests(GenericModelTestBase):
         # should have printed cycle info on stdout
         self.assertIn('Warning -  1 cycles in dependencies found:', sys.stdout.getvalue())
         sys.stdout = stdout
+        setattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False)
 
     def test_updatedata(self):
         # TODO: advanced test case

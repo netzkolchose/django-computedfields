@@ -172,56 +172,65 @@ class Resolver:
         self._computed_models = self.extract_computed_models()
         self._initialized = True
         if not models_only:
-            self._resolve_dependencies()
+            self._load_maps()
+
+    def _load_maps(self, _force_recreation=False):
+        """
+        Without providing a pickled map file the calculations are done
+        once per process by ``app.ready``. The steps are:
+            - create intermodel graph of the dependencies
+            - remove redundant paths with cycling check
+            - create modelgraphs for local MRO
+            - merge graphs to uniongraph with cycling check
+            - create final resolver maps
+
+        These initial graph reduction calculations can get expensive for complicated
+        computed fields usage in a project. Therefore you should consider setting
+        COMPUTEDFIELDS_MAP in settings.py and create a pickled map file with `createmap`
+        in multi process environments.
+        """
+        with self._lock:
+            if self._map_loaded and not _force_recreation:  # pragma: no cover
+                return
+
+            maps = None
+            if hasattr(settings, 'COMPUTEDFIELDS_MAP') and not _force_recreation:
+                maps = self._load_pickled_data()
+                if maps:
+                    logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
+                else:
+                    logger.warning('COMPUTEDFIELDS_MAP is outdated, doing a full bootstrap.')
+
+            if not maps:
+                self._graph, maps = self._graph_reduction()
+            self._map = maps['lookup_map']
+            self._fk_map = maps['fk_map']
+            self._local_mro = maps['local_mro']
             self._map_loaded = True
 
-
-    def _resolve_dependencies(self, force=False, _force=False):
+    def _graph_reduction(self):
         """
-        Without providing a map file the calculations are done
-        once per process by ``app.ready``. The steps are:
-            - create a graph of the dependencies
-            - cycling check
-            - remove redundant paths
-            - create final resolver lookup map
-
-        Since these steps are very expensive, you should consider
-        using a map file for production mode. This method will
-        transparently load the map file omitting the graph and map
-        creation upon every process creation.
+        Creates resolver maps from full graph reduction.
         """
-
-        # TODO: due to the changed bootstrap implementation we can now decide
-        #       on startup, whether a static map has to be re-created
-        #       --> build hash from _computed_models and save in static map
-        #           investigate hot reload?
-
-        with self._lock:
-            if self._map_loaded and not _force:  # pragma: no cover
-                return
-            if hasattr(settings, 'COMPUTEDFIELDS_MAP') and not force and not _force:
-                import pickle
-                with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
-                    pickled_data = pickle.load(f)
-                    if self._calc_modelhash() == pickled_data.get('hash'):
-                        self._map = pickled_data['lookup_map']
-                        self._fk_map = pickled_data['fk_map']
-                        self._local_mro = pickled_data['local_mro']
-                        logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
-                        return
-                logger.warning('COMPUTEDFIELDS_MAP is outdated, doing a full bootstrap.')
-            self._graph = ComputedModelsGraph(self.computed_models)
-            if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
-                self._graph.remove_redundant()
-                self._graph.get_uniongraph().get_edgepaths()
-            self._map = self._graph.generate_lookup_map()
-            self._fk_map = self._graph._fk_map
-            self._local_mro = self._graph.generate_local_mro_map()
+        graph = ComputedModelsGraph(self.computed_models)
+        if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
+            graph.remove_redundant()
+            graph.get_uniongraph().get_edgepaths()
+        return (graph, {'lookup_map': graph.generate_lookup_map(),
+                        'fk_map': graph._fk_map,
+                        'local_mro': graph.generate_local_mro_map()})
 
     def _calc_modelhash(self):
         """
         Create a hash from computed models data. This is used to determine,
-        whether a static map is outdated and needs to be re-created.
+        whether a pickled map is outdated.
+
+        To create a reliable hash, this method must account the exact same
+        input data the graphs use for the map creation. Currently used:
+        - computed model identification (modelname)
+        - computed fields name and raw type
+        - depends rules
+        - __version__ to spot lib updates (should always invalidate)
         """
         data = [__version__]
         for models, fields in self.computed_models.items():
@@ -233,6 +242,32 @@ class Resolver:
                 field_data.append(fieldname + field.get_internal_type() + ''.join(sorted(rel_data)))
             data.append(modelname(models) + ''.join(sorted(field_data)))
         return sha256(''.join(sorted(data)).encode('utf-8')).hexdigest()
+
+    def _load_pickled_data(self):
+        """
+        Load pickled resolver maps from path in COMPUTEDFIELDS_MAP.
+
+        Discards loaded data if the computed model hashs are not equal.
+        """
+        import pickle
+        with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
+            data = pickle.load(f)
+            if self._calc_modelhash() == data.get('hash'):
+                return data
+
+    def _write_pickled_data(self):
+        """
+        Pickle resolver maps to path in COMPUTEDFIELDS_MAP.
+        Called by the management command `createmap`.
+
+        Always does a full graph reduction.
+        Adds computed models hash to pickled data.
+        """
+        import pickle
+        _, maps = self._graph_reduction()
+        maps['hash'] = active_resolver._calc_modelhash()
+        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
+            pickle.dump(maps, f, pickle.HIGHEST_PROTOCOL)
 
     def get_local_mro(self, model, update_fields=None):
         """
