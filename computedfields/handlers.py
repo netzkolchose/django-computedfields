@@ -9,9 +9,9 @@ in ``apps.ready``.
     The handlers are not registered in the managment
     commands ``makemigrations``, ``migrate`` and ``help``.
 """
-from computedfields.models import active_resolver
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
+from computedfields.models import active_resolver
 
 
 # thread local storage to hold
@@ -74,10 +74,12 @@ def postsave_handler(sender, instance, **kwargs):
     # do not update for fixtures
     if not kwargs.get('raw'):
         active_resolver.update_dependent(
-            instance, sender, kwargs.get('update_fields'), old=UPDATE_OLD.pop(instance, []), update_local=False)
+            instance, sender, kwargs.get('update_fields'),
+            old=UPDATE_OLD.pop(instance, []), update_local=False
+        )
 
 
-def predelete_handler(sender, instance, **kwargs):
+def predelete_handler(sender, instance, **_):
     """
     ``pre_delete`` handler.
 
@@ -106,14 +108,16 @@ def postdelete_handler(sender, instance, **kwargs):
         active_resolver.bulk_updater(qs, fields)
 
 
-def merge_pk_maps(m1, m2):
-    # simply add m2 elements onto m1
-    for model, data in m2.items():
+def merge_pk_maps(mm1, mm2):
+    """
+    Add mm2 onto mm1.
+    """
+    for model, data in mm2.items():
         m2_pks, m2_fields = data
-        m1_pks, m1_fields = m1.setdefault(model, [set(), set()])
+        m1_pks, m1_fields = mm1.setdefault(model, [set(), set()])
         m1_pks.update(m2_pks)
         m1_fields.update(m2_fields)
-    return m1
+    return mm1
 
 
 def m2m_handler(sender, instance, **kwargs):
@@ -135,7 +139,8 @@ def m2m_handler(sender, instance, **kwargs):
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        active_resolver.update_dependent_multi([instance, model.objects.filter(pk__in=pks)], update_local=False)
+        active_resolver.update_dependent_multi(
+            [instance, model.objects.filter(pk__in=pks)], update_local=False)
 
     elif action == 'pre_remove':
         # instance updates
@@ -166,14 +171,17 @@ def m2m_handler(sender, instance, **kwargs):
         # geez - have to get pks of other side ourself
         inst_model = type(instance)
         if kwargs['reverse']:
-            rel = list(filter(lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                         inst_model._meta.get_fields()))[0]
+            rel = list(filter(
+                lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
+                inst_model._meta.get_fields()
+            ))[0]
             other = active_resolver._querysets_for_update(
                 model, getattr(instance, rel.name).all(), pk_list=True)
         else:
             field = list(filter(
                 lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                    model._meta.get_fields()))[0]
+                model._meta.get_fields()
+            ))[0]
             other = active_resolver._querysets_for_update(
                 model, getattr(instance, field.remote_field.name).all(), pk_list=True)
         if other:

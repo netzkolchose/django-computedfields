@@ -1,7 +1,7 @@
 from django.db import models
-from .resolver import active_resolver, _ComputedFieldsModelBase
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import ugettext_lazy as _
+from .resolver import active_resolver, _ComputedFieldsModelBase
 
 
 class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
@@ -20,15 +20,13 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     """
     class Meta:
         abstract = True
-    
-    def save(self, *args, **kwargs):
+
+    def save(self, force_insert=False, force_update=False, using=None, update_fields=None):
         """
         Overloaded to update computed field values before writing to the database.
         """
-        new_update_fields = update_computedfields(self, kwargs.get('update_fields'))
-        if new_update_fields:
-            kwargs['update_fields'] = new_update_fields
-        return super(ComputedFieldsModel, self).save(*args, **kwargs)
+        update_fields = update_computedfields(self, update_fields)
+        return super(ComputedFieldsModel, self).save(force_insert, force_update, using, update_fields)
 
 
 # some convenient access mappings
@@ -89,7 +87,7 @@ class ComputedFieldsAdminModel(ContentType):
 class ModelsWithContributingFkFieldsManager(models.Manager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
-            *active_resolver._fk_map.keys()).values()
+            *active_resolver.get_contributing_fks().keys()).values()
         pks = [model.pk for model in objs]
         return ContentType.objects.filter(pk__in=pks)
 

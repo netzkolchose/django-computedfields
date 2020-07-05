@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
-from computedfields.models import active_resolver
 from django.conf import settings
+from computedfields.models import active_resolver
 
 
 class Command(BaseCommand):

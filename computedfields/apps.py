@@ -1,5 +1,5 @@
-from django.apps import AppConfig
 import sys
+from django.apps import AppConfig
 from django.db.models.signals import class_prepared
 from .resolver import BOOT_RESOLVER
 
@@ -29,7 +29,8 @@ class ComputedfieldsConfig(AppConfig):
         # connect signals
         from computedfields.handlers import (
             postsave_handler, predelete_handler, postdelete_handler, m2m_handler, get_old_handler)
-        from django.db.models.signals import post_save, m2m_changed, pre_delete, post_delete, pre_save
+        from django.db.models.signals import (
+            post_save, m2m_changed, pre_delete, post_delete, pre_save)
 
         pre_save.connect(
             get_old_handler, sender=None, weak=False, dispatch_uid='COMP_FIELD_PRESAVE')

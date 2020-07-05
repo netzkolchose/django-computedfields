@@ -62,5 +62,5 @@ class TestModelClassesForAdmin(TestCase):
 
     def test_run_adminclass_contributing_methods(self):
         for instance in ContributingModelsModel.objects.all():
-            self.adminobj_contributing.vulerable_fk_fields(instance)
+            self.adminobj_contributing.fk_fields(instance)
             self.adminobj_contributing.name(instance)

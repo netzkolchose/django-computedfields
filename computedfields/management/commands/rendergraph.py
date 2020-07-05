@@ -1,7 +1,8 @@
+from collections import Counter
 from django.core.management.base import BaseCommand
 from computedfields.models import active_resolver
 from computedfields.graph import ComputedModelsGraph, CycleException
-from collections import Counter
+
 
 # maps amount of cycles on a specific edge to color (more than 3 is always blue)
 COLORS = {1: 'red', 2: 'green', 3: 'blue'}

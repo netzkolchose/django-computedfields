@@ -1,15 +1,17 @@
-from django.db import transaction
-from django.db.models import QuerySet, IntegerField
 from collections import OrderedDict
-from computedfields.graph import ComputedModelsGraph, ComputedFieldsException
-from django.conf import settings
-from django.utils.translation import ugettext_lazy as _
 from threading import RLock
+from hashlib import sha256
+import logging
+import pickle
+
+from django.db import transaction
+from django.db.models import QuerySet
+from django.conf import settings
+
+from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
 from . import __version__
-from hashlib import sha256
 
-import logging
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +19,6 @@ class ResolverException(ComputedFieldsException):
     """
     Exception raised during model and field registration or dependency resolving.
     """
-    pass
 
 
 class Resolver:
@@ -67,7 +68,7 @@ class Resolver:
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
-    
+
     def seal(self):
         """
         Seal the resolver, so no new models or computed fields can be added anymore.
@@ -100,7 +101,7 @@ class Resolver:
         returning (model, list_of_computedfields).
         """
         if not self._sealed:
-            raise ResolverException('resolver must be sealed before accessing model field associations')
+            raise ResolverException('resolver must be sealed before accessing models or fields')
         for model in self.models:
             fields = set()
             for field in model._meta.fields:
@@ -108,7 +109,7 @@ class Resolver:
                     fields.add(field)
             if fields:
                 yield (model, fields)
-    
+
     @property
     def computedfields_with_models(self):
         """
@@ -116,7 +117,7 @@ class Resolver:
         returning (computedfield, list_of_models).
         """
         if not self._sealed:
-            raise ResolverException('resolver must be sealed before accessing model field associations')
+            raise ResolverException('resolver must be sealed before accessing models or fields')
         for field in self.computedfields:
             models = set()
             for model in self.models:
@@ -150,7 +151,7 @@ class Resolver:
         computed_models = {}
         for model, computedfields in self.models_with_computedfields:
             if not issubclass(model, _ComputedFieldsModelBase):
-                raise ResolverException('{} must be a subclass of ComputedFieldsModel'.format(model))
+                raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
             computed_models[model] = {}
             for field in computedfields:
                 computed_models[model][field.name] = field
@@ -250,9 +251,8 @@ class Resolver:
 
         Discards loaded data if the computed model hashs are not equal.
         """
-        import pickle
-        with open(settings.COMPUTEDFIELDS_MAP, 'rb') as f:
-            data = pickle.load(f)
+        with open(settings.COMPUTEDFIELDS_MAP, 'rb') as mapfile:
+            data = pickle.load(mapfile)
             if self._calc_modelhash() == data.get('hash'):
                 return data
 
@@ -264,11 +264,10 @@ class Resolver:
         Always does a full graph reduction.
         Adds computed models hash to pickled data.
         """
-        import pickle
         _, maps = self._graph_reduction()
-        maps['hash'] = active_resolver._calc_modelhash()
-        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
-            pickle.dump(maps, f, pickle.HIGHEST_PROTOCOL)
+        maps['hash'] = self._calc_modelhash()
+        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as mapfile:
+            pickle.dump(maps, mapfile, pickle.HIGHEST_PROTOCOL)
 
     def get_local_mro(self, model, update_fields=None):
         """
@@ -288,8 +287,8 @@ class Resolver:
         base = entry['base']
         fields = entry['fields']
         mro = 0
-        for f in update_fields:
-            mro |= fields.get(f, 0)
+        for field in update_fields:
+            mro |= fields.get(field, 0)
         return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
     def _querysets_for_update(self, model, instance, update_fields=None, pk_list=False):
@@ -322,18 +321,18 @@ class Resolver:
                 m_paths.update(paths)
         for model, data in model_updates.items():
             fields, paths = data
-            qs = model.objects.none()
+            queryset = model.objects.none()
             for path in paths:
-                qs |= model.objects.filter(**{path+subquery: instance})
+                queryset |= model.objects.filter(**{path+subquery: instance})
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
                 # since we need to interact with the db anyways
                 # we can already drop empty results here
-                qs = set(qs.distinct().values_list('pk', flat=True))
-                if not qs:
+                queryset = set(queryset.distinct().values_list('pk', flat=True))
+                if not queryset:
                     continue
-            final[model] = [qs, fields]
+            final[model] = [queryset, fields]
         return final
 
     def preupdate_dependent(self, instance, model=None, update_fields=None):
@@ -342,12 +341,12 @@ class Resolver:
         that would turn dirty by a follow-up bulk action.
 
         Feed the mapping back to ``update_dependent`` as ``old`` argument
-        after your bulk action to update deassociated computed field records as well. 
+        after your bulk action to update deassociated computed field records as well.
         """
         if not model:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
-        return self._querysets_for_update(model, instance, pk_list=True)
-    
+        return self._querysets_for_update(model, instance, update_fields, pk_list=True)
+
     def preupdate_dependent_multi(self, instances):
         """
         Same as ``preupdate_dependent``, but for multiple bulk actions at once.
@@ -360,12 +359,13 @@ class Resolver:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
             updates = self._querysets_for_update(model, instance, pk_list=True)
             for model, data in updates.items():
-                m = final.setdefault(model, [model.objects.none(), set()])
-                m[0] |= data[0]       # or'ed querysets
-                m[1].update(data[1])  # add fields
+                query_field = final.setdefault(model, [model.objects.none(), set()])
+                query_field[0] |= data[0]       # or'ed querysets
+                query_field[1].update(data[1])  # add fields
         return final
 
-    def update_dependent(self, instance, model=None, update_fields=None, old=None, update_local=True):
+    def update_dependent(self, instance, model=None, update_fields=None,
+                         old=None, update_local=True):
         """
         Updates all dependent computed fields model objects.
 
@@ -400,7 +400,7 @@ class Resolver:
 
             If the sentinel is beyond reach of the method result, this even ensures to update
             only the newly added records.
-        
+
         Special care is needed, if a bulk action contains foreign key changes,
         that are part of a computed field dependency chain. To correctly handle that case,
         provide the result of ``preupdate_dependent`` as ``old`` argument like this:
@@ -421,27 +421,31 @@ class Resolver:
                 model = instance.model
             else:
                 model = type(instance)
-        
+
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and self.has_computedfields(model):
-            # We skip a transaction here in the same sense, as local cf updates are not guarded either.
-            qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
-            if update_fields: # caution - might update update_fields, we ensure here, that it is always a set type
+            # We skip a transaction here in the same sense,
+            # as local cf updates are not guarded either.
+            queryset = instance if isinstance(instance, QuerySet) \
+                else model.objects.filter(pk__in=[instance.pk])
+            if update_fields:
+                # caution - might update update_fields
+                # we ensure here, that it is always a set type
                 update_fields = set(update_fields)
-            self.bulk_updater(qs, update_fields, local_only=True)
-        
+            self.bulk_updater(queryset, update_fields, local_only=True)
+
         updates = self._querysets_for_update(model, instance, update_fields).values()
         if updates:
             with transaction.atomic():
                 pks_updated = {}
-                for qs, fields in updates:
-                    pks_updated[qs.model] = self.bulk_updater(qs, fields, True)
+                for queryset, fields in updates:
+                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        self.bulk_updater(qs, fields)
+                        queryset = model.objects.filter(pk__in=pks-pks_updated[model])
+                        self.bulk_updater(queryset, fields)
 
     def update_dependent_multi(self, instances, old=None, update_local=True):
         """
@@ -474,7 +478,7 @@ class Resolver:
             this function for model instances of the same type, instead
             aggregate those to querysets and use ``update_dependent``
             (as shown for ``bulk_create`` above).
-        
+
         Again special care is needed, if the bulk actions involve foreign key changes,
         that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
         to create a record mapping of the current state and after your bulk changes feed it back as
@@ -485,33 +489,35 @@ class Resolver:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
 
             if update_local and self.has_computedfields(model):
-                qs = instance if isinstance(instance, QuerySet) else model.objects.filter(pk__in=[instance.pk])
-                self.bulk_updater(qs, None, local_only=True)
+                queryset = instance if isinstance(instance, QuerySet) \
+                    else model.objects.filter(pk__in=[instance.pk])
+                self.bulk_updater(queryset, None, local_only=True)
 
             updates = self._querysets_for_update(model, instance, None)
             for model, data in updates.items():
-                m = final.setdefault(model, [model.objects.none(), set()])
-                m[0] |= data[0]       # or'ed querysets
-                m[1].update(data[1])  # add fields
+                query_field = final.setdefault(model, [model.objects.none(), set()])
+                query_field[0] |= data[0]       # or'ed querysets
+                query_field[1].update(data[1])  # add fields
         if final:
             with transaction.atomic():
                 pks_updated = {}
-                for qs, fields in final.values():
-                    pks_updated[qs.model] = self.bulk_updater(qs, fields, True)
+                for queryset, fields in final.values():
+                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
-                        qs = model.objects.filter(pk__in=pks-pks_updated[model])
-                        self.bulk_updater(qs, fields)
+                        queryset = model.objects.filter(pk__in=pks-pks_updated[model])
+                        self.bulk_updater(queryset, fields)
 
-    def bulk_updater(self, qs, update_fields, return_pks=False, local_only=False):
+    def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False):
         """
         Update dependent computed fields on foreign models with optimized `bulk_update`.
         """
-        qs = qs.distinct()
+        queryset = queryset.distinct()
+        model = queryset.model
 
         # correct update_fields by local mro
-        mro = self.get_local_mro(qs.model, update_fields)
+        mro = self.get_local_mro(queryset.model, update_fields)
         fields = set(mro)
         if update_fields:
             update_fields.update(fields)
@@ -520,43 +526,37 @@ class Resolver:
         select = set()
         prefetch = []
         for field in fields:
-            s_rel = self._computed_models[qs.model][field]._computed['select_related']
-            if s_rel:
-                select.update(s_rel)
-            p_rel = self._computed_models[qs.model][field]._computed['prefetch_related']
-            if p_rel:
-                prefetch.extend(p_rel)
+            select.update(self._computed_models[model][field]._computed['select_related'] or [])
+            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'] or [])
         if select:
-            qs = qs.select_related(*select)
+            queryset = queryset.select_related(*select)
         if prefetch:
-            qs = qs.prefetch_related(*prefetch)
+            queryset = queryset.prefetch_related(*prefetch)
 
         # do bulk_update on computed fields in question
         # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
         if fields:
             change = []
-            for el in qs:
+            for elem in queryset:
                 has_changed = False
                 for comp_field in mro:
-                    new_value = self._compute(el, qs.model, comp_field)
-                    if new_value != getattr(el, comp_field):
+                    new_value = self._compute(elem, model, comp_field)
+                    if new_value != getattr(elem, comp_field):
                         has_changed = True
-                        setattr(el, comp_field, new_value)
+                        setattr(elem, comp_field, new_value)
                 if has_changed:
-                    change.append(el)
+                    change.append(elem)
                 if len(change) >= self._batchsize:
-                    qs.model.objects.bulk_update(change, fields)
+                    model.objects.bulk_update(change, fields)
                     change = []
             if change:
-                qs.model.objects.bulk_update(change, fields)
+                model.objects.bulk_update(change, fields)
 
         # trigger dependent comp field updates on all records
         if not local_only:
-            self.update_dependent(qs, qs.model, fields, update_local=False)
-        if return_pks:
-            return set(el.pk for el in qs)
-        return
-    
+            self.update_dependent(queryset, model, fields, update_local=False)
+        return set(el.pk for el in queryset) if return_pks else None
+
     def _compute(self, instance, model, fieldname):
         """
         Returns the computed field value for ``fieldname``.
@@ -594,9 +594,9 @@ class Resolver:
         for field in mro:
             if field == fieldname:
                 ret = self._compute(instance, model, fieldname)
-                for field, old in stack:
+                for field2, old in stack:
                     # reapply old stack values
-                    setattr(instance, field, old)
+                    setattr(instance, field2, old)
                 return ret
             f_mro = entries.get(field, 0)
             if f_mro & pos:
@@ -640,7 +640,8 @@ class Resolver:
                 @computed(models.CharField(max_length=32))
                 def ...
 
-            - create a char field with one dependency to the field ``name`` of a foreign key relation ``fk``
+            - create a char field with one dependency to the field ``name`` of a
+              foreign key relation ``fk``
 
             .. code-block:: python
 
@@ -666,10 +667,10 @@ class Resolver:
             of the same model during updates, that are marked for update.
             They call the underlying queryset methods of the default model manager,
             e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
-            If your optimizations contain custom attributes (as with `to_attr` of a ``Prefetch`` object),
-            these attributes will only be available on instances during updates from the resolver, never
-            on newly constructed instances or model instances pulled by other means,
-            unless you applied the same lookups manually.
+            If your optimizations contain custom attributes (as with `to_attr` of a
+            ``Prefetch`` object), these attributes will only be available on instances
+            during updates from the resolver, never on newly constructed instances or
+            model instances pulled by other means, unless you applied the same lookups manually.
 
             To keep the computed field methods working under any circumstances,
             it is a good idea not to rely on lookups with custom attributes,
@@ -710,9 +711,9 @@ class Resolver:
 
             Also see the graph documentation :ref:`here<graph>`.
         """
-        def wrap(f):
+        def wrap(func):
             field._computed = {
-                'func': f,
+                'func': func,
                 'depends': depends or [],
                 'select_related': select_related,
                 'prefetch_related': prefetch_related
@@ -754,7 +755,7 @@ class Resolver:
             return update_fields
         return None
 
-    def precomputed(self, f):
+    def precomputed(self, func):
         """
         Decorator for custom `save` methods, that expect local computed fields
         to contain already updated values on enter.
@@ -770,7 +771,7 @@ class Resolver:
             new_update_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
             if new_update_fields:
                 kwargs['update_fields'] = new_update_fields
-            return f(instance, *args, **kwargs)
+            return func(instance, *args, **kwargs)
         return wrap
 
     def has_computedfields(self, model):
