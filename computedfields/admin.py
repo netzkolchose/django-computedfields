@@ -7,7 +7,9 @@ from django.urls import reverse, NoReverseMatch
 from django.conf.urls import url
 from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
-from .models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
+from .models import ComputedFieldsAdminModel, ContributingModelsModel
+from .resolver import active_resolver
+from .graph import ComputedModelsGraph
 try:
     import pygments
     from pygments.lexers import JsonLexer
@@ -135,7 +137,6 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
-                from computedfields.graph import ComputedModelsGraph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
             dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
@@ -152,7 +153,6 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
-                from computedfields.graph import ComputedModelsGraph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
             uniongraph = graph.get_uniongraph()
@@ -176,7 +176,6 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             graph = active_resolver._graph
             if not graph:
                 # we are in map file mode - create new graph
-                from computedfields.graph import ComputedModelsGraph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
                 graph.remove_redundant()
                 graph.get_uniongraph()

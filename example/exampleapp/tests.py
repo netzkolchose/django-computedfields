@@ -1,8 +1,8 @@
 from django.test import TestCase
-from .models import Foo, Bar, Baz
+from django.contrib.admin.sites import AdminSite
 from computedfields.models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
 from computedfields.admin import ComputedModelsAdmin, ContributingModelsAdmin
-from django.contrib.admin.sites import AdminSite
+from .models import Foo, Bar, Baz
 
 
 class TestModels(TestCase):
@@ -48,7 +48,7 @@ class TestModelClassesForAdmin(TestCase):
         self.assertIn(Baz, models)
         self.assertEqual(set(models), self.models)
 
-    def test_run_adminclass_methods(self):
+    def test_run_adminclasses(self):
         for instance in ComputedFieldsAdminModel.objects.all():
             self.adminobj.dependencies(instance)
             self.adminobj.name(instance)
@@ -59,8 +59,22 @@ class TestModelClassesForAdmin(TestCase):
         self.adminobj.get_urls()
         self.adminobj.render_graph({})
         self.adminobj.render_uniongraph({})
+        for instance in ContributingModelsModel.objects.all():
+            self.adminobj_contributing.fk_fields(instance)
+            self.adminobj_contributing.name(instance)
 
-    def test_run_adminclass_contributing_methods(self):
+    def test_run_adminclasses_pickledmap(self):
+        active_resolver._graph = None
+        for instance in ComputedFieldsAdminModel.objects.all():
+            self.adminobj.dependencies(instance)
+            self.adminobj.name(instance)
+            self.adminobj.computed_fields(instance)
+            self.adminobj.local_computed_fields_mro(instance)
+            self.adminobj.modelgraph(instance)
+            self.adminobj.render_modelgraph({}, instance.pk)
+        self.adminobj.get_urls()
+        self.adminobj.render_graph({})
+        self.adminobj.render_uniongraph({})
         for instance in ContributingModelsModel.objects.all():
             self.adminobj_contributing.fk_fields(instance)
             self.adminobj_contributing.name(instance)

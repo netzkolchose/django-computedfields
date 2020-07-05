@@ -11,7 +11,7 @@ in ``apps.ready``.
 """
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
-from computedfields.models import active_resolver
+from .resolver import active_resolver
 
 
 # thread local storage to hold
