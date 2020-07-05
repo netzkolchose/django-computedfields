@@ -647,3 +647,23 @@ class Precomputed(ComputedFieldsModel):
         self._temp = self.upper # store upper value to eval in test
         self.name = 'changed'   # ugly part - some concrete fields gets changed here
         super(Precomputed, self).save(*args, **kwargs)
+
+
+# fixture and updatedata testing
+class FixtureParent(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.IntegerField(default=0), depends=[['children', ['parent']]])
+    def children_count(self):
+        return self.children.count()
+
+class FixtureChild(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(FixtureParent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[
+        ['self', ['name']],
+        ['parent', ['name', 'children_count']]
+    ])
+    def path(self):
+        return '/{}#{}/{}'.format(self.parent.name, self.parent.children_count, self.name)
