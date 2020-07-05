@@ -44,7 +44,7 @@ class CycleNodeException(CycleException):
     pass
 
 
-class Edge(object):
+class Edge:
     """
     Class for representing an edge in ``Graph``.
     The instances are created as singletons,
@@ -82,7 +82,7 @@ class Edge(object):
         return id(self)
 
 
-class Node(object):
+class Node:
     """
     Class for representing a node in ``Graph``.
     The instances are created as singletons,
@@ -117,7 +117,7 @@ class Node(object):
         return id(self)
 
 
-class Graph(object):
+class Graph:
     """
     .. _graph:
 
