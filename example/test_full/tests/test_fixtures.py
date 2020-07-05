@@ -51,8 +51,22 @@ class TestUpdatedata(TestCase):
         self.assertEqual(any(FixtureChild.objects.all().values_list('path', flat=True)), False)
 
     def test_computedfields_resync(self):
-        from time import time
         call_command('updatedata')  # expensive since resyncing all cfs in test models (~120ms)
+        self.assertEqual(list(FixtureParent.objects.all().values_list('children_count', flat=True)), [10, 0, 0])
+        self.assertEqual(
+            list(FixtureChild.objects.all().values_list('path', flat=True)),
+            ['/A#10/' + str(i) for i in range(10)]
+        )
+
+    def test_computedfields_resync_advanced(self):
+        # with good knowledge of what has changed and the dependency tree we can narrow down the resync
+        # in the test data:
+        # - FixtureParent records loaded (desync children_count)
+        # - FixtureChild records loaded (desync path)
+        # - FixtureParent.children_count depends on FixtureChild.parent only
+        # --> we only need to trigger resync on children records, the resolver refreshs parents automatically
+        from computedfields.resolver import active_resolver
+        active_resolver.update_dependent(FixtureChild.objects.all())  # ~10 times faster than updatedata
         self.assertEqual(list(FixtureParent.objects.all().values_list('children_count', flat=True)), [10, 0, 0])
         self.assertEqual(
             list(FixtureChild.objects.all().values_list('path', flat=True)),
