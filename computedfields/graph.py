@@ -396,8 +396,7 @@ class ComputedModelsGraph(Graph):
     """
     def __init__(self, computed_models):
         """
-        ``computed_fields`` is the ``ComputedFieldsModelType._computed_models``
-        created during model initialization.
+        ``computed_models`` is ``Resolver.computed_models``.
         """
         super(ComputedModelsGraph, self).__init__()
         self._computed_models = computed_models
@@ -410,6 +409,10 @@ class ComputedModelsGraph(Graph):
         self.union = None
 
     def _check_concrete_field(self, model, fieldname):
+        """
+        Sanity check - fields listed on the right side of a depends rule
+        must be concrete fields.
+        """
         if not model._meta.get_field(fieldname).concrete:
             raise ComputedFieldsException("%s has no concrete field named '%s'" % (model, fieldname))
 
