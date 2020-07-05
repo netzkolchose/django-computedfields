@@ -97,6 +97,8 @@ class CommandTests(GenericModelTestBase):
         # restore old  value
         if map_set:
             settings.COMPUTEDFIELDS_MAP = old_map
+        else:
+            settings.COMPUTEDFIELDS_MAP = None
 
     def test_createmap_without_setting(self):
         # save old value

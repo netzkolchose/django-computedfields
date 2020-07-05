@@ -196,7 +196,7 @@ class Resolver:
                 return
 
             maps = None
-            if hasattr(settings, 'COMPUTEDFIELDS_MAP') and not _force_recreation:
+            if getattr(settings, 'COMPUTEDFIELDS_MAP', False) and not _force_recreation:
                 maps = self._load_pickled_data()
                 if maps:
                     logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
