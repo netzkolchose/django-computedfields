@@ -415,16 +415,7 @@ class ComputedModelsGraph(Graph):
 
     def resolve_dependencies(self, computed_models):
         """
-        Converts field dependencies into lookups and checks the fields' existance.
-        Also expands the old depends notation into the new format:
-
-        - ``'relA.relB'`` --> ``['relA.relB', local_fieldnames_on_B]``
-        - ``'relA#xy'`` --> ``['relA', ['xy']]``
-        - plus model local non computed fields, e.g. ``['self', ['fieldA', 'fieldB']]``
-
-        .. warning::
-            Dont use the old `depends` notation anymore, as it is underdetermined
-            leading to ambiguity and will be removed by a later version.
+        Converts `depends` rules into ORM lookups and checks the fields' existance.
         """
         global_deps = OrderedDict()
         local_deps = {}

@@ -755,7 +755,7 @@ class Resolver:
             return update_fields
         return None
 
-    def precomputed(self, func):
+    def precomputed(self, *dargs, **dkwargs):
         """
         Decorator for custom `save` methods, that expect local computed fields
         to contain already updated values on enter.
@@ -766,13 +766,29 @@ class Resolver:
         By placing this decorator on your save method, the values will be updated
         before entering your method as well. Note that this comes for the price of
         doubled local computed field calculations (before and after your save method).
+        
+        To avoid a second recalculation, the decorator can be called with `skip_after=True`.
+        Note that this might lead to desychonized computed field values, if you do late field
+        changes in your save method.
         """
-        def wrap(instance, *args, **kwargs):
-            new_update_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
-            if new_update_fields:
-                kwargs['update_fields'] = new_update_fields
-            return func(instance, *args, **kwargs)
-        return wrap
+        skip = False
+        func = None
+        if dargs:
+            if len(dargs) > 1 or not callable(dargs[0]) or dkwargs:
+                raise Resolver('error in @precomputed declaration')
+            func = dargs[0]
+        else:
+            skip = dkwargs.get('skip_after', False)
+        
+        def wrap(func):
+            def _save(instance, *args, **kwargs):
+                new_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
+                if new_fields:
+                    kwargs['update_fields'] = new_fields
+                return func(instance, *args, skip_computedfields=skip, **kwargs)
+            return _save
+        
+        return wrap(func) if func else wrap
 
     def has_computedfields(self, model):
         """

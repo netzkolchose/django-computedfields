@@ -17,15 +17,23 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
         make sure that it is executed prior `ComputedFieldsModel.save`.
         Otherwise computed field values may not be in sync on database level.
         If in doubt, place `ComputedFieldsModel` higher up in the model inheritance.
+    
+    The method understands a special argument `skip_computedfields` to skip
+    the recalculation of local computed fields. This is used by the @precomputed decorator
+    to allow to skip a second field calculation with ``@precomputed(skip_after=True)``.
+    If you use it yourself, make sure to sync computed fields yourself by other means
+    (e.g. calling `update_computedfields` after field changes).
     """
     class Meta:
         abstract = True
 
-    def save(self, force_insert=False, force_update=False, using=None, update_fields=None):
+    def save(self, force_insert=False, force_update=False, using=None,
+             update_fields=None, skip_computedfields=False):
         """
         Overloaded to update computed field values before writing to the database.
         """
-        update_fields = update_computedfields(self, update_fields)
+        if not skip_computedfields:
+            update_fields = update_computedfields(self, update_fields)
         return super(ComputedFieldsModel, self).save(force_insert, force_update, using, update_fields)
 
 

@@ -629,7 +629,7 @@ class NotPrecomputed(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
     def upper(self):
         return self.name.upper()
-    
+
     def save(self, *args, **kwargs):
         self._temp = self.upper # store upper value to eval in test
         self.name = 'changed'   # ugly part - some concrete fields gets changed here
@@ -641,12 +641,51 @@ class Precomputed(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
     def upper(self):
         return self.name.upper()
-    
+
     @precomputed
     def save(self, *args, **kwargs):
         self._temp = self.upper # store upper value to eval in test
         self.name = 'changed'   # ugly part - some concrete fields gets changed here
         super(Precomputed, self).save(*args, **kwargs)
+
+class PrecomputedEmptyArgs(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed()
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedEmptyArgs, self).save(*args, **kwargs)
+
+class PrecomputedNotSkip(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed(skip_after=False)
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedNotSkip, self).save(*args, **kwargs)
+
+class PrecomputedSkip(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed(skip_after=True)
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedSkip, self).save(*args, **kwargs)
 
 
 # fixture and updatedata testing
