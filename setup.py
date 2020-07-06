@@ -3,12 +3,21 @@ from setuptools import setup, find_packages
 with open('README.md', 'r') as f:
     long_description = f.read()
 
+def get_version(path):
+    with open(path) as f:
+        for line in f:
+            if line.startswith('__version__'):
+                delim = '"' if '"' in line else "'"
+                return line.split(delim)[1]
+        else:
+            raise RuntimeError('Unable to find version string.')
+
 setup(
     name='django-computedfields',
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=[],
-    version='0.0.23',
+    version=get_version('computedfields/__init__.py'),
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,

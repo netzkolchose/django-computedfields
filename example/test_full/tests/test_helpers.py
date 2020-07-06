@@ -1,15 +1,9 @@
 from django.test import TestCase
 from .. import models
-from computedfields.helper import is_computedfield, is_sublist
+from computedfields.helper import is_sublist
 
 
 class TestHelpers(TestCase):
-    def test_is_computedfield(self):
-        # Child.parent --> false
-        self.assertEqual(is_computedfield(models.Child, 'parent'), False)
-        # Child.subchildren_count --> true
-        self.assertEqual(is_computedfield(models.Child, 'subchildren_count'), True)
-    
     def test_is_sublist(self):
         haystack = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         needles_good = [
@@ -41,4 +35,3 @@ class TestHelpers(TestCase):
             self.assertEqual(is_sublist(needle, []), False)
         for needle in needles_good:
             self.assertEqual(is_sublist(needle, []), False)
-

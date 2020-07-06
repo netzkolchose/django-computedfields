@@ -1,6 +1,6 @@
 from django.db import models
 import sys
-from computedfields.models import ComputedFieldsModel, computed
+from computedfields.models import ComputedFieldsModel, computed, precomputed
 
 
 def model_factory(name, keys):
@@ -246,6 +246,8 @@ class Abstract(ComputedFieldsModel):
     def c(self):
         return self.a + self.b
 
+class ConcreteB(Abstract):
+    name = models.CharField(max_length=32)
 
 class Concrete(Abstract):
     d = models.IntegerField(default=0)
@@ -377,30 +379,8 @@ class SelfB(ComputedFieldsModel):
         return 'C2' + self.c1 + self.a.c4
 
 
-# old depends notation still working
-# FIXME: to be removed with furture version
-class OldDependsParent(ComputedFieldsModel):
-    name = models.CharField(max_length=32)
-
-    @computed(models.CharField(max_length=32), depends=['self#name'])
-    def upper(self):
-        return self.name.upper()
-
-    @computed(models.CharField(max_length=32), depends=['self#upper', 'children'])
-    def proxy(self):
-        return self.upper + str(self.children.all().count())
-
-class OldDependsChild(ComputedFieldsModel):
-    name = models.CharField(max_length=32)
-    parent = models.ForeignKey(OldDependsParent, related_name='children', on_delete=models.CASCADE)
-
-    @computed(models.CharField(max_length=32), depends=['self#name', 'parent#upper'])
-    def parent_and_self(self):
-        return self.parent.upper + self.name
-
-
 # test update_fields expansion, see https://github.com/netzkolchose/django-computedfields/issues/27
-class ChainA(ComputedFieldsModel):
+class ChainA(models.Model):
     name = models.CharField(max_length=32)
 
 class ChainB(ComputedFieldsModel):
@@ -571,7 +551,7 @@ class ComputeLocal(ComputedFieldsModel):
     def c7(self):
         return 'c7' + self.c8
 
-    @computed(models.CharField(max_length=32, default=''), depends=[])
+    @computed(models.CharField(max_length=32, default=''))
     def c8(self):
         return 'c8'
 
@@ -640,3 +620,89 @@ class Group(ComputedFieldsModel):
 class Membership(models.Model):
     person = models.ForeignKey(Person, on_delete=models.CASCADE, related_name='membership')
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='membership')
+
+
+# test precomputed decorator with custom save methods
+class NotPrecomputed(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(NotPrecomputed, self).save(*args, **kwargs)
+
+class Precomputed(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(Precomputed, self).save(*args, **kwargs)
+
+class PrecomputedEmptyArgs(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed()
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedEmptyArgs, self).save(*args, **kwargs)
+
+class PrecomputedNotSkip(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed(skip_after=False)
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedNotSkip, self).save(*args, **kwargs)
+
+class PrecomputedSkip(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @precomputed(skip_after=True)
+    def save(self, *args, **kwargs):
+        self._temp = self.upper # store upper value to eval in test
+        self.name = 'changed'   # ugly part - some concrete fields gets changed here
+        super(PrecomputedSkip, self).save(*args, **kwargs)
+
+
+# fixture and updatedata testing
+class FixtureParent(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.IntegerField(default=0), depends=[['children', ['parent']]])
+    def children_count(self):
+        return self.children.count()
+
+class FixtureChild(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(FixtureParent, related_name='children', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[
+        ['self', ['name']],
+        ['parent', ['name', 'children_count']]
+    ])
+    def path(self):
+        return '/{}#{}/{}'.format(self.parent.name, self.parent.children_count, self.name)

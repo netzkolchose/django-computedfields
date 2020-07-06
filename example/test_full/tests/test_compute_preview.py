@@ -1,6 +1,6 @@
 from django.test import TestCase
 from ..models import ComputeLocal
-from computedfields.models import update_dependent
+from computedfields.models import update_dependent, compute
 
 
 class TestResultFromCompute(TestCase):
@@ -41,14 +41,14 @@ class TestResultFromCompute(TestCase):
         self.assertEqual(cl.c7, '')
         self.assertEqual(cl.c8, '')
         # computed should calculate correct value across other deps
-        self.assertEqual(cl.compute('c1'), 'NAME')                    # self.name.upper()
-        self.assertEqual(cl.compute('c2'), 'c2NAME')                  # 'c2' + self.c1
-        self.assertEqual(cl.compute('c3'), 'c3NAME')                  # 'c3' + self.c1
-        self.assertEqual(cl.compute('c4'), 'c4c3NAME')                # 'c4' + self.c3
-        self.assertEqual(cl.compute('c5'), 'c5c2NAMEc4c3NAMEc6123')   # 'c5' + self.c2 + self.c4 + self.c6
-        self.assertEqual(cl.compute('c6'), 'c6123')                   # 'c6' + str(self.xy)
-        self.assertEqual(cl.compute('c7'), 'c7c8')                    # 'c7' + self.c8
-        self.assertEqual(cl.compute('c8'), 'c8')                      # 'c8'
+        self.assertEqual(compute(cl, 'c1'), 'NAME')                    # self.name.upper()
+        self.assertEqual(compute(cl, 'c2'), 'c2NAME')                  # 'c2' + self.c1
+        self.assertEqual(compute(cl, 'c3'), 'c3NAME')                  # 'c3' + self.c1
+        self.assertEqual(compute(cl, 'c4'), 'c4c3NAME')                # 'c4' + self.c3
+        self.assertEqual(compute(cl, 'c5'), 'c5c2NAMEc4c3NAMEc6123')   # 'c5' + self.c2 + self.c4 + self.c6
+        self.assertEqual(compute(cl, 'c6'), 'c6123')                   # 'c6' + str(self.xy)
+        self.assertEqual(compute(cl, 'c7'), 'c7c8')                    # 'c7' + self.c8
+        self.assertEqual(compute(cl, 'c8'), 'c8')                      # 'c8'
         # all should still be empty (no side effects on instance)
         self.assertEqual(cl.c1, '')
         self.assertEqual(cl.c2, '')
@@ -61,9 +61,9 @@ class TestResultFromCompute(TestCase):
 
     def test_compute_normal_field(self):
         # should simply return the value for normal fields or raise
-        self.assertEqual(self.cl.compute('xy'), 123)
+        self.assertEqual(compute(self.cl, 'xy'), 123)
         with self.assertRaises(AttributeError):
-            self.cl.compute('unknown')
+            compute(self.cl, 'unknown')
 
     def test_manually_cf_update(self):
         # we insert with bulk_create, thus cfs are out of sync

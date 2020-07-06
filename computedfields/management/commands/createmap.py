@@ -1,8 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
-from computedfields.models import ComputedFieldsModelType
 from django.conf import settings
-from computedfields.graph import ComputedModelsGraph
-import pickle
+from computedfields.models import active_resolver
 
 
 class Command(BaseCommand):
@@ -12,13 +10,4 @@ class Command(BaseCommand):
         if not hasattr(settings, 'COMPUTEDFIELDS_MAP'):
             raise CommandError('COMPUTEDFIELDS_MAP is not set in settings.py, abort.')
 
-        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as f:
-            graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
-            if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
-                graph.remove_redundant()
-                graph.get_uniongraph().get_edgepaths()  # uniongraph cyclefree?
-            pickle.dump({
-                'lookup_map': graph.generate_lookup_map(),
-                'fk_map': graph._fk_map,
-                'local_mro': graph.generate_local_mro_map()  # also tests for cycles on modelgraphs
-            }, f, pickle.HIGHEST_PROTOCOL)
+        active_resolver._write_pickled_data()

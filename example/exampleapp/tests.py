@@ -1,13 +1,13 @@
 from django.test import TestCase
-from .models import Foo, Bar, Baz
-from computedfields.models import ComputedFieldsAdminModel, ComputedFieldsModelType
-from computedfields.admin import ComputedModelsAdmin
 from django.contrib.admin.sites import AdminSite
+from computedfields.models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
+from computedfields.admin import ComputedModelsAdmin, ContributingModelsAdmin
+from .models import Foo, Bar, Baz
 
 
 class TestModels(TestCase):
     def setUp(self):
-        ComputedFieldsModelType._resolve_dependencies(_force=True)
+        active_resolver._load_maps(_force_recreation=True)
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
         self.baz = Baz.objects.create(name='baz1', bar=self.bar)
@@ -35,10 +35,11 @@ class TestModels(TestCase):
 
 class TestModelClassesForAdmin(TestCase):
     def setUp(self):
-        ComputedFieldsModelType._resolve_dependencies(_force=True)
+        active_resolver._load_maps(_force_recreation=True)
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
-        self.models = set(ComputedFieldsModelType._computed_models.keys())
+        self.adminobj_contributing = ContributingModelsAdmin(ContributingModelsModel, self.site)
+        self.models = set(active_resolver._computed_models.keys())
 
     def test_models_listed(self):
         models = [obj.model_class() for obj in ComputedFieldsAdminModel.objects.all()]
@@ -47,9 +48,33 @@ class TestModelClassesForAdmin(TestCase):
         self.assertIn(Baz, models)
         self.assertEqual(set(models), self.models)
 
-    def test_run_adminclass_methods(self):
+    def test_run_adminclasses(self):
         for instance in ComputedFieldsAdminModel.objects.all():
             self.adminobj.dependencies(instance)
             self.adminobj.name(instance)
+            self.adminobj.computed_fields(instance)
+            self.adminobj.local_computed_fields_mro(instance)
+            self.adminobj.modelgraph(instance)
+            self.adminobj.render_modelgraph({}, instance.pk)
         self.adminobj.get_urls()
         self.adminobj.render_graph({})
+        self.adminobj.render_uniongraph({})
+        for instance in ContributingModelsModel.objects.all():
+            self.adminobj_contributing.fk_fields(instance)
+            self.adminobj_contributing.name(instance)
+
+    def test_run_adminclasses_pickledmap(self):
+        active_resolver._graph = None
+        for instance in ComputedFieldsAdminModel.objects.all():
+            self.adminobj.dependencies(instance)
+            self.adminobj.name(instance)
+            self.adminobj.computed_fields(instance)
+            self.adminobj.local_computed_fields_mro(instance)
+            self.adminobj.modelgraph(instance)
+            self.adminobj.render_modelgraph({}, instance.pk)
+        self.adminobj.get_urls()
+        self.adminobj.render_graph({})
+        self.adminobj.render_uniongraph({})
+        for instance in ContributingModelsModel.objects.all():
+            self.adminobj_contributing.fk_fields(instance)
+            self.adminobj_contributing.name(instance)

@@ -1,5 +1,5 @@
 from .base import GenericModelTestBase
-from computedfields.models import ComputedFieldsModelType
+from computedfields.models import active_resolver
 from computedfields.graph import CycleNodeException
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -43,21 +43,29 @@ class CommandTests(GenericModelTestBase):
     def test_rendergraph_with_cycle(self):
         import sys
 
-        # raises due to get_nodepaths() in _resolve_dependencies()
+        # normally raises due to get_nodepaths() in _resolve_dependencies()
         self.assertRaises(
             CycleNodeException,
             lambda: self.setDeps({
                     'A': {'depends': [['f_ag', ['comp']]]},
                     'G': {'depends': [['f_ga', ['comp']]]},
-                })
+            })
         )
-        self.assertEqual(ComputedFieldsModelType._graph.is_cyclefree, False)
+
+        # does not raise anymore with COMPUTEDFIELDS_ALLOW_RECURSION
+        setattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', True)
+        self.setDeps({
+            'A': {'depends': [['f_ag', ['comp']]]},
+            'G': {'depends': [['f_ga', ['comp']]]},
+        })
+        self.assertEqual(active_resolver._graph.is_cyclefree, False)
         stdout = sys.stdout
         sys.stdout = StringIO()
         call_command('rendergraph', 'output', verbosity=0)
         # should have printed cycle info on stdout
         self.assertIn('Warning -  1 cycles in dependencies found:', sys.stdout.getvalue())
         sys.stdout = stdout
+        setattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False)
 
     def test_updatedata(self):
         # TODO: advanced test case
@@ -79,14 +87,18 @@ class CommandTests(GenericModelTestBase):
             map = pickled_data['lookup_map']
             fk_map = pickled_data['fk_map']
             local_mro = pickled_data['local_mro']
-            self.assertDictEqual(map, ComputedFieldsModelType._map)
-            self.assertDictEqual(fk_map, ComputedFieldsModelType._fk_map)
-            self.assertDictEqual(local_mro, ComputedFieldsModelType._local_mro)
+            hash = pickled_data['hash']
+            self.assertDictEqual(map, active_resolver._map)
+            self.assertDictEqual(fk_map, active_resolver._fk_map)
+            self.assertDictEqual(local_mro, active_resolver._local_mro)
+            self.assertEqual(hash, active_resolver._calc_modelhash())
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 
         # restore old  value
         if map_set:
             settings.COMPUTEDFIELDS_MAP = old_map
+        else:
+            settings.COMPUTEDFIELDS_MAP = None
 
     def test_createmap_without_setting(self):
         # save old value

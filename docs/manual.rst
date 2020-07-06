@@ -33,7 +33,7 @@ The module respects optional settings in settings.py:
     point this setting to a writeable path and call the management command ``createmap``.
     This should always be used in production mode in multi process environments
     to avoid the expensive map creation on every process launch. If set, the file must
-    be recreated after model changes.
+    be recreated after model changes to get used by the resolver.
 
 - ``COMPUTEDFIELDS_ADMIN``
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
@@ -46,7 +46,7 @@ The module respects optional settings in settings.py:
     recursion check. This comes with the drawback, that the underlying graph cannot
     linearize and optimize the update paths anymore.
 
-- ``COMPUTEDFIELDS_BATCHSIZE`` `new in v0.0.20`
+- ``COMPUTEDFIELDS_BATCHSIZE``
     Set the batch size used for computed field updates by the auto resolver (default 100).
     Internally the updates are done by a `bulk_update` on a computed fields model for all
     affected rows and computed fields. Note that taking a rather high value here might
@@ -92,8 +92,8 @@ result of the decorated method.
 Automatic Updates
 -----------------
 
-The  `depends` keyword argument of the decorator can be used with any relation to indicate
-dependencies to fields on other models as well.
+The  `depends` keyword argument of the ``@computed`` decorator can be used with any relation
+to indicate dependencies to fields on other models as well.
 
 The example above extended by a model ``Address``:
 
@@ -114,79 +114,110 @@ The example above extended by a model ``Address``:
                                        self.postal, self.city)
 
 Now a change to ``self.street``, ``self.postal``, ``self.city`` or ``person.combined``
-will update ``full_address``.
+will update ``full_address``. Also changing ``self.person`` will trigger an update of ``full_address``.
 
-Dependencies should be listed as ``['relation_name', fieldnames_on_that_model]``.
+Dependencies should be listed as ``['relation_name', concrete_fieldnames]``.
 The relation can span serveral models, simply name the relation
-in python style with a dot (e.g. ``'a.b.c'``). A relation can be of any of
+in python style with a dot (e.g. ``'a.b.c'``). A relation can be any of
 foreign key, m2m, o2o and their back relations.
-The fieldnames should be a list of strings of concrete fields on the foreign model.
-
-.. WARNING::
-
-    The old `depends` syntax is deprecated and should not be used anymore. It will be removed with
-    a future version.
+The fieldnames should be a list of strings of concrete fields on the foreign model the method
+pulls data from.
 
 .. NOTE::
 
-    The computed method gets evaluated in the model instance save method. If you
-    allow relations to contain ``NULL`` values you have to handle this case explicitly:
+    The example above contains a special depends rule with ``'self'`` as relation name.
+    While it looks awkward to declare model local dependencies explicitly, it is needed
+    to correctly trigger computed field updates under any circumstances.
+    
+    Rule of thumb regarding `depends` - list **ALL** concrete fields a computed field pulls data from,
+    even local ones with ``'self'``. Also see examples for further details and more complicated
+    situations with annotated fields.
+
+.. NOTE::
+
+    If you allow relations to contain ``NULL`` values you have to handle this case explicitly:
 
     .. CODE:: python
 
         @computed(models.CharField(max_length=32), depends=[['nullable_relation', ['field']]])
         def compfield(self):
-            if not self.nullable_relation:          # special handling of NULL here
+            # special handling of NULL here as access to
+            # self.nullable_relation.field would fail
+            if not self.nullable_relation:
                 return 'something else'
-            return self.nullable_relation.field     # some code referring the correct field
+            # normal invocation with correct data pull across correct relation
+            return self.nullable_relation.field
 
-    Computed fields directly depending on m2m relations cannot run the associated
-    method successfully on the first ``save`` if the instance was newly created
-    (due to Django's order of saving the instance and m2m relations). Therefore
-    you have to handle this case explicitly as well:
+    A special case in this regard are m2m relations during the first save of a newly
+    created instance, which cannot access the relation yet. You have to handle this case
+    explicitly as well:
 
     .. CODE:: python
 
         @computed(models.CharField(max_length=32), depends=[['m2m', ['field']]])
         def compfield(self):
-            if not self.pk:  # no pk yet, access to .m2m will fail
+            # no pk yet, access to .m2m will fail
+            if not self.pk:
                 return ''
+            # normal data pull across m2m relation
             return ''.join(self.m2m.all().values_list('field', flat=True))
 
-    Generally you should avoid nested m2m relations in dependendies
-    as much as possible since the update penalty will explode.
+    Pulling field dependencies over m2m relations has several more drawbacks, in general
+    it is a good idea to avoid m2m relations in `depends` as much as possible.
+    Also see examples about m2m relations.
 
-.. NOTE::
+.. WARNING::
 
-    To get proper updates from local field dependencies under any cicumstances
-    it is important to provide a `self` entry in ``depends``:
-
-    .. CODE:: python
-
-        address.city = 'New City'
-        address.save(update_fields=['city'])  # also updates .full_address
-
-    This works because of the dependency declaration to ``['self', [..., 'city']]`` above.
-    Beside correct expansion of ``update_fields`` this is also needed to determine
-    the correct execution order of computed fields methods for local dependent computed fields (`MRO`).
-    Also note that from version 0.0.19 onwards `update_fields` will slightly deviate from django's
-    default behavior. It will be auto expanded by dependent local computed fields and also trigger
-    updates on foreign dependent computed fields.
-
-.. CAUTION::
-
-    With the depends strings you can easily end up with recursive updates.
+    With `depends` rules you can easily end up with recursive updates.
     The dependency resolver tries to detect cycling dependencies and might
-    raise a ``CycleNodeException``.
+    raise a ``CycleNodeException`` during startup.
+
+
+Custom `save` method
+--------------------
+
+If you have a custom save method defined on your models, it is important to note, that by default local computed
+field values are not yet updated to their new values, as this happens during `ComputedFieldModel.save` afterwards.
+Thus code in `save` relying on computed fields still sees old values.
+
+With the decorator ``@precomputed`` you can change that behavior to update computed fields before entering
+your custom `save` method:
+
+.. code-block:: python
+
+    class SomeModel(ComputedFieldsModel):
+        fieldA = ...
+
+        @computed(..., depends=['self', ['fieldA']])
+        def comp(self):
+            # do something with self.fieldA
+            return ...
+        
+        @precomputed
+        def save(self, *args, **kwargs):
+            # with @precomputed self.comp already contains
+            # the updated value based onself.fieldA changes
+            ...
+            super(SomeModel, self).save(*args, **kwargs)
+
+It is also possible to do more complicated concrete field changes in `save` and updating dependent local
+computed fields manually by calling ``update_computedfields`` directly (see API docs).
+
+.. WARNING::
+
+    On models with computed fields `ComputedFieldModel.save` should be the last called `save` overload
+    in the inhertinace chain before writing to the database. For complicated model types try to move
+    `ComputedFieldsModel` higher up in the inherintance chain. In particular any higher `save` overload
+    then `ComputedFieldModel.save` must not alter a concrete field another computed field depends on,
+    otherwise the data integrity cannot be guaranteed anymore.
 
 
 How does it work internally?
 ----------------------------
 
-``ComputedFieldsModel`` is based on its own metaclass derived from django's model metaclass.
-The metaclass collects methods annotated by ``@computed`` and creates the needed database fields
-during model construction. Once all project-wide models are constructed and available (on ``app.ready``)
-the collected dependency strings are resolved into model and field endpoints with a certain query access string.
+On django startup the dependency resolver collects registered models and computed fields.
+Once all project-wide models are constructed and available (on ``app.ready``)
+the collected models and fields are merged and resolved into model and field endpoints.
 
 In the next step the dependency endpoints and computed fields are converted into an adjacency list and inserted
 into a directed graph. The graph does a cycle check during path linearization and removes redundant subpaths.
@@ -197,13 +228,17 @@ inter-model and local dependencies is build and does a last cycle check. The exp
 can be skipped in production by using a precalculated lookup map (see above).
 
 During runtime certain signal handlers in ``handlers.py`` hook into model instance actions and trigger
-the needed additional changes on associated computed fields given by the lookup map.
-The signal handlers itself call into ``update_dependent``, which creates querysets for all needed
-computed fields updates. A computed field finally gets updated in the database by calling the instance's save method,
-which itself calls all to be updated computed fields methods in topological order and places the results in the database.
-Currently this is done on individual instance basis (room for improvement with `bulk_update`).
-If another computed field on a different model depends on the changes the process repeats until
-all computed fields have been updated.
+the needed additional changes on associated computed fields given by the resolver maps.
+The signal handlers itself call into ``update_dependent``, which creates select querysets for all needed
+computed fields updates.
+
+In the next step `resolver.bulk_updater` applies `select_related` and `prefetch_related` optimizations
+to the queryset and executes the queryset pulling all possible affected records. It walks the records
+(model instances) calculating computed field values in in topological order and places the results
+in the database by `bulk_update` calls.
+
+If another computed field on a different model depends on these changes the process repeats until all
+computed fields have been finally updated.
 
 .. NOTE::
 
@@ -211,29 +246,27 @@ all computed fields have been updated.
     signal handler. Their database values are always in sync between two database relevant model instance
     actions in Python, unless a transaction error occured. Note that this transaction guard does not include
     local computed fields, as they are recalculated during a normal ``save()`` call prior the foreign dependency
-    handling. It is your own responsibility to apply appropriate guards over a batch of model instances. To avoid
-    data integrity issues with bulk actions, it is a good idea, to group your actions together with
-    `update_dependent` under a transaction. If you ran out of sync with your computed fields (e.g. by an
-    exceptional path in your methods), a partial resync can be achieved by calling
-    `update_dependent(erroneous_instance_or_queryset)` after fixing the error. If in doubt, do a full resync with
-    the managment command `updatedata`.
+    handling. It is your own responsibility to apply appropriate guards over a batch of model instances.
+    
+    For more advanced usage in conjunction with bulk actions and `update_dependent` see below and examples.
 
-On ORM level all updates are turned into querysets filtering on dependent computed fields models
+On ORM level all updates are turned into select querysets filtering on dependent computed fields models
 in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` on a computed fields model `X` will either
 be turned into a queryset like ``X.objects.filter(a__b__c=instance)`` or ``X.objects.filter(a__b__c__in=instance)``,
 depending on ``instance`` being a single model instance or a queryset of model ``C``.
-The queryset gets further reduced by ``.distinct()`` to rule out duplicated entries.
-Finally the objects of the queryset get saved with the computed fields name applied to ``update_fields``.
-Note that ``save`` only will create an UPDATE query if the computed field value has changed.
-If a depends string contains a 1:n relation (reverse fk relation), ``update_dependent`` additionally updates
-old relations, that were grabbed by a pre_save signal handler.
-Similar measures to catch old relations are in place for M2M and delete actions (see handlers.py).
 
-Currently ``update_dependent`` does not further optimize the update queries. It is suggested above to list all
-field dependencies explicitly, which would allow another optimization by comparing field values before and after
-the change and further filtering the queryset. To achieve a real before-after comparison, either another SELECT
-query is needed and carried forward, or any dependency chain model has to do some copy-on-write for fields in question. 
-Currently both seems inappropriate, compared to a single slightly sub-optimal SELECT query for pending updates.
+Note that the auto resolver only triggers field updates for real values changes (by comparing old and new value).
+If a `depends` rule contains a 1:n relation (reverse fk relation), ``update_dependent`` additionally updates
+old relations, that were grabbed by a `pre_save` signal handler.
+Similar measures to catch old relations are in place for m2m relations and delete actions (see handlers.py).
+
+.. NOTE::
+
+    The fact that you have list all field dependencies explicitly would allow another agressive optimization in
+    ``update_dependent``, by filtering the select for update queryset for tracked concrete field changes.
+    But to achieve arbitrary concrete field change tracking, a before-after comparison is needed, either by
+    another SELECT query, or by some copy-on-write logic on any dependency chain model field.
+    Currently both seems inappropriate, compared to a single slightly sub-optimal SELECT query for pending updates.
 
 
 Advanced Usage
@@ -277,8 +310,7 @@ Management Commands
 -------------------
 
 - ``createmap``
-    recreates the pickled resolver map. Set the file path with ``COMPUTEDFIELDS_MAP``
-    in settings.py.
+    recreates the pickled resolver map file. Set the path with ``COMPUTEDFIELDS_MAP`` in settings.py.
 
 - ``rendergraph <filename>``
     renders the intermodel dependency graph to <filename>. Note that with version 0.0.18
@@ -380,6 +412,11 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- `master` - in preparation for  v0.1.0
+    - remove custom metaclass, introducing `Resolver` class
+    - new decorator `@precomputed` for custom save methods
+    - remove old `depends` syntax
+    - docs update
 - 0.0.23:
     - Bugfix: Fixing leaking computed fields in model inheritance.
 - 0.0.22:

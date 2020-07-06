@@ -1,0 +1,1 @@
+[{"model": "test_full.fixtureparent", "pk": 1, "fields": {"name": "A", "children_count": 0}}, {"model": "test_full.fixtureparent", "pk": 2, "fields": {"name": "B", "children_count": 0}}, {"model": "test_full.fixtureparent", "pk": 3, "fields": {"name": "C", "children_count": 0}}]

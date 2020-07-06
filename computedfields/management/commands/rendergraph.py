@@ -1,7 +1,8 @@
-from django.core.management.base import BaseCommand
-from computedfields.models import ComputedFieldsModelType
-from computedfields.graph import ComputedModelsGraph, CycleException
 from collections import Counter
+from django.core.management.base import BaseCommand
+from computedfields.models import active_resolver
+from computedfields.graph import ComputedModelsGraph, CycleException
+
 
 # maps amount of cycles on a specific edge to color (more than 3 is always blue)
 COLORS = {1: 'red', 2: 'green', 3: 'blue'}
@@ -38,7 +39,7 @@ class Command(BaseCommand):
         parser.add_argument('filename', nargs='+', type=str)
 
     def handle(self, *args, **options):
-        graph = ComputedModelsGraph(ComputedFieldsModelType._computed_models)
+        graph = ComputedModelsGraph(active_resolver.computed_models)
         try:
             graph.remove_redundant()
             graph.render(filename=options['filename'][0])
