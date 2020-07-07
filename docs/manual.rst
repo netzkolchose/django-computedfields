@@ -178,10 +178,10 @@ Custom `save` method
 
 If you have a custom ``save`` method defined on your model, it is important to note,
 that by default local computed field values are not yet updated to their new values during the invocation,
-as this happens during ``ComputedFieldModel.save`` afterwards. Thus code in ``save`` still sees old values.
+as this happens in ``ComputedFieldModel.save`` afterwards. Thus code in ``save`` still sees old values.
 
 With the decorator ``@precomputed`` you can change that behavior to also update computed fields
-before entering your custom `save` method:
+before entering your custom save method:
 
 .. code-block:: python
 
@@ -196,7 +196,7 @@ before entering your custom `save` method:
         @precomputed
         def save(self, *args, **kwargs):
             # with @precomputed self.comp already contains
-            # the updated value based onself.fieldA changes
+            # the updated value based on self.fieldA changes
             ...
             super(SomeModel, self).save(*args, **kwargs)
 
@@ -228,9 +228,9 @@ can be skipped in production by using a precalculated lookup map by setting ``CO
 During runtime certain signal handlers in `handlers.py` hook into model instance actions and trigger
 the needed additional changes on associated computed fields given by the resolver maps.
 The signal handlers itself call into ``update_dependent``, which creates select querysets for all needed
-computed fields updates.
+computed field updates.
 
-In the next step `resolver.bulk_updater` applies `select_related` and `prefetch_related` optimizations
+In the next step ``resolver.bulk_updater`` applies `select_related` and `prefetch_related` optimizations
 to the queryset (if defined) and executes the queryset pulling all possible affected records. It walks the
 instances calculating computed field values in in topological order and places the results
 in the database by batched `bulk_update` calls.
@@ -250,7 +250,7 @@ computed fields have been finally updated.
     examples documentation.
 
 On ORM level all updates are turned into select querysets filtering on dependent computed field models
-in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` on a computed fields model `X` will either
+in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` of a computed field on model `X` will either
 be turned into a queryset like ``X.objects.filter(a__b__c=instance)`` or ``X.objects.filter(a__b__c__in=instance)``,
 depending on `instance` being a single model instance or a queryset of model `C`.
 
@@ -265,7 +265,7 @@ Similar measures to catch old relations are in place for m2m relations and delet
     the resolver by filtering the select for update queryset for tracked concrete field changes.
     But to achieve arbitrary concrete field change tracking, a before-after comparison is needed, either by
     another SELECT query, or by some copy-on-write logic on any dependency chain model field.
-    Currently both seems inappropriate, compared to a single slightly sub-optimal SELECT query for pending updates.
+    Currently both seems inappropriate, compared to a slightly sub-optimal single SELECT query for pending updates.
 
 
 Advanced Usage
@@ -299,7 +299,7 @@ before doing the bulk change to correctly update the old relations as well after
 
 
 For multiple bulk actions consider using ``update_dependent_multi`` in conjunction with
-``preupdate_dependent_multi``, which will avoid unnecessary multiplied updates across the database tables.
+``preupdate_dependent_multi``, which will avoid unnecessary multiplied updates across affected tables.
 
 See method description in the API Reference for further details.
 
@@ -311,9 +311,8 @@ Management Commands
     recreates the pickled resolver map file. Set the path with ``COMPUTEDFIELDS_MAP`` in `settings.py`.
 
 - ``rendergraph <filename>``
-    renders the intermodel dependency graph to `filename`. Note that with version 0.0.18
-    the internal graph handling got extended by model local graphs and a final union graph.
-    Currently this command does not deal with those additional graphs (PRs are welcome).
+    renders the inter-model dependency graph to `filename`. Note that this command currently only handles
+    the inter-model graph, not the individual model graphs and final union graph (PRs are welcome).
 
 - ``updatedata``
     does a full update on all project-wide computed fields. Useful if you ran into serious out of sync issues,
@@ -346,7 +345,7 @@ Please keep in mind, that this comes to a price:
 
 - additional space requirement in database
 - redundant data (as with any denormalization)
-- possible data integrity issues (sync vs desync state)
+- possible data integrity issues (sync vs. desync state)
 - higher project complexity on Django side (signal hooks, ``app.ready`` hook with resolver initialization)
 - higher insert/update costs, which might create new bottlenecks
 
