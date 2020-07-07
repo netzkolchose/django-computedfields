@@ -25,7 +25,7 @@ class GenericModelTestBase(TestCase):
                 models[MODELS[modelname]]['comp']._computed['depends'] = data.get('depends')
             if data.get('func'):
                 models[MODELS[modelname]]['comp']._computed['func'] = data.get('func')
-        active_resolver._load_maps(_force_recreation=True)
+        active_resolver.load_maps(_force_recreation=True)
         self.graph = active_resolver._graph
 
     def resetDeps(self):
