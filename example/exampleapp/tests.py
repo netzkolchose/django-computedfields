@@ -7,7 +7,7 @@ from .models import Foo, Bar, Baz
 
 class TestModels(TestCase):
     def setUp(self):
-        active_resolver._load_maps(_force_recreation=True)
+        active_resolver.load_maps(_force_recreation=True)
         self.foo = Foo.objects.create(name='foo1')
         self.bar = Bar.objects.create(name='bar1', foo=self.foo)
         self.baz = Baz.objects.create(name='baz1', bar=self.bar)
@@ -35,7 +35,7 @@ class TestModels(TestCase):
 
 class TestModelClassesForAdmin(TestCase):
     def setUp(self):
-        active_resolver._load_maps(_force_recreation=True)
+        active_resolver.load_maps(_force_recreation=True)
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
         self.adminobj_contributing = ContributingModelsAdmin(ContributingModelsModel, self.site)

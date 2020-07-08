@@ -1,3 +1,7 @@
+"""
+Contains the resolver logic for automated computed field updates.
+"""
+
 from collections import OrderedDict
 from threading import RLock
 from hashlib import sha256
@@ -28,17 +32,17 @@ class Resolver:
     Basic workflow:
 
         - On django startup a resolver gets instantiated early to track all project-wide
-          model registrations and computed field definitions.
+          model registrations and computed field decorations (collector phase).
         - On `app.ready` the computed fields are associated with their models to build
-          a resolver-wide map of models with computed fields (`._computed_models`).
-        - Next the method ``_resolve_dependencies`` builds the resolving maps,
-          either from scratch or by loading them from a pickled map file.
+          a resolver-wide map of models with computed fields (``computed_models``).
+        - After that the resolver maps get loaded, either by building from scratch or
+          by loading them from a pickled map file.
 
     .. NOTE::
 
         To avoid the rather expensive map creation from scratch in production mode later on
         the map data should be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
-        in settings.py to a writable file path and calling the management
+        in `settings.py` to a writable file path and calling the management
         command ``createmap``.
 
         Currently the map file does not support automatic recreation, therefore it must be
@@ -51,9 +55,9 @@ class Resolver:
 
     def __init__(self):
         # collector phase data
-        #: Models collected from `class_prepared` signal hook.
+        #: Models from `class_prepared` signal hook during collector phase.
         self.models = set()
-        #: Computed field definitions collected from decoration phase.
+        #: Computed fields found during collector phase.
         self.computedfields = set()
 
         # resolving phase data and final maps
@@ -68,15 +72,6 @@ class Resolver:
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
-
-    def seal(self):
-        """
-        Seal the resolver, so no new models or computed fields can be added anymore.
-        This is a basic security measure to catch runtime model creation with
-        computed fields. Currently this is not supported, trying to do so will raise
-        an exception. (Might change in future versions.)
-        """
-        self._sealed = True
 
     def add_model(self, sender, **kwargs):
         """
@@ -94,11 +89,24 @@ class Resolver:
             raise ResolverException('cannot add computed fields on sealed resolver')
         self.computedfields.add(field)
 
+    def seal(self):
+        """
+        Seal the resolver, so no new models or computed fields can be added anymore.
+
+        This marks the end of the collector phase and is a basic security measure
+        to catch runtime model creations with computed fields.
+
+        (Currently runtime creation of models with computed fields is not supported,
+        trying to do so will raise an exception. This might change in future versions.)
+        """
+        self._sealed = True
+
     @property
     def models_with_computedfields(self):
         """
-        Generator of tracked models with computed fields
-        returning (model, list_of_computedfields).
+        Generator of tracked models with their computed fields.
+
+        This cannot be accessed during the collector phase.
         """
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
@@ -113,8 +121,9 @@ class Resolver:
     @property
     def computedfields_with_models(self):
         """
-        Generator of tracked computed fields and models
-        returning (computedfield, list_of_models).
+        Generator of tracked computed fields and their models.
+
+        This cannot be accessed during the collector phase.
         """
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
@@ -129,6 +138,16 @@ class Resolver:
     def computed_models(self):
         """
         Mapping of `ComputedFieldModel` models and their computed fields.
+
+        The data is the single source of truth for the graph reduction and
+        map creations. Thus it can be used to decide at runtime whether
+        the active resolver a certain as a model with computed fields.
+        
+        .. NOTE::
+        
+            The resolver will only list models here, that actually have
+            a computed field defined. A model derived from `ComputedFieldsModel`
+            without a computed field will not be listed.
         """
         if self._initialized:
             return self._computed_models
@@ -136,17 +155,8 @@ class Resolver:
 
     def extract_computed_models(self):
         """
-        Merge collected computed fields onto their models.
-        Does a mode class type check (must be of `ComputedFieldsModel`).
-
-        Returns a mapping of models with computed field names and fields:
-
-        .. code-block:: python
-
-            {model: {
-                fieldnameA: computed_fieldA,
-                fieldnameB: computed_fieldB}
-            }
+        Creates `computed_models` mapping from models and computed fields
+        found in collector phase.
         """
         computed_models = {}
         for model, computedfields in self.models_with_computedfields:
@@ -165,31 +175,37 @@ class Resolver:
         Upon instantiation the resolver is in the collector phase, where it tracks
         model registrations and computed field decorations.
 
-        After calling `initialize` no more models or fields can be registered
-        to the resolver, and the resolver maps get calculated as static assets
-        on the resolver object.
+        After calling ``initialize`` no more models or fields can be registered
+        to the resolver, and ``computed_models`` and the resolver maps get loaded.
         """
         # resolver must be sealed before doing any map calculations
         self.seal()
         self._computed_models = self.extract_computed_models()
         self._initialized = True
         if not models_only:
-            self._load_maps()
+            self.load_maps()
 
-    def _load_maps(self, _force_recreation=False):
+    def load_maps(self, _force_recreation=False):
         """
+        Load all needed resolver maps.
+
         Without providing a pickled map file the calculations are done
         once per process by ``app.ready``. The steps are:
+
             - create intermodel graph of the dependencies
             - remove redundant paths with cycling check
             - create modelgraphs for local MRO
             - merge graphs to uniongraph with cycling check
             - create final resolver maps
 
+                - `lookup_map`: intermodel dependencies as queryset access strings
+                - `fk_map`: models with their contributing fk fields
+                - `local_mro`: MRO of local computed fields per model
+
         These initial graph reduction calculations can get expensive for complicated
-        computed fields usage in a project. Therefore you should consider setting
-        COMPUTEDFIELDS_MAP in settings.py and create a pickled map file with `createmap`
-        in multi process environments.
+        computed field usage in a project. Therefore you should consider setting
+        ``COMPUTEDFIELDS_MAP`` in `settings.py` and create a pickled map file with
+        the management command ``createmap`` in multi process environments.
         """
         with self._lock:
             if self._map_loaded and not _force_recreation:  # pragma: no cover
@@ -247,7 +263,7 @@ class Resolver:
 
     def _load_pickled_data(self):
         """
-        Load pickled resolver maps from path in COMPUTEDFIELDS_MAP.
+        Load pickled resolver maps from path in ``COMPUTEDFIELDS_MAP``.
 
         Discards loaded data if the computed model hashs are not equal.
         """
@@ -258,8 +274,8 @@ class Resolver:
 
     def _write_pickled_data(self):
         """
-        Pickle resolver maps to path in COMPUTEDFIELDS_MAP.
-        Called by the management command `createmap`.
+        Pickle resolver maps to path in ``COMPUTEDFIELDS_MAP``.
+        Called by the management command ``createmap``.
 
         Always does a full graph reduction.
         Adds computed models hash to pickled data.
@@ -271,9 +287,9 @@ class Resolver:
 
     def get_local_mro(self, model, update_fields=None):
         """
-        Return MRO for local computed field methods for a given set of ``update_fields``.
+        Return `MRO` for local computed field methods for a given set of `update_fields`.
         The returned list of fieldnames must be calculated in order to correctly update
-        dependent computed field values.
+        dependent computed field values in one pass.
 
         Returns computed fields as self dependent to simplify local field dependency calculation.
         """
@@ -307,8 +323,6 @@ class Resolver:
             for fieldname in update_fields:
                 if fieldname in modeldata:
                     updates.add(fieldname)
-            #if not updates:
-            #    updates.add('#')
         subquery = '__in' if isinstance(instance, QuerySet) else ''
         model_updates = OrderedDict()
         for update in updates:
@@ -337,11 +351,11 @@ class Resolver:
 
     def preupdate_dependent(self, instance, model=None, update_fields=None):
         """
-        Create a mapping of currently associated computed fields records,
-        that would turn dirty by a follow-up bulk action.
+        Create a mapping of currently associated computed field records,
+        that might turn dirty by a follow-up bulk action.
 
-        Feed the mapping back to ``update_dependent`` as ``old`` argument
-        after your bulk action to update deassociated computed field records as well.
+        Feed the mapping back to ``update_dependent`` as `old` argument
+        after your bulk action to update de-associated computed field records as well.
         """
         if not model:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
@@ -352,7 +366,7 @@ class Resolver:
         Same as ``preupdate_dependent``, but for multiple bulk actions at once.
 
         After done with the bulk actions, feed the mapping back to ``update_dependent_multi``
-        as ``old`` argument to update deassociated computed field records as well.
+        as `old` argument to update de-associated computed field records as well.
         """
         final = {}
         for instance in instances:
@@ -367,11 +381,16 @@ class Resolver:
     def update_dependent(self, instance, model=None, update_fields=None,
                          old=None, update_local=True):
         """
-        Updates all dependent computed fields model objects.
+        Updates all dependent computed fields on related models traversing
+        the dependency tree as shown in the graphs.
 
-        This is needed if you have computed fields that depend on a model
-        changed by bulk actions. Simply call this function after the update
-        with the queryset containing the changed objects.
+        This is the main entry hook of the resolver to do updates on dependent
+        computed fields during runtime. While this is done automatically for
+        model instance actions from signal handlers, you have to call it yourself
+        after changes done by bulk actions.
+
+        To do that, simply call this function after the update with the queryset
+        containing the changed objects:
 
             >>> Entry.objects.filter(pub_date__year=2010).update(comments_on=False)
             >>> update_dependent(Entry.objects.filter(pub_date__year=2010))
@@ -389,7 +408,7 @@ class Resolver:
 
         .. NOTE::
 
-            Getting pks from `bulk_create` is not supported by all database adapters.
+            Getting pks from ``bulk_create`` is not supported by all database adapters.
             With a local computed field you can "cheat" here by providing a sentinel:
 
                 >>> MyComputedModel.objects.bulk_create([
@@ -401,20 +420,24 @@ class Resolver:
             If the sentinel is beyond reach of the method result, this even ensures to update
             only the newly added records.
 
+        `instance` can also be a single model instance. Since calling ``save`` on a model instance
+        will trigger this function by the `post_save` signal already it should not be called
+        for single instances, if they get saved anyway.
+
+        `update_fields` can be used to indicate, that only certain fields on the queryset changed,
+        which helps to further narrow down the records to be updated.
+
         Special care is needed, if a bulk action contains foreign key changes,
         that are part of a computed field dependency chain. To correctly handle that case,
-        provide the result of ``preupdate_dependent`` as ``old`` argument like this:
+        provide the result of ``preupdate_dependent`` as `old` argument like this:
 
                 >>> # given: some computed fields model depends somehow on Entry.fk_field
                 >>> old_relations = preupdate_dependent(Entry.objects.filter(pub_date__year=2010))
                 >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
                 >>> update_dependent(Entry.objects.filter(pub_date__year=2010), old=old_relations)
 
-
-        For completeness - ``instance`` can also be a single model instance.
-        Since calling ``save`` on a model instance will trigger this function by
-        the ``post_save`` signal it should not be invoked for single model
-        instances, if they get saved anyway.
+        `update_local` disables model local computed field updates of the entry node
+        (used as optimization during tree traversal). You should not set it when called from outside.
         """
         if not model:
             if isinstance(instance, QuerySet):
@@ -449,7 +472,7 @@ class Resolver:
 
     def update_dependent_multi(self, instances, old=None, update_local=True):
         """
-        Updates all dependent computed fields model objects for multiple instances.
+        Basically the as ``update_dependent``, but for multiple querysets at once.
 
         This function avoids redundant updates if consecutive ``update_dependent``
         have intersections, example:
@@ -459,10 +482,10 @@ class Resolver:
             >>> update_dependent(Baz.objects.filter(k='z'))  # updates C, D, E
 
         In the example the models ``B`` and ``D`` would be queried twice,
-        ``C`` even three times. It gets even worse if the queries contain record
-        intersections, those items would be queried and saved several times.
+        ``C`` even three times. Those intersections would be queried and saved
+        several times.
 
-        The updates above can be rewritten as:
+        With ``update_dependent_multi`` the updates above can be rewritten as:
 
             >>> update_dependent_multi([
             ...     Foo.objects.filter(i='x'),
@@ -472,17 +495,17 @@ class Resolver:
         where all dependent model objects get queried and saved only once.
         The underlying querysets are expanded accordingly.
 
-        .. NOTE::
+        .. TIP::
 
             ``instances`` can also contain model instances. Don't use
-            this function for model instances of the same type, instead
-            aggregate those to querysets and use ``update_dependent``
-            (as shown for ``bulk_create`` above).
+            this function for multiple instances of the same type,
+            instead aggregate those to querysets and use ``update_dependent``
+            as shown above.
 
         Again special care is needed, if the bulk actions involve foreign key changes,
         that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
-        to create a record mapping of the current state and after your bulk changes feed it back as
-        ``old`` argument to this function.
+        to create a record mapping of the current state and after your bulk changes feed it
+        back as `old` argument to this function.
         """
         final = {}
         for instance in instances:
@@ -511,7 +534,22 @@ class Resolver:
 
     def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False):
         """
-        Update dependent computed fields on foreign models with optimized `bulk_update`.
+        Update local computed fields and descent in the dependency tree by calling
+        ``update_dependent`` for dependent models.
+
+        This method does the local field updates on `queryset`:
+
+            - eval local `MRO` of computed fields
+            - expand `update_fields`
+            - apply optional `select_related` and `prefetch_related` rules to `queryset`
+            - walk all records and recalculate fields in `update_fields`
+            - aggregate changeset and save as batched `bulk_update` to the database
+
+        By default this method triggers the update of dependent models by calling
+        ``update_dependent`` with `update_fields` (next level of tree traversal).
+        This can be suppressed by setting `local_only=True`.
+
+        If `return_pks` is set, the method returns a set of altered pks of `queryset`.
         """
         queryset = queryset.distinct()
         model = queryset.model
@@ -563,7 +601,7 @@ class Resolver:
         Note that this is just a shorthand method for calling the underlying computed
         field method and does not deal with local MRO, thus should only be used,
         if the MRO is respected by other means.
-        For quick inspection of a single computed field value that gonna be written
+        For quick inspection of a single computed field value, that gonna be written
         to the database, always use ``compute(fieldname)`` instead.
         """
         field = self._computed_models[model][fieldname]
@@ -607,15 +645,16 @@ class Resolver:
 
     def get_contributing_fks(self):
         """
-        Get a mapping of models and their local fk fields,
+        Get a mapping of models and their local foreign key fields,
         that are part of a computed fields dependency chain.
 
         Whenever a bulk action changes one of the fields listed here, you have to create
-        a listing of the currently associated  records with ``preupdate_dependent`` and,
-        after doing the bulk change, feed the listing back to ``update_dependent``.
+        a listing of the associated  records with ``preupdate_dependent`` before doing
+        the bulk change. After the bulk change feed the listing back to ``update_dependent``
+        with the `old` argument.
 
-        This mapping can also be inspected as admin view (set ``COMPUTEDFIELDS_ADMIN``
-        in `settings.py` to ``True``).
+        With ``COMPUTEDFIELDS_ADMIN = True`` in `settings.py` this mapping can also be
+        inspected as admin view. 
         """
         if not self._map_loaded:  # pragma: no cover
             raise ResolverException('resolver has no maps loaded yet')
@@ -625,11 +664,10 @@ class Resolver:
         """
         Decorator to create computed fields.
 
-        ``field`` should be a model concrete field instance suitable to hold the result
-        of the decorated method. The decorator expects a
-        keyword argument ``depends`` to indicate dependencies to
-        model fields (local or related). Listed dependencies will automatically
-        update the computed field.
+        `field` should be a model concrete field instance suitable to hold the result
+        of the decorated method. The decorator expects a keyword argument `depends`
+        to indicate dependencies to model fields (local or related).
+        Listed dependencies will automatically update the computed field.
 
         Examples:
 
@@ -640,7 +678,7 @@ class Resolver:
                 @computed(models.CharField(max_length=32))
                 def ...
 
-            - create a char field with one dependency to the field ``name`` of a
+            - create a char field with a dependency to the field ``name`` on a
               foreign key relation ``fk``
 
             .. code-block:: python
@@ -665,10 +703,8 @@ class Resolver:
 
             `select_related` and `prefetch_related` are stacked over computed fields
             of the same model during updates, that are marked for update.
-            They call the underlying queryset methods of the default model manager,
-            e.g. ``default_manager.select_related(*(lookups_of_a | lookups_of_b))``.
             If your optimizations contain custom attributes (as with `to_attr` of a
-            ``Prefetch`` object), these attributes will only be available on instances
+            `Prefetch` object), these attributes will only be available on instances
             during updates from the resolver, never on newly constructed instances or
             model instances pulled by other means, unless you applied the same lookups manually.
 
@@ -678,8 +714,8 @@ class Resolver:
 
         .. CAUTION::
 
-            With the dependency auto resolver you can easily create
-            recursive dependencies by accident. Imagine the following:
+            With the dependency resolver you can easily create recursive dependencies
+            by accident. Imagine the following:
 
             .. code-block:: python
 
@@ -695,19 +731,27 @@ class Resolver:
                     def comp(self):
                         return a.comp
 
-            Neither an object of ``A`` or ``B`` can be saved, since the
-            ``comp`` fields depend on each other. While it is quite easy
-            to spot for this simple case it might get tricky for more
-            complicated dependencies. Therefore the dependency resolver tries
-            to detect cyclic dependencies and might raise a ``CycleNodeException``.
+            Neither an object of `A` or `B` can be saved, since the ``comp`` fields depend on
+            each other. While it is quite easy to spot for this simple case it might get tricky
+            for more complicated dependencies. Therefore the dependency resolver tries
+            to detect cyclic dependencies and might raise a ``CycleNodeException`` during
+            startup.
 
             If you experience this in your project try to get in-depth cycle
             information, either by using the ``rendergraph`` management command or
             by directly accessing the graph objects:
 
-            - intermodel dependency graph: ``your_model._graph``
-            - mode local dependency graphs: ``your_model._graph.modelgraphs[your_model]``
-            - union graph: ``your_model._graph.get_uniongraph()``
+            - intermodel dependency graph: ``active_resolver._graph``
+            - mode local dependency graphs: ``active_resolver._graph.modelgraphs[your_model]``
+            - union graph: ``active_resolver._graph.get_uniongraph()``
+
+            Note that there is not graph object, when running with ``COMPUTEDFIELDS_MAP = True``.
+            In that case either comment out that line `settings.py` and restart the server
+            or build the graph at runtime with:
+
+                >>> from computedfields.graph import ComputedModelsGraph
+                >>> from computedfields.resolver import active_resolver
+                >>> graph = ComputedModelsGraph(active_resolver.computed_models)
 
             Also see the graph documentation :ref:`here<graph>`.
         """
@@ -723,53 +767,21 @@ class Resolver:
             return field
         return wrap
 
-    def update_computedfields(self, instance, update_fields=None):
-        """
-        Update values of local computed fields of ``instance``.
-
-        Other than calling ``.compute`` on an instance, this call overwrites
-        computed field values.
-
-        Returns ``None`` or an updated set of field names for ``update_fields``.
-
-        .. NOTE::
-
-            Normally you dont need to call this method yourself, if you respect
-            the inheritance remarks in :class:`.models.ComputedFieldsModel`.
-            Still for complicated late field access and changes in a custom `save` method
-            it might be necessary. For this consult the source code of
-            :meth:`save<.models.ComputedFieldsModel.save>` and
-            :meth:`precomputed<.resolver.Resolver.precomputed>` to get an idea,
-            how to correctly handle `update_fields`.
-        """
-        model = type(instance)
-        if not self.has_computedfields(model):
-            return update_fields
-        cf_mro = self.get_local_mro(model, update_fields)
-        if update_fields:
-            update_fields = set(update_fields)
-            update_fields.update(set(cf_mro))
-        for fieldname in cf_mro:
-            setattr(instance, fieldname, self._compute(instance, model, fieldname))
-        if update_fields:
-            return update_fields
-        return None
-
     def precomputed(self, *dargs, **dkwargs):
         """
-        Decorator for custom `save` methods, that expect local computed fields
+        Decorator for custom ``save`` methods, that expect local computed fields
         to contain already updated values on enter.
 
         By default local computed field values are only calculated once by the
-        `ComputedFieldModel.save` method after your own `save` method.
+        ``ComputedFieldModel.save`` method after your own save method.
 
         By placing this decorator on your save method, the values will be updated
         before entering your method as well. Note that this comes for the price of
         doubled local computed field calculations (before and after your save method).
         
         To avoid a second recalculation, the decorator can be called with `skip_after=True`.
-        Note that this might lead to desychonized computed field values, if you do late field
-        changes in your save method.
+        Note that this might lead to desychronized computed field values, if you do late
+        field changes in your save method without another resync afterwards.
         """
         skip = False
         func = None
@@ -785,10 +797,36 @@ class Resolver:
                 new_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
                 if new_fields:
                     kwargs['update_fields'] = new_fields
-                return func(instance, *args, skip_computedfields=skip, **kwargs)
+                kwargs['skip_computedfields'] = skip
+                return func(instance, *args, **kwargs)
             return _save
         
         return wrap(func) if func else wrap
+
+    def update_computedfields(self, instance, update_fields=None):
+        """
+        Update values of local computed fields of `instance`.
+
+        Other than calling ``compute`` on an instance, this call overwrites
+        computed field values on the instance (destructive).
+
+        Returns ``None`` or an updated set of field names for `update_fields`.
+        The returned fields might contained additional computed fields, that also
+        changed based on the input fields, thus should extend `update_fields`
+        on a save call.
+        """
+        model = type(instance)
+        if not self.has_computedfields(model):
+            return update_fields
+        cf_mro = self.get_local_mro(model, update_fields)
+        if update_fields:
+            update_fields = set(update_fields)
+            update_fields.update(set(cf_mro))
+        for fieldname in cf_mro:
+            setattr(instance, fieldname, self._compute(instance, model, fieldname))
+        if update_fields:
+            return update_fields
+        return None
 
     def has_computedfields(self, model):
         """

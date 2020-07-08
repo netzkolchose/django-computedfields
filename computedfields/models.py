@@ -6,23 +6,10 @@ from .resolver import active_resolver, _ComputedFieldsModelBase
 
 class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     """
-    Abstract base class for models with computed fields. Overloads `save` to update
+    Abstract base class for models with computed fields. Overloads ``save`` to update
     local computed field values before they are written to the database.
 
     All models containing a computed field must be derived from this class.
-
-    .. NOTE::
-
-        If you have a custom save method in the inheritance chain that alters concrete field values,
-        make sure that it is executed prior `ComputedFieldsModel.save`.
-        Otherwise computed field values may not be in sync on database level.
-        If in doubt, place `ComputedFieldsModel` higher up in the model inheritance.
-    
-    The method understands a special argument `skip_computedfields` to skip
-    the recalculation of local computed fields. This is used by the @precomputed decorator
-    to allow to skip a second field calculation with ``@precomputed(skip_after=True)``.
-    If you use it yourself, make sure to sync computed fields yourself by other means
-    (e.g. calling `update_computedfields` after field changes).
     """
     class Meta:
         abstract = True
@@ -31,6 +18,13 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
              update_fields=None, skip_computedfields=False):
         """
         Overloaded to update computed field values before writing to the database.
+
+        The method understands a special argument `skip_computedfields` to skip
+        the calculation of local computed fields. This is used by the ``@precomputed`` decorator
+        to allow to skip a second field calculation with ``@precomputed(skip_after=True)``.
+        If you use `skip_computedfields` yourself, make sure to synchronize computed fields
+        yourself by other means, e.g. by calling ``update_computedfields`` before writing
+        the instance or by a later ``update_dependent`` call.
         """
         if not skip_computedfields:
             update_fields = update_computedfields(self, update_fields)
@@ -80,7 +74,7 @@ class ComputedFieldsAdminModel(ContentType):
     """
     Proxy model to list all ``ComputedFieldsModel`` models with their
     field dependencies in admin. This might be useful during development.
-    To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
+    To enable it, set ``COMPUTEDFIELDS_ADMIN = True`` in `settings.py`.
     """
     objects = ComputedModelManager()
 
@@ -102,17 +96,19 @@ class ModelsWithContributingFkFieldsManager(models.Manager):
 
 class ContributingModelsModel(ContentType):
     """
-    Proxy model to list all models in admin, that contain fk fields contributing to computed fields.
-    This might be useful during development.
-    To enable it, set ``COMPUTEDFIELDS_ADMIN`` in settings.py to ``True``.
-    An fk field is considered contributing, if it is part of a computed field dependency,
-    thus a change to it would impact a computed field.
+    Proxy model to list all models in admin, that contain foreign key relations
+    contributing to computed fields. This might be useful during development.
+    To enable it, set ``COMPUTEDFIELDS_ADMIN = True`` in `settings.py`.
+
+    .. NOTE::
+        A foreign key relation is considered contributing, if it is part of
+        a computed field dependency in reverse direction.
     """
     objects = ModelsWithContributingFkFieldsManager()
 
     class Meta:
         proxy = True
         managed = False
-        verbose_name = _('Model with contributing Fk Fields')
-        verbose_name_plural = _('Models with contributing Fk Fields')
+        verbose_name = _('Model with contributing ForeignKey Fields')
+        verbose_name_plural = _('Models with contributing ForeignKey Fields')
         ordering = ('app_label', 'model')
