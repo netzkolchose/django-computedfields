@@ -139,8 +139,24 @@ def m2m_handler(sender, instance, **kwargs):
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        active_resolver.update_dependent_multi(
-            [instance, model.objects.filter(pk__in=pks)], update_local=False)
+        # old code
+        #active_resolver.update_dependent_multi(
+        #    [instance, model.objects.filter(pk__in=pks)], update_local=False)
+
+        # temporary fix to derive m2m relational fields
+        # FIXME: move field resolution into resolver map
+        m2m_fields = [f for f in type(instance)._meta.get_fields() if f.many_to_many]
+        for f in m2m_fields:
+            through = f.through if hasattr(f, 'through') else f.remote_field.through
+            if through == sender:
+                active_resolver.update_dependent(instance, update_fields=[f.name], update_local=False)
+                break
+        m2m_fields2 = [f for f in model._meta.get_fields() if f.many_to_many]
+        for f in m2m_fields2:
+            through = f.through if hasattr(f, 'through') else f.remote_field.through
+            if through == sender:
+                active_resolver.update_dependent(model.objects.filter(pk__in=pks), update_fields=[f.name], update_local=False)
+                break
 
     elif action == 'pre_remove':
         # instance updates

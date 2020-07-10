@@ -441,6 +441,12 @@ class ComputedModelsGraph(Graph):
                     for symbol in path.split('.'):
                         try:
                             rel = cls._meta.get_field(symbol)
+                            if rel.many_to_many:
+                                # expand field deps by m2m relations - not sure about that one yet...
+                                path_segments.append(symbol)
+                                fieldentry.setdefault(rel.related_model, []).append(
+                                    {'path': '__'.join(path_segments), 'depends': rel.remote_field.name})
+                                path_segments.pop()
                         except FieldDoesNotExist:
                             # handle reverse relation (not a concrete field)
                             rel = getattr(cls, symbol).rel
