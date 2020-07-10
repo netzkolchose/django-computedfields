@@ -712,15 +712,12 @@ class FixtureChild(ComputedFieldsModel):
 class MGroup(models.Model):
     pass
 
-
 class MItem(models.Model):
     pass
-
 
 class MUser(models.Model):
     groups = models.ManyToManyField(MGroup, related_name="users")
     items = models.ManyToManyField(MItem, related_name="users")
-
 
 class MAgent(ComputedFieldsModel):
     user = models.OneToOneField(MUser, related_name="agent", on_delete=models.CASCADE)

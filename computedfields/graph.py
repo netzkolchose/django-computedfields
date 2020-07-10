@@ -404,18 +404,33 @@ class ComputedModelsGraph(Graph):
         self.modelgraphs = {}
         self.union = None
 
-    def _check_concrete_field(self, model, fieldname):
+    def _right_constrain(self, model, fieldname):
         """
-        Sanity check - fields listed on the right side of a depends rule
-        must be concrete fields.
+        Sanity check for right side field types.
+
+        On the right side of a `depends` rule only real database fields should occur,
+        that are fieldnames that can safely be used with `update_fields` in ``save``.
+        This includes any concrete fields (also computed fields itself), but not m2m fields.
         """
-        if not model._meta.get_field(fieldname).concrete:
+        f = model._meta.get_field(fieldname)
+        if not f.concrete or f.many_to_many:
             raise ComputedFieldsException(
                 "%s has no concrete field named '%s'" % (model, fieldname))
 
     def resolve_dependencies(self, computed_models):
         """
-        Converts `depends` rules into ORM lookups and checks the fields' existance.
+        Converts `depends` rules into ORM lookups and checks the source fields' existance.
+
+        Basic `depends` rules:
+        - left side may contain any relation path accessible from an instance as ``'a.b.c'``
+        - right side may contain real database source fields (never relations)
+
+        Deeper nested relations get automatically added to the resolver map:
+
+        - fk relations are added on the model holding the fk field
+        - reverse fk relations are added on related model holding the fk field
+        - m2m fields and backrelations are added on the model directly, but
+          only used for inter-model resolving, never for field lookups during ``save``
         """
         global_deps = OrderedDict()
         local_deps = {}
@@ -433,7 +448,7 @@ class ComputedModelsGraph(Graph):
                         # we handle it instead on model graph level
                         # do at least an existance check here to provide an early error
                         for fieldname in fieldnames:
-                            self._check_concrete_field(model, fieldname)
+                            self._right_constrain(model, fieldname)
                         local_deps.setdefault(model, {}).setdefault(field, set()).update(fieldnames)
                         continue
                     path_segments = []
@@ -464,7 +479,7 @@ class ComputedModelsGraph(Graph):
                         # this is needed to correctly propagate direct fk changes
                         # in local cf mro later on
                         if isinstance(rel, ForeignKey) and cls in computed_models:
-                            self._check_concrete_field(cls, symbol)
+                            self._right_constrain(cls, symbol)
                             local_deps.setdefault(cls, {}).setdefault(field, set()).add(symbol)
                         if path_segments:
                             # add segment to intermodel graph deps
@@ -473,7 +488,7 @@ class ComputedModelsGraph(Graph):
                         path_segments.append(symbol)
                         cls = rel.related_model
                     for target_field in fieldnames:
-                        self._check_concrete_field(cls, target_field)
+                        self._right_constrain(cls, target_field)
                         fieldentry.setdefault(cls, []).append(
                             {'path': '__'.join(path_segments), 'depends': target_field})
         return {'global': global_deps, 'local': local_deps}

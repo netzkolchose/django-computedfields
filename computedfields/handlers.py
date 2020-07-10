@@ -137,9 +137,8 @@ def m2m_handler(sender, instance, **kwargs):
     m2m actions.
 
     .. NOTE::
-        The handler triggers updates for both ends of the m2m
-        relation, which might lead to massive updates and thus
-        heavy time consuming database interaction.
+        The handler triggers updates for both ends of the m2m relation,
+        which might lead to massive database interaction.
     """
     fields = active_resolver._m2m.get(sender)
     # exit early if we have no update rule the through model

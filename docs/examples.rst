@@ -238,6 +238,10 @@ in the example above.
     Note that because of this dependency expansion, it is not possible to omit foreign key
     relations on purpose, if they are part of a `depends` rule.
 
+    Further note, that a similar expansion is done for m2m and reverse m2m fields.
+    (Works similar to the fk expansion, but cannot be expressed in `depends`,
+    as m2m fields dont map directly to a source column in database terms.)
+
 
 Related Computed Fields
 ^^^^^^^^^^^^^^^^^^^^^^^
