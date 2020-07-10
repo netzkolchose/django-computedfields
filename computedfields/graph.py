@@ -419,7 +419,6 @@ class ComputedModelsGraph(Graph):
         """
         global_deps = OrderedDict()
         local_deps = {}
-        m2m = {}
         for model, fields in computed_models.items():
             local_deps.setdefault(model, {})    # always add to local to get a result for MRO
             for field, real_field in fields.items():
@@ -443,15 +442,7 @@ class ComputedModelsGraph(Graph):
                         try:
                             rel = cls._meta.get_field(symbol)
                             if rel.many_to_many:
-                                # m2m handling
-                                # store through models with left/right names for faster lookup
-                                if hasattr(rel, 'through'):
-                                    m2m[rel.through] = {
-                                        'left': rel.remote_field.name, 'right': rel.name}
-                                else:
-                                    m2m[rel.remote_field.through] = {
-                                        'left': rel.name, 'right': rel.remote_field.name}
-                                # expand deps by m2m relation fields
+                                # add dependency to m2m relation fields
                                 path_segments.append(symbol)
                                 fieldentry.setdefault(rel.related_model, []).append(
                                     {'path': '__'.join(path_segments), 'depends': rel.remote_field.name})
@@ -485,7 +476,7 @@ class ComputedModelsGraph(Graph):
                         self._check_concrete_field(cls, target_field)
                         fieldentry.setdefault(cls, []).append(
                             {'path': '__'.join(path_segments), 'depends': target_field})
-        return {'global': global_deps, 'local': local_deps, 'm2m': m2m}
+        return {'global': global_deps, 'local': local_deps}
 
     def _clean_data(self, data):
         """

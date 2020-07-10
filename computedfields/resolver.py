@@ -11,6 +11,7 @@ import pickle
 from django.db import transaction
 from django.db.models import QuerySet
 from django.conf import settings
+from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
@@ -66,6 +67,7 @@ class Resolver:
         self._map = {}
         self._fk_map = {}
         self._local_mro = {}
+        self._m2m = {}
         self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
 
         # some internal states
@@ -224,6 +226,7 @@ class Resolver:
             self._map = maps['lookup_map']
             self._fk_map = maps['fk_map']
             self._local_mro = maps['local_mro']
+            self._extract_m2m_through()
             self._map_loaded = True
 
     def _graph_reduction(self):
@@ -237,6 +240,36 @@ class Resolver:
         return (graph, {'lookup_map': graph.generate_lookup_map(),
                         'fk_map': graph._fk_map,
                         'local_mro': graph.generate_local_mro_map()})
+
+    def _extract_m2m_through(self):
+        """
+        Creates M2M through model mappings with left/right field names.
+        The map is used by the m2m_changed handler for faster name lookups.
+        This cannot be pickled, thus is built for every resolver bootstrapping.
+        """
+        for model, fields in self.computed_models.items():
+            for field, real_field in fields.items():
+                depends = real_field._computed['depends']
+                for path, fieldnames in depends:
+                    if path == 'self':
+                        continue
+                    cls = model
+                    for symbol in path.split('.'):
+                        try:
+                            rel = cls._meta.get_field(symbol)
+                            if rel.many_to_many:
+                                if hasattr(rel, 'through'):
+                                    self._m2m[rel.through] = {
+                                        'left': rel.remote_field.name, 'right': rel.name}
+                                else:
+                                    self._m2m[rel.remote_field.through] = {
+                                        'left': rel.name, 'right': rel.remote_field.name}
+                        except FieldDoesNotExist:
+                            rel = getattr(cls, symbol).rel
+                            symbol = rel.related_name \
+                                or rel.related_query_name \
+                                or rel.related_model._meta.model_name
+                        cls = rel.related_model
 
     def _calc_modelhash(self):
         """
