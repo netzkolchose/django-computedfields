@@ -26,3 +26,9 @@ class TestBetterM2M(TestCase):
         self.agent.refresh_from_db()
         # should have touched Agent.counter once
         self.assertEqual(self.agent.counter, 2)
+
+    def test_add_user_to_item(self):
+        self.item.users.add(self.user)
+
+        self.agent.refresh_from_db()
+        self.assertEqual(self.agent.counter, 2)

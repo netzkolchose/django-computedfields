@@ -12,6 +12,7 @@ in ``apps.ready``.
 from threading import local
 from django.db.models.fields.reverse_related import ManyToManyRel
 from .resolver import active_resolver
+from django.db import transaction
 
 
 # thread local storage to hold
@@ -143,20 +144,25 @@ def m2m_handler(sender, instance, **kwargs):
         #active_resolver.update_dependent_multi(
         #    [instance, model.objects.filter(pk__in=pks)], update_local=False)
 
-        # temporary fix to derive m2m relational fields
-        # FIXME: move field resolution into resolver map
-        m2m_fields = [f for f in type(instance)._meta.get_fields() if f.many_to_many]
-        for f in m2m_fields:
-            through = f.through if hasattr(f, 'through') else f.remote_field.through
-            if through == sender:
-                active_resolver.update_dependent(instance, update_fields=[f.name], update_local=False)
-                break
-        m2m_fields2 = [f for f in model._meta.get_fields() if f.many_to_many]
-        for f in m2m_fields2:
-            through = f.through if hasattr(f, 'through') else f.remote_field.through
-            if through == sender:
-                active_resolver.update_dependent(model.objects.filter(pk__in=pks), update_fields=[f.name], update_local=False)
-                break
+        # new code
+        fields = active_resolver._graph.resolved['m2m'].get(sender)     # FIXME: m2m map needs correct resolver export
+        if fields:
+            reverse = kwargs['reverse']
+            left = fields['right'] if reverse else fields['left']
+            right = fields['left'] if reverse else fields['right']
+
+            u_left = active_resolver._querysets_for_update(type(instance), instance, update_fields=[left])
+            u_right = active_resolver._querysets_for_update(model, model.objects.filter(pk__in=pks), update_fields=[right])
+            final = {}
+            for updates in [u_left, u_right]:
+                for modell, data in updates.items():
+                    query_field = final.setdefault(modell, [modell.objects.none(), set()])
+                    query_field[0] |= data[0]       # or'ed querysets
+                    query_field[1].update(data[1])  # add fields
+            if final:
+                with transaction.atomic():
+                    for queryset, fields in final.values():
+                        active_resolver.bulk_updater(queryset, fields, False, False)
 
     elif action == 'pre_remove':
         # instance updates
