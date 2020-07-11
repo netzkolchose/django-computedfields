@@ -67,6 +67,8 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 #### Changelog ####
 
 - *master* - in preparation for  0.1.0
+    - dependency expansion on M2M fields
+    - `m2m_changed` handler with filtering on m2m fields
     - remove custom metaclass, introducing *Resolver* class
     - new decorator `@precomputed` for custom save methods
     - old *depends* syntax removed
