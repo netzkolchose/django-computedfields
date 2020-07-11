@@ -706,3 +706,23 @@ class FixtureChild(ComputedFieldsModel):
     ])
     def path(self):
         return '/{}#{}/{}'.format(self.parent.name, self.parent.children_count, self.name)
+
+
+# better m2m support: #43
+class MGroup(models.Model):
+    pass
+
+class MItem(models.Model):
+    pass
+
+class MUser(models.Model):
+    groups = models.ManyToManyField(MGroup, related_name="users")
+    items = models.ManyToManyField(MItem, related_name="users")
+
+class MAgent(ComputedFieldsModel):
+    user = models.OneToOneField(MUser, related_name="agent", on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=[["user.items", ["id"]]])
+    def counter(self):
+        # This is used to detect when Agent gets updated
+        return self.counter + 1

@@ -10,7 +10,7 @@ in ``apps.ready``.
     commands ``makemigrations``, ``migrate`` and ``help``.
 """
 from threading import local
-from django.db.models.fields.reverse_related import ManyToManyRel
+from django.db import transaction
 from .resolver import active_resolver
 
 
@@ -101,24 +101,33 @@ def postdelete_handler(sender, instance, **kwargs):
     and updates them.
     """
     # after deletion we can update the associated computed fields
-    updates = DELETES.pop(instance, {})
-    for model, data in updates.items():
-        pks, fields = data
-        qs = model.objects.filter(pk__in=pks)
-        active_resolver.bulk_updater(qs, fields)
+    updates = DELETES.pop(instance, None)
+    if updates:
+        with transaction.atomic():
+            for model, [pks, fields] in updates.items():
+                active_resolver.bulk_updater(model.objects.filter(pk__in=pks), fields)
 
 
-def merge_pk_maps(mm1, mm2):
+def merge_pk_maps(obj1, obj2):
     """
-    Add mm2 onto mm1.
+    Merge pk map in `obj2` on `obj1`.
     """
-    for model, data in mm2.items():
+    for model, data in obj2.items():
         m2_pks, m2_fields = data
-        m1_pks, m1_fields = mm1.setdefault(model, [set(), set()])
+        m1_pks, m1_fields = obj1.setdefault(model, [set(), set()])
         m1_pks.update(m2_pks)
         m1_fields.update(m2_fields)
-    return mm1
+    return obj1
 
+def merge_qs_maps(obj1, obj2):
+    """
+    Merge queryset map in `obj2` on `obj1`.
+    """
+    for model, [qs2, fields2] in obj2.items():
+        query_field = obj1.setdefault(model, [model.objects.none(), set()])
+        query_field[0] |= qs2            # or'ed querysets
+        query_field[1].update(fields2)   # add fields
+    return obj1
 
 def m2m_handler(sender, instance, **kwargs):
     """
@@ -128,72 +137,66 @@ def m2m_handler(sender, instance, **kwargs):
     m2m actions.
 
     .. NOTE::
-        The handler triggers updates for both ends of the m2m
-        relation, which might lead to massive updates and thus
-        heavy time consuming database interaction.
+        The handler triggers updates for both ends of the m2m relation,
+        which might lead to massive database interaction.
     """
+    fields = active_resolver._m2m.get(sender)
+    # exit early if we have no update rule the through model
+    if not fields:
+        return
+
     # since the graph does not handle the m2m through model
-    # we have to trigger updates for both ends
+    # we have to trigger updates for both ends (left and right side)
+    reverse = kwargs['reverse']
+    left = fields['right'] if reverse else fields['left']   # fieldname on instance
+    right = fields['left'] if reverse else fields['right']  # fieldname on model
     action = kwargs.get('action')
     model = kwargs['model']
 
     if action == 'post_add':
         pks = kwargs['pk_set']
-        active_resolver.update_dependent_multi(
-            [instance, model.objects.filter(pk__in=pks)], update_local=False)
+        data = active_resolver._querysets_for_update(
+            type(instance), instance, update_fields=[left])
+        other = active_resolver._querysets_for_update(
+            model, model.objects.filter(pk__in=pks), update_fields=[right])
+        if other:
+            merge_qs_maps(data, other)
+        if data:
+            with transaction.atomic():
+                for queryset, fields in data.values():
+                    active_resolver.bulk_updater(queryset, fields)
 
     elif action == 'pre_remove':
-        # instance updates
-        data = active_resolver._querysets_for_update(
-            type(instance), instance, pk_list=True)
-        # other side updates
         pks = kwargs['pk_set']
+        data = active_resolver._querysets_for_update(
+            type(instance), instance, update_fields=[left], pk_list=True)
         other = active_resolver._querysets_for_update(
-            model, model.objects.filter(pk__in=pks), pk_list=True)
+            model, model.objects.filter(pk__in=pks), update_fields=[right], pk_list=True)
         if other:
             merge_pk_maps(data, other)
-        # final
         if data:
             M2M_REMOVE[instance] = data
 
     elif action == 'post_remove':
-        updates = M2M_REMOVE.pop(instance, {})
-        for model, data in updates.items():
-            pks, fields = data
-            qs = model.objects.filter(pk__in=pks)
-            active_resolver.bulk_updater(qs, fields)
+        updates = M2M_REMOVE.pop(instance, None)
+        if updates:
+            with transaction.atomic():
+                for _model, [pks, fields] in updates.items():
+                    active_resolver.bulk_updater(_model.objects.filter(pk__in=pks), fields)
 
     elif action == 'pre_clear':
-        # instance updates
-        data = active_resolver._querysets_for_update(type(instance), instance, pk_list=True)
-
-        # other side updates
-        # geez - have to get pks of other side ourself
-        inst_model = type(instance)
-        if kwargs['reverse']:
-            rel = list(filter(
-                lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                inst_model._meta.get_fields()
-            ))[0]
-            other = active_resolver._querysets_for_update(
-                model, getattr(instance, rel.name).all(), pk_list=True)
-        else:
-            field = list(filter(
-                lambda f: isinstance(f, ManyToManyRel) and f.through == sender,
-                model._meta.get_fields()
-            ))[0]
-            other = active_resolver._querysets_for_update(
-                model, getattr(instance, field.remote_field.name).all(), pk_list=True)
+        data = active_resolver._querysets_for_update(
+            type(instance), instance, update_fields=[left], pk_list=True)
+        other = active_resolver._querysets_for_update(
+            model, getattr(instance, left).all(), update_fields=[right], pk_list=True)
         if other:
             merge_pk_maps(data, other)
-
-        # final
         if data:
             M2M_CLEAR[instance] = data
 
     elif action == 'post_clear':
-        updates = M2M_CLEAR.pop(instance, {})
-        for model, data in updates.items():
-            pks, fields = data
-            qs = model.objects.filter(pk__in=pks)
-            active_resolver.bulk_updater(qs, fields)
+        updates = M2M_CLEAR.pop(instance, None)
+        if updates:
+            with transaction.atomic():
+                for _model, [pks, fields] in updates.items():
+                    active_resolver.bulk_updater(_model.objects.filter(pk__in=pks), fields)
