@@ -409,7 +409,7 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
-- `master` - in preparation for  v0.1.0
+- 0.1.0
     - fix recursion on empty queryset
     - dependency expansion on M2M fields
     - `m2m_changed` handler with filtering on m2m fields
