@@ -624,7 +624,8 @@ class Resolver:
                 model.objects.bulk_update(change, fields)
 
         # trigger dependent comp field updates on all records
-        if not local_only:
+        # skip recursive call if queryset is empty
+        if not local_only and queryset:
             self.update_dependent(queryset, model, fields, update_local=False)
         return set(el.pk for el in queryset) if return_pks else None
 

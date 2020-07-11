@@ -726,3 +726,16 @@ class MAgent(ComputedFieldsModel):
     def counter(self):
         # This is used to detect when Agent gets updated
         return self.counter + 1
+
+
+# recursive tree tests - fix #46
+class Tree(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey('Tree', null=True, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[
+        ['self', ['name']],
+        # ['parent', ['path']] -- gets added in specific test case test_simpletree.py
+    ])
+    def path(self):
+        return '{}/{}'.format(self.parent.path if self.parent else '', self.name)
