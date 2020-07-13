@@ -115,7 +115,7 @@ class Resolver:
         for model in self.models:
             fields = set()
             for field in model._meta.fields:
-                if field in self.computedfields:
+                if field.model == model and field in self.computedfields:
                     fields.add(field)
             if fields:
                 yield (model, fields)
@@ -265,10 +265,8 @@ class Resolver:
                                     self._m2m[rel.remote_field.through] = {
                                         'left': rel.name, 'right': rel.remote_field.name}
                         except FieldDoesNotExist:
-                            rel = getattr(cls, symbol).rel
-                            symbol = rel.related_name \
-                                or rel.related_query_name \
-                                or rel.related_model._meta.model_name
+                            descriptor = getattr(cls, symbol)
+                            rel = getattr(descriptor, "rel", None) or getattr(descriptor, "related")
                         cls = rel.related_model
 
     def _calc_modelhash(self):

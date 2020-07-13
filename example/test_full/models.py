@@ -346,6 +346,24 @@ class ConcreteWithForeignKey2(AbstractWithForeignKey):
         return self.target.d
 
 
+# Test classes for multi table inheritance support
+class ParentModel(ComputedFieldsModel):
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["childmodel", ["username"]], ["childmodel2", ["pseudo"]]])
+    def name(self):
+        if hasattr(self, "childmodel"):
+            return self.childmodel.username
+        elif hasattr(self, "childmodel2"):
+            return self.childmodel2.pseudo
+
+
+class ChildModel(ParentModel):
+    username = models.CharField(max_length=255)
+
+
+class ChildModel2(ParentModel):
+    pseudo = models.CharField(max_length=255)
+
+
 # test local field dependencies
 class SelfA(ComputedFieldsModel):
     name = models.CharField(max_length=32)

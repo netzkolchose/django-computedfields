@@ -464,7 +464,8 @@ class ComputedModelsGraph(Graph):
                                 path_segments.pop()
                         except FieldDoesNotExist:
                             # handle reverse relation (not a concrete field)
-                            rel = getattr(cls, symbol).rel
+                            descriptor = getattr(cls, symbol)
+                            rel = getattr(descriptor, "rel", None) or getattr(descriptor, "related")
                             symbol = rel.related_name \
                                 or rel.related_query_name \
                                 or rel.related_model._meta.model_name
