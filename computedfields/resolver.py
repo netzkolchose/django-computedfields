@@ -835,7 +835,20 @@ class Resolver:
         
         return wrap(func) if func else wrap
 
-    def update_computedfields(self, instance, update_fields=None):
+    def update_computedfields_on_parents(self, instance, model, update_fields=None):
+        parents = model._meta.parents
+        if not parents:
+            return None
+
+        all_parent_fields = set()
+        for parent_model in parents.keys():
+            parent_fields = self.update_computedfields(instance, model=parent_model, update_fields=update_fields)
+            if parent_fields:
+                all_parent_fields.update(parent_fields)
+
+        return all_parent_fields
+
+    def update_computedfields(self, instance, update_fields=None, model=None):
         """
         Update values of local computed fields of `instance`.
 
@@ -847,7 +860,12 @@ class Resolver:
         changed based on the input fields, thus should extend `update_fields`
         on a save call.
         """
-        model = type(instance)
+        if not model:
+            model = type(instance)
+        parent_fields = self.update_computedfields_on_parents(instance, model, update_fields=update_fields)
+        if parent_fields and update_fields:
+            update_fields.update(parent_fields)
+
         if not self.has_computedfields(model):
             return update_fields
         cf_mro = self.get_local_mro(model, update_fields)

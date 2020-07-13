@@ -297,7 +297,10 @@ class ConcreteSubchild(AbstractSubchild):
 
 
 class AbstractWithForeignKey(ComputedFieldsModel):
-    target = models.ForeignKey(Concrete, related_name="abstract_with_foreign_key", on_delete=models.CASCADE)
+    class Meta:
+        abstract = True
+
+    target = models.ForeignKey(Concrete, related_name="%(class)s", on_delete=models.CASCADE)
 
     @computed(models.IntegerField(default=0), depends=[['target', ['d']]])
     def target_d(self):
@@ -348,6 +351,13 @@ class ConcreteWithForeignKey2(AbstractWithForeignKey):
 
 # Test classes for multi table inheritance support
 class ParentModel(ComputedFieldsModel):
+    x = models.IntegerField(default=0)
+    y = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["x", "y"]]])
+    def z(self):
+        return self.x + self.y
+
     @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["childmodel", ["username"]], ["childmodel2", ["pseudo"]]])
     def name(self):
         if hasattr(self, "childmodel"):
@@ -357,12 +367,22 @@ class ParentModel(ComputedFieldsModel):
 
 
 class ChildModel(ParentModel):
-    username = models.CharField(max_length=255)
+    username = models.CharField(max_length=255, default="")
+
+    a = models.IntegerField(default=0)
+    b = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["a", "b"]]])
+    def c(self):
+        return self.a + self.b
 
 
 class ChildModel2(ParentModel):
-    pseudo = models.CharField(max_length=255)
+    pseudo = models.CharField(max_length=255, default="")
 
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["parentmodel_ptr", ["name", "z", "x"]]])
+    def other_name(self):
+        return f"{self.x}{self.name}{self.z}"
 
 # test local field dependencies
 class SelfA(ComputedFieldsModel):
