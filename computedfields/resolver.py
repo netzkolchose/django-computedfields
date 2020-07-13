@@ -8,6 +8,7 @@ from hashlib import sha256
 import logging
 import pickle
 
+import django
 from django.db import transaction
 from django.db.models import QuerySet
 from django.conf import settings
@@ -74,6 +75,7 @@ class Resolver:
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
+        self._use_bulk_update = django.VERSION >= (2,2)
 
     def add_model(self, sender, **kwargs):
         """
@@ -615,11 +617,15 @@ class Resolver:
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
-                if len(change) >= self._batchsize:
+                if self._use_bulk_update and len(change) >= self._batchsize:
                     model.objects.bulk_update(change, fields)
                     change = []
             if change:
-                model.objects.bulk_update(change, fields)
+                if self._use_bulk_update:
+                    model.objects.bulk_update(change, fields)
+                else:
+                    for elem in change:
+                        elem.save(update_fields=fields, skip_computedfields=True)
 
         # trigger dependent comp field updates on all records
         # skip recursive call if queryset is empty
