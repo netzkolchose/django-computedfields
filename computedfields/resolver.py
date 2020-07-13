@@ -115,6 +115,7 @@ class Resolver:
         for model in self.models:
             fields = set()
             for field in model._meta.fields:
+                # We're excluding fields that are defined on non-abstract parent models
                 if field.model == model and field in self.computedfields:
                     fields.add(field)
             if fields:
@@ -266,6 +267,7 @@ class Resolver:
                                         'left': rel.name, 'right': rel.remote_field.name}
                         except FieldDoesNotExist:
                             descriptor = getattr(cls, symbol)
+                            # ReverseOneToOneDescriptor has a "related" attribute instead of "rel"
                             rel = getattr(descriptor, "rel", None) or getattr(descriptor, "related")
                         cls = rel.related_model
 
@@ -836,6 +838,16 @@ class Resolver:
         return wrap(func) if func else wrap
 
     def update_computedfields_on_parents(self, instance, model, update_fields=None):
+        """
+        Iterate over `instance`'s non-abstract parent models, if any, recursively
+        updating `instance`'s local computed fields that are contributed by its
+        non-abstract parent models
+
+        Returns ``None`` or an updated set of field names for `update_fields`.
+        The returned fields might contained additional computed fields, that also
+        changed based on the input fields, thus should extend `update_fields`
+        on a save call.
+        """
         parents = model._meta.parents
         if not parents:
             return None

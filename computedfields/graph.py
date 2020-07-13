@@ -465,6 +465,7 @@ class ComputedModelsGraph(Graph):
                         except FieldDoesNotExist:
                             # handle reverse relation (not a concrete field)
                             descriptor = getattr(cls, symbol)
+                            # ReverseOneToOneDescriptor has a "related" attribute instead of "rel"
                             rel = getattr(descriptor, "rel", None) or getattr(descriptor, "related")
                             symbol = rel.related_name \
                                 or rel.related_query_name \
