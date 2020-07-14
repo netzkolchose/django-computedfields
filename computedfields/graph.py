@@ -10,7 +10,7 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname
+from computedfields.helper import pairwise, modelname
 
 
 class ComputedFieldsException(Exception):
@@ -199,49 +199,52 @@ class Graph:
         """
         return [Edge(*pair) for pair in pairwise(path)]
 
-    def _get_edge_paths(self, edge, left_edges, paths, seen=None):
+    def _get_edge_paths(self, edge, left_edges, paths, seen=None, node_exc=False):
         """
         Walks the graph recursively to get all possible paths.
-        Might raise a ``CycleEdgeException``.
+        Might raise a ``CycleEdgeException`` or ``CycleNodeException``.
         """
         if not seen:
             seen = []
         if edge in seen:
-            raise CycleEdgeException(seen[seen.index(edge):])
+            cycle = seen[seen.index(edge):]
+            raise CycleNodeException(self.edgepath_to_nodepath(cycle)) if node_exc \
+                else CycleEdgeException(cycle)
         seen.append(edge)
         if edge.right in left_edges:
             for new_edge in left_edges[edge.right]:
-                self._get_edge_paths(new_edge, left_edges, paths, seen[:])
+                self._get_edge_paths(new_edge, left_edges, paths, seen[:], node_exc)
         paths.append(seen)
 
-    def get_edgepaths(self):
+    def get_edgepaths(self, raise_node_exception=False):
         """
-        Returns a list of all edge paths.
+        Returns a list of all linear edge paths.
         An edge path is represented as list of edges.
 
-        Might raise a ``CycleEdgeException``. For in-depth cycle detection
-        use ``edge_cycles``, `node_cycles`` or ``get_cycles()``.
+        Might raise a ``CycleEdgeException`` (or ``CycleNodeException``).
+        The cycle exception is raised on the first occuring cycle.
+        For in-depth cycle detection containing all cycles use ``edge_cycles``,
+        ``node_cycles`` or ``get_cycles()``.
         """
         left_edges = OrderedDict()
         paths = []
         for edge in self.edges:
             left_edges.setdefault(edge.left, []).append(edge)
         for edge in self.edges:
-            self._get_edge_paths(edge, left_edges, paths)
+            self._get_edge_paths(edge, left_edges, paths, None, raise_node_exception)
         return paths
 
-    def get_nodepaths(self):
+    def get_nodepaths(self, raise_edge_exception=False):
         """
-        Returns a list of all node paths.
+        Returns a list of all linear node paths.
         A node path is represented as list of nodes.
 
-        Might raise a ``CycleNodeException``. For in-depth cycle detection
-        use ``edge_cycles``, ``node_cycles`` or ``get_cycles()``.
+        Might raise a ``CycleNodeException`` (or ``CycleEdgeException``).
+        The cycle exception is raised on the first occuring cycle.
+        For in-depth cycle detection containing all cycles use ``edge_cycles``,
+        ``node_cycles`` or ``get_cycles()``.
         """
-        try:
-            paths = self.get_edgepaths()
-        except CycleEdgeException as exc:
-            raise CycleNodeException(self.edgepath_to_nodepath(exc.args[0]))
+        paths = self.get_edgepaths(not raise_edge_exception)
         node_paths = []
         for path in paths:
             node_paths.append(self.edgepath_to_nodepath(path))
@@ -330,48 +333,32 @@ class Graph:
         except CycleEdgeException:
             return False
 
-    def _can_replace_nodepath(self, needle, haystack):
-        if not set(haystack).issuperset(needle):
-            return False
-        if is_sublist(needle, haystack):
-            return False
-        return True
-
-    def _compare_startend_nodepaths(self, new_paths, base_paths):
-        base_points = set((path[0], path[-1]) for path in base_paths)
-        new_points = set((path[0], path[-1]) for path in new_paths)
-        return base_points == new_points
-
-    def remove_redundant(self):
+    def transitive_reduction(self):
         """
-        Find and remove redundant edges. An edge is redundant
-        if there there are multiple possibilities to reach an end node
-        from a start node. Since the longer path triggers more needed
-        database updates the shorter path gets discarded.
-        Might raise a ``CycleNodeException``.
+        Remove redundant single edges. Implicitly checks for cycles.
+        This might speedup computed field updates alot due to skipping
+        dependency subtrees, if they are affected anyway by a later descent.
 
-        Returns the removed edges.
+        Currently the reduction is by default done for the inter-model graph
+        (unless ``COMPUTEDFIELDS_ALLOW_RECURSION`` is set).
+
+        This is always done for model local fields. Those always must be cyclefree.
         """
-        paths = self.get_nodepaths()
-        possible_replaces = []
-        for p_path in paths:
-            for q_path in paths:
-                if self._can_replace_nodepath(q_path, p_path):
-                    possible_replaces.append((q_path, p_path))
-        removed = set()
-        for candidate, _ in possible_replaces:
-            edges = [Edge(*nodes) for nodes in pairwise(candidate)]
-            for edge in edges:
-                if edge in removed:
+        paths = self.get_edgepaths(raise_node_exception=True)
+        remove = set()
+        for path1 in paths:
+            # we only cut single edge paths
+            if len(path1) > 1:
+                continue
+            left = path1[0].left
+            right = path1[-1].right
+            for path2 in paths:
+                if path2 == path1:
                     continue
-                self.remove_edge(edge)
-                removed.add(edge)
-                # make sure all startpoints will still update all endpoints
-                if not self._compare_startend_nodepaths(self.get_nodepaths(), paths):
-                    self.add_edge(edge)
-                    removed.remove(edge)
-        self._removed.update(removed)
-        return removed
+                if right == path2[-1].right and left == path2[0].left:
+                    remove.add(path1[0])
+        for edge in remove:
+            self.remove_edge(edge)
 
 
 class ComputedModelsGraph(Graph):
@@ -770,27 +757,6 @@ class ModelGraph(Graph):
         left = Node('##')
         for computed in computed_fields:
             self.add_edge(Edge(left, Node(computed)))
-
-    def transitive_reduction(self):
-        """
-        Remove redundant single edges. Also checks for cycles.
-        *Note:* Other than intermodel dependencies local dependencies must always be cyclefree.
-        """
-        paths = self.get_edgepaths()
-        remove = set()
-        for path1 in paths:
-            # we only cut single edge paths
-            if len(path1) > 1:
-                continue
-            left = path1[0].left
-            right = path1[-1].right
-            for path2 in paths:
-                if path2 == path1:
-                    continue
-                if right == path2[-1].right and left == path2[0].left:
-                    remove.add(path1[0])
-        for edge in remove:
-            self.remove_edge(edge)
 
     def _tsort(self, graph, start, paths, path):
         """

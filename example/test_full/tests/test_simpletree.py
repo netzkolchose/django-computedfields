@@ -39,9 +39,11 @@ class TestTree(TestCase):
 
     @override_settings(COMPUTEDFIELDS_ALLOW_RECURSION=True)
     def test_allow_recursion(self):
-        with patch_tree():
+        with patch_tree(False):
             self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']], ['parent', ['path']]])
+            active_resolver.load_maps(_force_recreation=True)   # should not raise anymore
         self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']]])
+        active_resolver.load_maps(_force_recreation=True)
 
     @override_settings(COMPUTEDFIELDS_ALLOW_RECURSION=True)
     def test_object_creation(self):
