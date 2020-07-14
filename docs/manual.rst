@@ -409,6 +409,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.1.1
+    - bugfix: add missing migration
 - 0.1.0
     - fix recursion on empty queryset
     - dependency expansion on M2M fields
