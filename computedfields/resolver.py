@@ -235,7 +235,7 @@ class Resolver:
         """
         graph = ComputedModelsGraph(self.computed_models)
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
-            graph.remove_redundant()
+            graph.transitive_reduction()
             graph.get_uniongraph().get_edgepaths()
         return (graph, {'lookup_map': graph.generate_lookup_map(),
                         'fk_map': graph._fk_map,

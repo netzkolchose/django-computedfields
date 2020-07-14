@@ -138,7 +138,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
-                graph.remove_redundant()
+                graph.transitive_reduction()
             dot = mark_safe(str(graph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
 
@@ -154,7 +154,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
-                graph.remove_redundant()
+                graph.transitive_reduction()
             uniongraph = graph.get_uniongraph()
             dot = mark_safe(str(uniongraph.get_dot()).replace('\n', ' '))
         return render(request, 'computedfields/graph.html', {'error': error, 'dot': dot})
@@ -177,7 +177,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             if not graph:
                 # we are in map file mode - create new graph
                 graph = ComputedModelsGraph(active_resolver.computed_models)
-                graph.remove_redundant()
+                graph.transitive_reduction()
                 graph.get_uniongraph()
             modelgraph = graph.modelgraphs.get(model, None)
             if modelgraph:
