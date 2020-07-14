@@ -739,3 +739,37 @@ class Tree(ComputedFieldsModel):
     ])
     def path(self):
         return '{}/{}'.format(self.parent.path if self.parent else '', self.name)
+
+
+# test o2o relations
+class OBackward(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[['source', ['name']]])
+    def forward_name(self):
+        # special handling of o2o relations
+        # other than non existant fk relations o2o raise an exception
+        try:
+            return self.source.name
+        except type(self).source.RelatedObjectDoesNotExist:
+            return ''
+
+class OSource(models.Model):
+    name = models.CharField(max_length=32)
+    o = models.OneToOneField(OBackward, related_name='source', on_delete=models.CASCADE)
+
+class ORelated(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+class OForward(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    o = models.OneToOneField(ORelated, related_name='forward', on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['o', ['name']]])
+    def backward_name(self):
+        # special handling of o2o relations
+        # other than non existant fk relations o2o raise an exception
+        try:
+            return self.o.name
+        except type(self).o.RelatedObjectDoesNotExist:
+            return ''
