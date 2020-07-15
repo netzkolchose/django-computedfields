@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import MtBase, MtDerived, MtRelated, MtDerived2
+from ..models import MtBase, MtDerived, MtRelated, MtDerived2, MtSubDerived
 
 
 class TestMultiTable(TestCase):
@@ -8,6 +8,7 @@ class TestMultiTable(TestCase):
         self.r2 = MtRelated.objects.create(name='r2')
         self.d = MtDerived.objects.create(name='b', dname='d', rel_on_base=self.r1, rel_on_derived=self.r2)
         self.d_2 = MtDerived2.objects.create(name='b', z='z', rel_on_base=self.r1)
+        self.s = MtSubDerived.objects.create(name='b', z='z', rel_on_base=self.r1, sub='I am sub!')
 
     def test_init(self):
         self.d.refresh_from_db()
@@ -16,6 +17,8 @@ class TestMultiTable(TestCase):
         self.assertEqual(self.d.pulled, '###B/D#r1:r2')
         self.d_2.refresh_from_db()
         self.assertEqual(self.d_2.pulled, 'D2:z')
+        self.s.refresh_from_db()
+        self.assertEqual(self.s.pulled, 'SUB pulled:I am sub!')
 
     def test_rename_base(self):
         self.d.name = 'bb'
@@ -43,3 +46,9 @@ class TestMultiTable(TestCase):
         self.d_2.save(update_fields=['z'])
         self.d_2.refresh_from_db()
         self.assertEqual(self.d_2.pulled, 'D2:zzzzz')
+
+    def test_change_sub(self):
+        self.s.sub = 'does it work?'
+        self.s.save(update_fields=['sub'])
+        self.s.refresh_from_db()
+        self.assertEqual(self.s.pulled, 'SUB pulled:does it work?')

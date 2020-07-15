@@ -10,7 +10,7 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path
+from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
 
 
 class ComputedFieldsException(Exception):
@@ -445,16 +445,16 @@ class ComputedModelsGraph(Graph):
                 # fields contributed from multi table model inheritance need patched depends rules,
                 # so the relation paths match the changed model entrypoint
                 if real_field.model != model and not real_field.model._meta.abstract:
-                    if real_field.model not in model._meta.parents:
-                        raise Exception('field {} cannot be mapped on model {}'.format(real_field, model))
+                    #if real_field.model not in model._meta.parents:
+                    #    raise ComputedFieldsException(
+                    #        'field {} cannot be mapped on model {}'.format(real_field, model))
 
                     # path from original model to current inherited
                     # these path segments have to be removed from depends
                     remove_segments = parent_to_inherited_path(real_field.model, model)
                     if not remove_segments:
-                        raise Exception('field {} cannot be mapped on model {}'.format(real_field, model))
-                    remove_path = '.'.join(remove_segments)
-                    remove_len = len(remove_path) + 1   # add 1 for following dot
+                        raise ComputedFieldsException(
+                            'field {} cannot be mapped on model {}'.format(real_field, model))
 
                     # paths starting with these segments belong to other derived models
                     # and get skipped for the dep tree creation on the current model
@@ -466,10 +466,10 @@ class ComputedModelsGraph(Graph):
                     # do a full rewrite of depends entry
                     depends_overwrite = []
                     for path, fieldnames in depends:
-                        if path.split('.')[0] in skip_paths:
+                        ps = path.split('.')
+                        if ps[0] in skip_paths:
                             continue
-                        if path.startswith(remove_path):
-                            path = path[remove_len:] or 'self'
+                        path = '.'.join(skip_equal_segments(ps, remove_segments)) or 'self'
                         depends_overwrite.append([path, fieldnames[:]])
                     depends = depends_overwrite
 

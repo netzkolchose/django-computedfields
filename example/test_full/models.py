@@ -790,14 +790,23 @@ class MtBase(ComputedFieldsModel):
         return self.name.upper()
 
     @computed(models.CharField(max_length=32), depends=[
+        # special case: deps resolver will filter on inherited model instances
+        # for matching access tokens:
+        # - MtDerived instance will never depend on 'mtderived2'
+        # - MtDerived2 instance will never depend on 'mtderived'
+        # - relation path will be shortened to the actual model level (up to 'self')
         ['mtderived', ['upper_combined']],
-        ['mtderived2', ['z']]   # FIXME: needs filtering in deps resolver
+        ['mtderived2', ['z']],
+        ['mtderived2.mtsubderived', ['sub']]
     ])
     def pulled(self):
         if hasattr(self, 'mtderived'):
             return '###' + self.mtderived.upper_combined
         if hasattr(self, 'mtderived2'):
-            return 'D2:' + self.mtderived2.z
+            if hasattr(self.mtderived2, 'mtsubderived'):
+                return 'SUB pulled:' + self.mtderived2.mtsubderived.sub
+            else:
+                return 'D2:' + self.mtderived2.z
         return ''
 
 class MtDerived(MtBase):
@@ -815,3 +824,6 @@ class MtDerived(MtBase):
 
 class MtDerived2(MtBase):
     z = models.CharField(max_length=32)
+
+class MtSubDerived(MtDerived2):
+    sub = models.CharField(max_length=32)
