@@ -789,10 +789,15 @@ class MtBase(ComputedFieldsModel):
     def upper(self):
         return self.name.upper()
 
-    @computed(models.CharField(max_length=32), depends=[['mtderived', ['upper_combined']]])
+    @computed(models.CharField(max_length=32), depends=[
+        ['mtderived', ['upper_combined']],
+        ['mtderived2', ['z']]   # FIXME: needs filtering in deps resolver
+    ])
     def pulled(self):
         if hasattr(self, 'mtderived'):
             return '###' + self.mtderived.upper_combined
+        if hasattr(self, 'mtderived2'):
+            return 'D2:' + self.mtderived2.z
         return ''
 
 class MtDerived(MtBase):
@@ -800,10 +805,13 @@ class MtDerived(MtBase):
     rel_on_derived = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
 
     @computed(models.CharField(max_length=32), depends=[
-        ['self', ['name', 'upper']],
+        ['self', ['dname', 'upper']],
         ['rel_on_base', ['name']],
         ['rel_on_derived', ['name']]
     ])
     def upper_combined(self):
         return '{}/{}#{}:{}'.format(
             self.upper, self.dname.upper(), self.rel_on_base.name, self.rel_on_derived.name)
+
+class MtDerived2(MtBase):
+    z = models.CharField(max_length=32)

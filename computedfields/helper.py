@@ -26,3 +26,17 @@ def is_sublist(needle, haystack):
             return True
         k += 1
     return False
+
+
+def parent_to_inherited_path(parent, inherited):
+    """
+    Pull relation path segments from `parent` to `inherited` model
+    in multi table inheritance.
+    """
+    bases = inherited._meta.get_base_chain(parent)
+    relations = []
+    model = inherited
+    for base in bases:
+        relations.append(model._meta.parents[base].remote_field.name)
+        model = base
+    return relations[::-1]

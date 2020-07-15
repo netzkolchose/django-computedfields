@@ -10,7 +10,7 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname
+from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path
 
 
 class ComputedFieldsException(Exception):
@@ -437,19 +437,41 @@ class ComputedModelsGraph(Graph):
         for model, fields in computed_models.items():
             local_deps.setdefault(model, {})    # always add to local to get a result for MRO
             for field, real_field in fields.items():
-
-                # FIXME: multi table inheritance needs special relation path translation here
-                # this should also fix the weird o2o rel access below
-                # Example from test cases:
-                # MtBase.pulled, gets inherited to MtDerived.pulled
-                # --> depends contains ['mtderived', [...]] --> not valid on the derived model anymore
-                if real_field.model != model and not model._meta.abstract:
-                    print('special case multi table inheritance', model, field)
-
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
                 local_deps.setdefault(model, {}).setdefault(field, set())
 
                 depends = real_field._computed['depends']
+
+                # fields contributed from multi table model inheritance need patched depends rules,
+                # so the relation paths match the changed model entrypoint
+                if real_field.model != model and not real_field.model._meta.abstract:
+                    if real_field.model not in model._meta.parents:
+                        raise Exception('field {} cannot be mapped on model {}'.format(real_field, model))
+
+                    # path from original model to current inherited
+                    # these path segments have to be removed from depends
+                    remove_segments = parent_to_inherited_path(real_field.model, model)
+                    if not remove_segments:
+                        raise Exception('field {} cannot be mapped on model {}'.format(real_field, model))
+                    remove_path = '.'.join(remove_segments)
+                    remove_len = len(remove_path) + 1   # add 1 for following dot
+
+                    # paths starting with these segments belong to other derived models
+                    # and get skipped for the dep tree creation on the current model
+                    skip_paths = []
+                    for rel in real_field.model._meta.related_objects:
+                        if rel.name != remove_segments[0]:
+                            skip_paths.append(rel.name)
+
+                    # do a full rewrite of depends entry
+                    depends_overwrite = []
+                    for path, fieldnames in depends:
+                        if path.split('.')[0] in skip_paths:
+                            continue
+                        if path.startswith(remove_path):
+                            path = path[remove_len:] or 'self'
+                        depends_overwrite.append([path, fieldnames[:]])
+                    depends = depends_overwrite
 
                 for path, fieldnames in depends:
                     if path == 'self':
@@ -480,9 +502,6 @@ class ComputedModelsGraph(Graph):
                                 or rel.related_model._meta.model_name
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
-                            # FIXME: investigate, why o2o needs this here (see FIXME above)
-                            if rel.one_to_one:
-                                symbol = rel.field.name
                             path_segments.append(symbol)
                             fieldentry.setdefault(rel.related_model, []).append(
                                 {'path': '__'.join(path_segments), 'depends': rel.field.name})
