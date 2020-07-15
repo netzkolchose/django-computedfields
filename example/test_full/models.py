@@ -773,3 +773,28 @@ class OForward(ComputedFieldsModel):
             return self.o.name
         except type(self).o.RelatedObjectDoesNotExist:
             return ''
+
+# multi table tests
+class MtRelated(models.Model):
+    name = models.CharField(max_length=32)
+
+class MtBase(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    rel_on_base = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+class MtDerived(MtBase):
+    dname = models.CharField(max_length=32)
+    rel_on_derived = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[
+        ['self', ['name', 'upper']],
+        ['rel_on_base', ['name']],
+        ['rel_on_derived', ['name']]
+    ])
+    def upper_combined(self):
+        return '{}/{}#{}:{}'.format(
+            self.upper, self.dname.upper(), self.rel_on_base.name, self.rel_on_derived.name)
