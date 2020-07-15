@@ -297,7 +297,10 @@ class ConcreteSubchild(AbstractSubchild):
 
 
 class AbstractWithForeignKey(ComputedFieldsModel):
-    target = models.ForeignKey(Concrete, related_name="abstract_with_foreign_key", on_delete=models.CASCADE)
+    class Meta:
+        abstract = True
+
+    target = models.ForeignKey(Concrete, related_name='%(class)s', on_delete=models.CASCADE)
 
     @computed(models.IntegerField(default=0), depends=[['target', ['d']]])
     def target_d(self):
