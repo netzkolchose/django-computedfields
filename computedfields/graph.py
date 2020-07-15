@@ -437,6 +437,15 @@ class ComputedModelsGraph(Graph):
         for model, fields in computed_models.items():
             local_deps.setdefault(model, {})    # always add to local to get a result for MRO
             for field, real_field in fields.items():
+
+                # FIXME: multi table inheritance needs special relation path translation here
+                # this should also fix the weird o2o rel access below
+                # Example from test cases:
+                # MtBase.pulled, gets inherited to MtDerived.pulled
+                # --> depends contains ['mtderived', [...]] --> not valid on the derived model anymore
+                if real_field.model != model and not model._meta.abstract:
+                    print('special case multi table inheritance', model, field)
+
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
                 local_deps.setdefault(model, {}).setdefault(field, set())
 
@@ -471,7 +480,7 @@ class ComputedModelsGraph(Graph):
                                 or rel.related_model._meta.model_name
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
-                            # FIXME: investigate, why o2o needs this here
+                            # FIXME: investigate, why o2o needs this here (see FIXME above)
                             if rel.one_to_one:
                                 symbol = rel.field.name
                             path_segments.append(symbol)
