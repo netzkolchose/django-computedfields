@@ -12,24 +12,25 @@ class TestMultiTable(TestCase):
         self.d.refresh_from_db()
         self.assertEqual(self.d.upper, 'B')
         self.assertEqual(self.d.upper_combined, 'B/D#r1:r2')
+        self.assertEqual(self.d.pulled, '###B/D#r1:r2')
 
     def test_rename_base(self):
         self.d.name = 'bb'
         self.d.save(update_fields=['name'])
+        self.d.refresh_from_db()
         self.assertEqual(self.d.upper_combined, 'BB/D#r1:r2')
+        self.assertEqual(self.d.pulled, '###BB/D#r1:r2')
 
     def test_update_from_r1(self):
         self.r1.name = 'rr1'
-        print('pre')
         self.r1.save(update_fields=['name'])
-        print('post')
         self.d.refresh_from_db()
         self.assertEqual(self.d.upper_combined, 'B/D#rr1:r2')
+        self.assertEqual(self.d.pulled, '###B/D#rr1:r2')
 
     def test_update_from_r2(self):
         self.r2.name = 'rr2'
-        print('pre')
         self.r2.save(update_fields=['name'])
-        print('post')
         self.d.refresh_from_db()
         self.assertEqual(self.d.upper_combined, 'B/D#r1:rr2')
+        self.assertEqual(self.d.pulled, '###B/D#r1:rr2')

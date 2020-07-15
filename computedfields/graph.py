@@ -471,7 +471,9 @@ class ComputedModelsGraph(Graph):
                                 or rel.related_model._meta.model_name
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
-                            # with relation field name
+                            # FIXME: investigate, why o2o needs this here
+                            if rel.one_to_one:
+                                symbol = rel.field.name
                             path_segments.append(symbol)
                             fieldentry.setdefault(rel.related_model, []).append(
                                 {'path': '__'.join(path_segments), 'depends': rel.field.name})

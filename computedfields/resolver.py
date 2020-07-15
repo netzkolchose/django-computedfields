@@ -602,9 +602,6 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
-        import pprint
-        pprint.pprint({'qs': queryset, 'update_fields': update_fields, 'mro':mro})
-
         # do bulk_update on computed fields in question
         # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
         if fields:
@@ -859,8 +856,6 @@ class Resolver:
             update_fields.update(set(cf_mro))
         for fieldname in cf_mro:
             setattr(instance, fieldname, self._compute(instance, model, fieldname))
-        import pprint
-        pprint.pprint({'instance': instance, 'update_fields': update_fields, 'mro':cf_mro})
         if update_fields:
             return update_fields
         return None

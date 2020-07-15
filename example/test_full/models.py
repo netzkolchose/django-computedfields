@@ -786,6 +786,12 @@ class MtBase(ComputedFieldsModel):
     def upper(self):
         return self.name.upper()
 
+    @computed(models.CharField(max_length=32), depends=[['mtderived', ['upper_combined']]])
+    def pulled(self):
+        if hasattr(self, 'mtderived'):
+            return '###' + self.mtderived.upper_combined
+        return ''
+
 class MtDerived(MtBase):
     dname = models.CharField(max_length=32)
     rel_on_derived = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
