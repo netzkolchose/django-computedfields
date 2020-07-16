@@ -827,3 +827,56 @@ class MtDerived2(MtBase):
 
 class MtSubDerived(MtDerived2):
     sub = models.CharField(max_length=32)
+
+
+
+# Test classes for multi table inheritance support
+class ParentModel(ComputedFieldsModel):
+    x = models.IntegerField(default=0)
+    y = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["x", "y"]]])
+    def z(self):
+        return self.x + self.y
+
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["childmodel", ["username"]], ["childmodel2", ["pseudo"]]])
+    def name(self):
+        if hasattr(self, "childmodel"):
+            return self.childmodel.username
+        elif hasattr(self, "childmodel2"):
+            return self.childmodel2.pseudo
+
+
+class ChildModel(ParentModel):
+    username = models.CharField(max_length=255, default="")
+
+    a = models.IntegerField(default=0)
+    b = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["a", "b"]]])
+    def c(self):
+        return self.a + self.b
+
+
+class ChildModel2(ParentModel):
+    pseudo = models.CharField(max_length=255, default="")
+
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["parentmodel_ptr", ["name", "z", "x"]]])
+    def other_name(self):
+        return f"{self.x}{self.name}{self.z}"
+
+
+class DependsOnParent(ComputedFieldsModel):
+    parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=[["parent", ["x"]]])
+    def x2(self):
+        return self.parent.x * 2
+
+
+class DependsOnParentComputed(ComputedFieldsModel):
+    parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=[["parent", ["z"]]])
+    def z2(self):
+        return self.parent.z * 2
