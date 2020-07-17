@@ -319,13 +319,14 @@ Multi Table Inheritance
 
 Multi table inheritance works with computed fields with some restrictions you have to be aware of.
 The following requires basic knowledge about multi table inheritance in Django and its similarities
-to o2o relations on accessor level (also see official Django docs).
+to o2o relations on accessor level (also see `official Django docs
+<https://docs.djangoproject.com/en/3.0/topics/db/models/#multi-table-inheritance>`_).
 
 Neighboring Models
 ^^^^^^^^^^^^^^^^^^
 
 Let's illustrate dealing with updates from neighboring models with an example.
-(Note: The example can also be found in `example.test_full` under `tests/test_multi_table_example.py`)
+(Note: The example can also be found in `example.test_full` under `tests/test_multitable_example.py`)
 
 .. code-block:: python
 
@@ -454,25 +455,25 @@ updates from different descendent model fields, example:
 
     class Base(ComputedFieldsModel):
         @computed(models.CharField(max_length=32), depends=[
-            ['a', ['type']],        # pull type field from A descendant
-            ['b', ['type']],        # pull type field from B descendant
-            ['b.c', ['subtype']]    # pull subtype field from C descendant
+            ['a', ['f_on_a']],      # pull custom field from A descendant
+            ['b', ['f_on_b']],      # pull custom field from B descendant
+            ['b.c', ['f_on_c']]     # pull custom field from C descendant
         ])
-        def type(self):
+        def comp(self):
             if hasattr(self, 'a'):
-                return a.type
+                return a.f_on_a
             if hasattr(self, 'b'):
                 if hasattr(self, 'b'):
-                    return self.b.c.subtype
-                return b.type
+                    return self.b.c.f_on_c
+                return b.f_on_b
             return ''
 
     class A(Base):
-        type = models.CharField(max_length=32, default='a')
+        f_on_a = models.CharField(max_length=32, default='a')
     class B(Base):
-        type = models.CharField(max_length=32, default='b')
+        f_on_b = models.CharField(max_length=32, default='b')
     class C(B):
-        subtype = models.CharField(max_length=32, default='sub-c')
+        f_on_c = models.CharField(max_length=32, default='sub-c')
 
 Note that you have to guard the attribute access yourself in the method code.
 
