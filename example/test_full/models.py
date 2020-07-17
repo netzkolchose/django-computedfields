@@ -880,3 +880,15 @@ class DependsOnParentComputed(ComputedFieldsModel):
     @computed(models.IntegerField(default=0), depends=[["parent", ["z"]]])
     def z2(self):
         return self.parent.z * 2
+
+# ptr based multi table access
+class MtPtrBase(models.Model):
+  basename = models.CharField(max_length=32)
+
+class MtPtrDerived(MtPtrBase, ComputedFieldsModel):
+  @computed(models.CharField(max_length=32), depends=[
+    ['self', ['basename']],         # catches updates from Derived{basename}
+    ['mtptrbase_ptr', ['basename']]     # catches updates from Base{basename}
+  ])
+  def comp(self):
+      return self.basename

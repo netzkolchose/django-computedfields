@@ -187,3 +187,29 @@ class MultiTableInheritanceModel(TestCase):
 
         self.assertEqual(child.z, 12)
         self.assertEqual(other.z2, 24)
+
+from ..models import MtPtrBase, MtPtrDerived
+from computedfields.models import update_dependent
+
+class TestMultiTableWithPtr(TestCase):
+    def test_init(self):
+        d = MtPtrDerived.objects.create(basename='hello')
+        self.assertEqual(d.comp, d.basename)
+
+    def test_base_change(self):
+        for i in range(10):
+            MtPtrDerived.objects.create(basename='D{}'.format(i))
+
+        b = MtPtrBase.objects.get(pk=1)
+        b.basename = 'changed'
+        b.save(update_fields=['basename'])
+        self.assertEqual(b.mtptrderived.comp, 'changed')
+
+        # create plain Basee object
+        new_b = MtPtrBase.objects.create(basename='hello')
+
+        # mass action
+        MtPtrBase.objects.all().update(basename='new value')
+        update_dependent(MtPtrBase.objects.all(), update_fields=['basename'])
+
+        self.assertEqual(list(MtPtrDerived.objects.all().values_list('basename', flat=True)), ['new value'] * 10)
