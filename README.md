@@ -66,6 +66,9 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 #### Changelog ####
 
+- 0.1.3
+    - better multi table inheritance support and test cases
+    - explicit docs for multi table inheritance
 - 0.1.2
     - bugfix: o2o reverse name access
     - add docs about model inheritance support
