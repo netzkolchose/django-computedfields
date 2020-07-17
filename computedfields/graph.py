@@ -445,10 +445,6 @@ class ComputedModelsGraph(Graph):
                 # fields contributed from multi table model inheritance need patched depends rules,
                 # so the relation paths match the changed model entrypoint
                 if real_field.model != model and not real_field.model._meta.abstract:
-                    #if real_field.model not in model._meta.parents:
-                    #    raise ComputedFieldsException(
-                    #        'field {} cannot be mapped on model {}'.format(real_field, model))
-
                     # path from original model to current inherited
                     # these path segments have to be removed from depends
                     remove_segments = parent_to_inherited_path(real_field.model, model)
@@ -458,6 +454,8 @@ class ComputedModelsGraph(Graph):
 
                     # paths starting with these segments belong to other derived models
                     # and get skipped for the dep tree creation on the current model
+                    # allows depending on fields of derived models in a computed field on the parent model
+                    # ("up-pulling", make sure your method handles the attribute access correctly)
                     skip_paths = []
                     for rel in real_field.model._meta.related_objects:
                         if rel.name != remove_segments[0]:

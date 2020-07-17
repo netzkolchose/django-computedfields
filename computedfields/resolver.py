@@ -490,7 +490,6 @@ class Resolver:
             self.bulk_updater(queryset, update_fields, local_only=True)
 
         updates = self._querysets_for_update(model, instance, update_fields).values()
-
         if updates:
             with transaction.atomic():
                 pks_updated = {}
@@ -501,17 +500,6 @@ class Resolver:
                         pks, fields = data
                         queryset = model.objects.filter(pk__in=pks-pks_updated[model])
                         self.bulk_updater(queryset, fields)
-
-    @staticmethod
-    def merge_qs_maps(obj1, obj2):
-        """
-        Merge queryset map in `obj2` on `obj1`.
-        """
-        for model, [qs2, fields2] in obj2.items():
-            query_field = obj1.setdefault(model, [model.objects.none(), set()])
-            query_field[0] |= qs2            # or'ed querysets
-            query_field[1].update(fields2)   # add fields
-        return obj1
 
     def update_dependent_multi(self, instances, old=None, update_local=True):
         """
