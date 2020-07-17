@@ -321,7 +321,7 @@ It still works with the following restrictions:
 
 - No up- or downcasting yet, therefore updates are only triggered on the model, that was given
   to `update_dependent`. It is currently your responsibility to either invoke `update_dependent`
-  for derived or parent models as well, to to mark the dependency correctly via its o2o relation.
+  for derived or parent models as well, or to mark the dependency correctly via its o2o relation.
 - Conditional "up-pulling" (depending on values from certain derived models) does not work.
 
 (This will change with future versions.)
