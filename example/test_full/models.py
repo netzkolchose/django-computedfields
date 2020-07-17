@@ -297,7 +297,10 @@ class ConcreteSubchild(AbstractSubchild):
 
 
 class AbstractWithForeignKey(ComputedFieldsModel):
-    target = models.ForeignKey(Concrete, related_name="abstract_with_foreign_key", on_delete=models.CASCADE)
+    class Meta:
+        abstract = True
+
+    target = models.ForeignKey(Concrete, related_name='%(class)s', on_delete=models.CASCADE)
 
     @computed(models.IntegerField(default=0), depends=[['target', ['d']]])
     def target_d(self):
@@ -773,3 +776,158 @@ class OForward(ComputedFieldsModel):
             return self.o.name
         except type(self).o.RelatedObjectDoesNotExist:
             return ''
+
+
+# multi table tests
+class MtRelated(models.Model):
+    name = models.CharField(max_length=32)
+
+class MtBase(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    rel_on_base = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    def upper(self):
+        return self.name.upper()
+
+    @computed(models.CharField(max_length=32), depends=[
+        # special case: deps resolver will filter on inherited model instances
+        # for matching access tokens:
+        # - MtDerived instance will never depend on 'mtderived2'
+        # - MtDerived2 instance will never depend on 'mtderived'
+        # - relation path will be shortened to the actual model level (up to 'self')
+        ['mtderived', ['upper_combined']],
+        ['mtderived2', ['z']],
+        ['mtderived2.mtsubderived', ['sub']]
+    ])
+    def pulled(self):
+        if hasattr(self, 'mtderived'):
+            return '###' + self.mtderived.upper_combined
+        if hasattr(self, 'mtderived2'):
+            if hasattr(self.mtderived2, 'mtsubderived'):
+                return 'SUB pulled:' + self.mtderived2.mtsubderived.sub
+            else:
+                return 'D2:' + self.mtderived2.z
+        return ''
+
+class MtDerived(MtBase):
+    dname = models.CharField(max_length=32)
+    rel_on_derived = models.ForeignKey(MtRelated, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[
+        ['self', ['dname', 'upper']],
+        ['rel_on_base', ['name']],
+        ['rel_on_derived', ['name']]
+    ])
+    def upper_combined(self):
+        return '{}/{}#{}:{}'.format(
+            self.upper, self.dname.upper(), self.rel_on_base.name, self.rel_on_derived.name)
+
+class MtDerived2(MtBase):
+    z = models.CharField(max_length=32)
+
+class MtSubDerived(MtDerived2):
+    sub = models.CharField(max_length=32)
+
+
+# Test classes for multi table inheritance support
+class ParentModel(ComputedFieldsModel):
+    x = models.IntegerField(default=0)
+    y = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["x", "y"]]])
+    def z(self):
+        return self.x + self.y
+
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["childmodel", ["username"]], ["childmodel2", ["pseudo"]]])
+    def name(self):
+        if hasattr(self, "childmodel"):
+            return self.childmodel.username
+        elif hasattr(self, "childmodel2"):
+            return self.childmodel2.pseudo
+
+
+class ChildModel(ParentModel):
+    username = models.CharField(max_length=255, default="")
+
+    a = models.IntegerField(default=0)
+    b = models.IntegerField(default=0)
+
+    @computed(models.IntegerField(default=0), depends=[["self", ["a", "b"]]])
+    def c(self):
+        return self.a + self.b
+
+
+class ChildModel2(ParentModel):
+    pseudo = models.CharField(max_length=255, default="")
+
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[["parentmodel_ptr", ["name", "z", "x"]]])
+    def other_name(self):
+        return f"{self.x}{self.name}{self.z}"
+
+
+class DependsOnParent(ComputedFieldsModel):
+    parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=[
+        ["parent", ["x"]],
+        ["parent.childmodel", ["x"]],   # descending field recovery
+    ])
+    def x2(self):
+        return self.parent.x * 2
+
+
+class DependsOnParentComputed(ComputedFieldsModel):
+    parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
+
+    @computed(models.IntegerField(default=0), depends=[
+        ["parent", ["z"]],
+        ["parent.childmodel", ["z"]]    # descending field recovery
+    ])
+    def z2(self):
+        return self.parent.z * 2
+
+
+# ptr based multi table access
+class MtPtrBase(models.Model):
+  basename = models.CharField(max_length=32)
+
+class MtPtrDerived(MtPtrBase, ComputedFieldsModel):
+  @computed(models.CharField(max_length=32), depends=[
+    ['self', ['basename']],             # catches updates from Derived{basename}
+    ['mtptrbase_ptr', ['basename']]     # catches updates from Base{basename} - ascending field recovery
+  ])
+  def comp(self):
+      return self.basename
+
+
+# test multi table example in docs
+class User(ComputedFieldsModel):
+    forname = models.CharField(max_length=32)
+    surname = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=64), depends=[['self', ['forname', 'surname']]])
+    def fullname(self):
+        return '{}, {}'.format(self.surname, self.forname)
+
+class EmailUser(User):
+    email = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=128), depends=[
+        ['self', ['email', 'fullname']],
+        ['user_ptr', ['fullname']]          # trigger updates from User type as well
+    ])
+    def email_contact(self):
+        return '{} <{}>'.format(self.fullname, self.email)
+
+class Work(ComputedFieldsModel):
+    subject = models.CharField(max_length=32)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=64), depends=[
+        ['self', ['subject']],
+        ['user', ['fullname']],
+        ['user.emailuser', ['fullname']]    # trigger updates from EmailUser type as well
+    ])
+    def descriptive_assigment(self):
+        return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)

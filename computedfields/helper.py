@@ -1,4 +1,4 @@
-from itertools import tee
+from itertools import tee, zip_longest
 
 
 def pairwise(iterable):
@@ -26,3 +26,33 @@ def is_sublist(needle, haystack):
             return True
         k += 1
     return False
+
+
+def parent_to_inherited_path(parent, inherited):
+    """
+    Pull relation path segments from `parent` to `inherited` model
+    in multi table inheritance.
+    """
+    bases = inherited._meta.get_base_chain(parent)
+    relations = []
+    model = inherited
+    for base in bases:
+        relations.append(model._meta.parents[base].remote_field.name)
+        model = base
+    return relations[::-1]
+
+def skip_equal_segments(ps, rs):
+    """
+    Skips all equal segments from the beginning of `ps` and `rs`
+    returning left over segments from `ps`.
+    """
+    add = False
+    ret = []
+    for left, right in zip_longest(ps, rs):
+        if left is None:
+            break
+        if left != right:
+            add = True
+        if add:
+            ret.append(left)
+    return ret

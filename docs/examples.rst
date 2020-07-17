@@ -309,6 +309,175 @@ limited for m2m fields. Also see below under optimization examples.
     as much as possible.
 
 
+Multi Table Inheritance
+-----------------------
+
+.. |br| raw:: html
+
+   <br />
+
+
+Multi table inheritance works with computed fields with some restrictions you have to be aware of.
+The following requires basic knowledge about multi table inheritance in Django and its similarities
+to o2o relations on accessor level (also see `official Django docs
+<https://docs.djangoproject.com/en/3.0/topics/db/models/#multi-table-inheritance>`_).
+
+Neighboring Models
+^^^^^^^^^^^^^^^^^^
+
+Let's illustrate dealing with updates from neighboring models with an example.
+(Note: The example can also be found in `example.test_full` under `tests/test_multitable_example.py`)
+
+.. code-block:: python
+
+    from django.db import models
+    from computedfields.models import ComputedFieldsModel, computed
+
+    class User(ComputedFieldsModel):
+        forname = models.CharField(max_length=32)
+        surname = models.CharField(max_length=32)
+
+        @computed(models.CharField(max_length=64), depends=[
+            ['self', ['forname', 'surname']]
+        ])
+        def fullname(self):
+            return '{}, {}'.format(self.surname, self.forname)
+
+    class EmailUser(User):
+        email = models.CharField(max_length=32)
+
+        @computed(models.CharField(max_length=128), depends=[
+            ['self', ['email', 'fullname']],
+            ['user_ptr', ['fullname']]          # trigger updates from User type as well
+        ])
+        def email_contact(self):
+            return '{} <{}>'.format(self.fullname, self.email)
+
+    class Work(ComputedFieldsModel):
+        subject = models.CharField(max_length=32)
+        user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+        @computed(models.CharField(max_length=64), depends=[
+            ['self', ['subject']],
+            ['user', ['fullname']],
+            ['user.emailuser', ['fullname']]    # trigger updates from EmailUser type as well
+        ])
+        def descriptive_assigment(self):
+            return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
+
+In the example there are two surprising `depends` rules:
+
+    1. ``['user_ptr', ['fullname']]`` on ``EmailUser.email_contact``
+    2. ``['user.emailuser', ['fullname']]`` on ``Work.descriptive_assigment``
+
+Both are needed to expand the update rules in a way, that parent or derived models are also respected
+for the field updates. While the first rule extends updates to the parent model `User`
+(ascending in the model inheritance), the second one expands updates to a descendant.
+
+*Why do I have to create those counter-intuitive rules?*
+
+Currently the resolver does not expand on multi table inheritance automatically.
+Furthermore it might not be wanted in all circumstances, that parent or derived models
+trigger updates on other ends. Thus it has to be set explicitly (might change with future versions,
+if highly demanded).
+
+*When do I have to place those additional rules?*
+
+In general the resolver updates computed fields only from model-field associations,
+that were explicitly given in `depends` rules. Therefore it will not catch changes on
+parent or derived models.
+
+In the example above without the first rule any changes to an instance of `User` will not
+trigger a recalculation of ``EmailUser.email_contact``. This is most likely unwanted behavior for this
+particular example, as anyone would expect, that changing parts of the name should update the email contact
+information here.
+
+Without the second rule, ``Work.descriptive_assigment`` will not be updated from changes of an
+`EmailUser` instance, which again is probably unwanted, as anyone would expect `EmailUser` to behave
+like a `User` instance here.
+
+*How to derive those rules?*
+
+To understand, how to construct those additional rules, we have to look first at the rules,
+they are derived from:
+
+- first one is derived from ``['self', ['email', 'fullname']]``
+- second one is derived from ``['user', ['fullname']]``
+
+**Step 1 - check, whether the path ends on multi table model**
+
+Looking at the relation paths (left side of the rules), both have something in common - they both end
+on a model with multi table inheritance (`self` in 1. pointing to `EmailUser` model,
+`user` in 2. pointing to `User` model). So whenever a relation ends on a multi table model,
+there is a high chance, that you might want to apply additional rules for neighboring models.
+
+**Step 2 - derive new relational path from model inheritance**
+
+Next question is, whether you want to expand ascending or descending or both in the model inheritance:
+
+- For ascending expansion append the o2o field name denoting the parent model.
+- For descending expansion append reverse o2o relation name pointing to the derived model.
+
+(Note: If a relation expands on `self` entries, `self` has to removed from the path.)
+
+At this point it is important to know, how Django denotes multi table relations on model field level.
+By default the o2o field is placed on the descendent model as `modelname_ptr`, while the reverse relation
+gets the child modelname on the ancestor model as `modelname` (all lowercase).
+
+In the example above ascending from `EmailUser` to `User` creates a relational path `user_ptr`,
+while descending from `User` to `EmailUser` needs a relational path of `emailuser`.
+
+**Step 3 - apply fieldnames on right side**
+
+For descending rules you can just copy over the field names on the right side. For the descent from
+`User` to `EmailUser` we finally get:
+
+- ``['user.emailuser', ['fullname']]``
+
+to be added to `depends` on ``Work.descriptive_assigment``.
+
+For ascending rules you should be careful not to copy over field names on the right side, that are defined on
+descendent models. After removing `email` from the field names we finally get for the ascent from `EmailUser`
+to `User`:
+
+- ``['user_ptr', ['fullname']]``
+
+to be added to `depends` on ``EmailUser.email_contact``.
+
+Up-Pulling Fields
+^^^^^^^^^^^^^^^^^
+
+The resolver has a special rule for handling dependencies to fields on derived multi table models.
+Therefore it is possible to create a computed field on the parent model, that conditionally
+updates from different descendent model fields, example:
+
+.. code-block:: python
+
+    class Base(ComputedFieldsModel):
+        @computed(models.CharField(max_length=32), depends=[
+            ['a', ['f_on_a']],      # pull custom field from A descendant
+            ['b', ['f_on_b']],      # pull custom field from B descendant
+            ['b.c', ['f_on_c']]     # pull custom field from C descendant
+        ])
+        def comp(self):
+            if hasattr(self, 'a'):
+                return a.f_on_a
+            if hasattr(self, 'b'):
+                if hasattr(self, 'b'):
+                    return self.b.c.f_on_c
+                return b.f_on_b
+            return ''
+
+    class A(Base):
+        f_on_a = models.CharField(max_length=32, default='a')
+    class B(Base):
+        f_on_b = models.CharField(max_length=32, default='b')
+    class C(B):
+        f_on_c = models.CharField(max_length=32, default='sub-c')
+
+Note that you have to guard the attribute access yourself in the method code.
+
+
 Forced Update of Computed Fields
 --------------------------------
 

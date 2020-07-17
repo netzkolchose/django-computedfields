@@ -10,7 +10,7 @@ the signal handlers.
 from collections import OrderedDict
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname
+from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
 
 
 class ComputedFieldsException(Exception):
@@ -442,6 +442,35 @@ class ComputedModelsGraph(Graph):
 
                 depends = real_field._computed['depends']
 
+                # fields contributed from multi table model inheritance need patched depends rules,
+                # so the relation paths match the changed model entrypoint
+                if real_field.model != model and not real_field.model._meta.abstract:
+                    # path from original model to current inherited
+                    # these path segments have to be removed from depends
+                    remove_segments = parent_to_inherited_path(real_field.model, model)
+                    if not remove_segments:
+                        raise ComputedFieldsException(
+                            'field {} cannot be mapped on model {}'.format(real_field, model))
+
+                    # paths starting with these segments belong to other derived models
+                    # and get skipped for the dep tree creation on the current model
+                    # allows depending on fields of derived models in a computed field on the parent model
+                    # ("up-pulling", make sure your method handles the attribute access correctly)
+                    skip_paths = []
+                    for rel in real_field.model._meta.related_objects:
+                        if rel.name != remove_segments[0]:
+                            skip_paths.append(rel.name)
+
+                    # do a full rewrite of depends entry
+                    depends_overwrite = []
+                    for path, fieldnames in depends:
+                        ps = path.split('.')
+                        if ps[0] in skip_paths:
+                            continue
+                        path = '.'.join(skip_equal_segments(ps, remove_segments)) or 'self'
+                        depends_overwrite.append([path, fieldnames[:]])
+                    depends = depends_overwrite
+
                 for path, fieldnames in depends:
                     if path == 'self':
                         # skip selfdeps in global graph handling
@@ -471,7 +500,6 @@ class ComputedModelsGraph(Graph):
                                 or rel.related_model._meta.model_name
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
-                            # with relation field name
                             path_segments.append(symbol)
                             fieldentry.setdefault(rel.related_model, []).append(
                                 {'path': '__'.join(path_segments), 'depends': rel.field.name})
