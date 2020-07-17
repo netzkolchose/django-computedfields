@@ -304,6 +304,36 @@ For multiple bulk actions consider using ``update_dependent_multi`` in conjuncti
 See method description in the API Reference for further details.
 
 
+Model Inheritance Support
+-------------------------
+
+Abstract Base Classes
+^^^^^^^^^^^^^^^^^^^^^
+
+Computed fields are fully supported with abstract model class inheritance. They can be defined
+on abstract models or on the final model. They are treated as local computed fields on the final model.
+
+Multi Table Inheritance
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Multi table inheritance is currently treated as **not** supported.
+It still works with the following restrictions:
+
+- No up- or downcasting yet, therefore updates are only triggered on the model, that was given
+  to `update_dependent`. It is currently your responsibility to either invoke `update_dependent`
+  for derived or parent models as well, or to mark the dependency correctly via its o2o relation.
+- Conditional "up-pulling" (depending on values from certain derived models) does not work.
+
+(This will change with future versions.)
+
+Proxy Models
+^^^^^^^^^^^^
+
+Computed fields cannot be placed on proxy models, as it would involve a change to the table,
+which is not allowed. Computed fields placed on the original model the proxy links to,
+can be used as any other concrete field.
+
+
 Management Commands
 -------------------
 
@@ -409,6 +439,9 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.1.2
+    - bugfix: o2o reverse name access
+    - add docs about model inheritance support
 - 0.1.1
     - bugfix: add missing migration
 - 0.1.0
