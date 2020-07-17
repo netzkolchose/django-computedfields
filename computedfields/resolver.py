@@ -489,21 +489,12 @@ class Resolver:
                 update_fields = set(update_fields)
             self.bulk_updater(queryset, update_fields, local_only=True)
 
-        #updates = self._querysets_for_update(model, instance, update_fields).values()
-        updates = self._querysets_for_update(model, instance, update_fields)
-
-        # HACK: ascend to parent and pull updates for that as well
-        # FIXME: build proper ascent map containing model/field chains to be handled in _querysets_for_update
-        #if modelname(model) == 'test_full.child model':
-        #    pmodel = list(model._meta.parents.keys())[0]
-        #    other = self._querysets_for_update(pmodel, instance, update_fields)
-        #    if other:
-        #        self.merge_qs_maps(updates, other)
+        updates = self._querysets_for_update(model, instance, update_fields).values()
 
         if updates:
             with transaction.atomic():
                 pks_updated = {}
-                for queryset, fields in updates.values():
+                for queryset, fields in updates:
                     pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
                 if old:
                     for model, data in old.items():

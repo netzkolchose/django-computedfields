@@ -869,7 +869,10 @@ class ChildModel2(ParentModel):
 class DependsOnParent(ComputedFieldsModel):
     parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
 
-    @computed(models.IntegerField(default=0), depends=[["parent", ["x"]]])
+    @computed(models.IntegerField(default=0), depends=[
+        ["parent", ["x"]],
+        ["parent.childmodel", ["x"]],   # descending field recovery
+    ])
     def x2(self):
         return self.parent.x * 2
 
@@ -877,7 +880,10 @@ class DependsOnParent(ComputedFieldsModel):
 class DependsOnParentComputed(ComputedFieldsModel):
     parent = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
 
-    @computed(models.IntegerField(default=0), depends=[["parent", ["z"]]])
+    @computed(models.IntegerField(default=0), depends=[
+        ["parent", ["z"]],
+        ["parent.childmodel", ["z"]]    # descending field recovery
+    ])
     def z2(self):
         return self.parent.z * 2
 
@@ -887,8 +893,8 @@ class MtPtrBase(models.Model):
 
 class MtPtrDerived(MtPtrBase, ComputedFieldsModel):
   @computed(models.CharField(max_length=32), depends=[
-    ['self', ['basename']],         # catches updates from Derived{basename}
-    ['mtptrbase_ptr', ['basename']]     # catches updates from Base{basename}
+    ['self', ['basename']],             # catches updates from Derived{basename}
+    ['mtptrbase_ptr', ['basename']]     # catches updates from Base{basename} - ascending field recovery
   ])
   def comp(self):
       return self.basename

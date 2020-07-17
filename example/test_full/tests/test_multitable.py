@@ -1,6 +1,8 @@
 from django.test import TestCase
 from ..models import MtBase, MtDerived, MtRelated, MtDerived2, MtSubDerived
-from unittest import skip
+from ..models import ChildModel, ChildModel2, ParentModel, DependsOnParent, DependsOnParentComputed
+from ..models import MtPtrBase, MtPtrDerived
+from computedfields.models import update_dependent
 
 
 class TestMultiTable(TestCase):
@@ -54,7 +56,7 @@ class TestMultiTable(TestCase):
         self.s.refresh_from_db()
         self.assertEqual(self.s.pulled, 'SUB pulled:does it work?')
 
-from ..models import ChildModel, ChildModel2, ParentModel, DependsOnParent, DependsOnParentComputed
+
 class MultiTableInheritanceModel(TestCase):
     def test_depends_on_child_model(self):
         child1 = ChildModel.objects.create(username="Child")
@@ -152,7 +154,6 @@ class MultiTableInheritanceModel(TestCase):
         self.assertEqual(parent.z, 12)
         self.assertEqual(other.z2, 24)
 
-    @skip('not working yet')
     def test_other_class_depends_on_parent_child(self):
         child = ChildModel.objects.create(username="Child", x=3, y=5)
         child.refresh_from_db()
@@ -170,7 +171,6 @@ class MultiTableInheritanceModel(TestCase):
         self.assertEqual(child.z, 12)
         self.assertEqual(other.x2, 14)
 
-    @skip('not working yet')
     def test_other_class_depends_on_parent_computed_child(self):
         child = ChildModel.objects.create(username="Child", x=3, y=5)
         child.refresh_from_db()
@@ -188,8 +188,6 @@ class MultiTableInheritanceModel(TestCase):
         self.assertEqual(child.z, 12)
         self.assertEqual(other.z2, 24)
 
-from ..models import MtPtrBase, MtPtrDerived
-from computedfields.models import update_dependent
 
 class TestMultiTableWithPtr(TestCase):
     def test_init(self):
