@@ -777,6 +777,7 @@ class OForward(ComputedFieldsModel):
         except type(self).o.RelatedObjectDoesNotExist:
             return ''
 
+
 # multi table tests
 class MtRelated(models.Model):
     name = models.CharField(max_length=32)
@@ -827,7 +828,6 @@ class MtDerived2(MtBase):
 
 class MtSubDerived(MtDerived2):
     sub = models.CharField(max_length=32)
-
 
 
 # Test classes for multi table inheritance support
@@ -887,6 +887,7 @@ class DependsOnParentComputed(ComputedFieldsModel):
     def z2(self):
         return self.parent.z * 2
 
+
 # ptr based multi table access
 class MtPtrBase(models.Model):
   basename = models.CharField(max_length=32)
@@ -898,3 +899,35 @@ class MtPtrDerived(MtPtrBase, ComputedFieldsModel):
   ])
   def comp(self):
       return self.basename
+
+
+# test multi table example in docs
+class User(ComputedFieldsModel):
+    forname = models.CharField(max_length=32)
+    surname = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=64), depends=[['self', ['forname', 'surname']]])
+    def fullname(self):
+        return '{}, {}'.format(self.surname, self.forname)
+
+class EmailUser(User):
+    email = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=128), depends=[
+        ['self', ['email', 'fullname']],
+        ['user_ptr', ['fullname']]          # trigger updates from User type as well
+    ])
+    def email_contact(self):
+        return '{} <{}>'.format(self.fullname, self.email)
+
+class Work(ComputedFieldsModel):
+    subject = models.CharField(max_length=32)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=64), depends=[
+        ['self', ['subject']],
+        ['user', ['fullname']],
+        ['user.emailuser', ['fullname']]    # trigger updates from EmailUser type as well
+    ])
+    def descriptive_assigment(self):
+        return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)

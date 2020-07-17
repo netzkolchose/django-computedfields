@@ -316,15 +316,13 @@ on abstract models or on the final model. They are treated as local computed fie
 Multi Table Inheritance
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-Multi table inheritance is currently treated as **not** supported.
-It still works with the following restrictions:
+Multi table inheritance is supported with the following restriction:
 
-- No up- or downcasting yet, therefore updates are only triggered on the model, that was given
-  to `update_dependent`. It is currently your responsibility to either invoke `update_dependent`
-  for derived or parent models as well, or to mark the dependency correctly via its o2o relation.
-- Conditional "up-pulling" (depending on values from certain derived models) does not work.
+.. NOTE::
 
-(This will change with future versions.)
+    **No automatic up- or downcasting** - the resolver strictly limits updates to model types listed in `depends`.
+    Also see example documentation on how to expand updates to neighboring model types manually.
+
 
 Proxy Models
 ^^^^^^^^^^^^
