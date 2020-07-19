@@ -933,18 +933,13 @@ class Work(ComputedFieldsModel):
         return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
 
 
-# FIXME: quick hack to test aggregate signal from resolver, needs proper test cases
-from computedfields.signals import resolver_update_done
-import pprint
+# signal test models
+class SignalParent(models.Model):
+    name = models.CharField(max_length=32)
 
-def update_done_handler(sender, **kwargs):
-    changeset = kwargs.get('changeset')
-    update_fields = kwargs.get('update_fields')
-    data = kwargs.get('data')
-    pprint.pprint({
-        'changeset': changeset,
-        'update_fields': update_fields,
-        'data': data
-    })
+class SignalChild(ComputedFieldsModel):
+    parent = models.ForeignKey(SignalParent, on_delete=models.CASCADE)
 
-resolver_update_done.connect(update_done_handler)
+    @computed(models.CharField(max_length=32), depends=[['parent', ['name']]], signal_update=True)
+    def parentname(self):
+        return self.parent.name

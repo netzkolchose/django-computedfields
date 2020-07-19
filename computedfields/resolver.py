@@ -416,8 +416,13 @@ class Resolver:
         # FIXME: signal aggregation not reespected in custom handler code yet
         collected_data = {} if resolver_update_done.has_listeners() else None
         self._update_dependent(instance, model, update_fields, old, update_local, collected_data)
-        resolver_update_done.send(
-            sender=self, changeset=instance, update_fields=update_fields, data=collected_data)
+        if collected_data:
+            resolver_update_done.send(
+                sender=self,
+                changeset=instance,
+                update_fields=frozenset(update_fields) if update_fields else None,
+                data=collected_data
+            )
 
     def _update_dependent(self, instance, model=None, update_fields=None,
                          old=None, update_local=True, collected_data=None):
@@ -631,18 +636,22 @@ class Resolver:
             if change:
                 model.objects.bulk_update(change, fields)
 
-        # update signal data
-        if collected_data is not None:
-            collected_data.setdefault(model, {})
-            pks = set(el.pk for el in queryset)
-            for f in mro:
-                collected_data[model][f] = set(pks)
-
-        # trigger dependent comp field updates on all records
-        # skip recursive call if queryset is empty
-        if not local_only and queryset:
-            self._update_dependent(queryset, model, fields, update_local=False, collected_data=collected_data)
-        return set(el.pk for el in queryset) if return_pks else None
+        pks = set()
+        if queryset:
+            # update signal data
+            if collected_data is not None:
+                pks = set(el.pk for el in queryset)
+                # TODO: optimize signal_update flags on CFs into static map
+                if any(self._computed_models[model][f]._computed['signal_update'] for f in mro):
+                    collected_data \
+                        .setdefault(model, {}) \
+                        .setdefault(frozenset(mro), set()).update(pks)
+            # trigger dependent comp field updates on all records
+            # skip recursive call if queryset is empty
+            if not local_only:
+                self._update_dependent(
+                    queryset, model, fields, update_local=False, collected_data=collected_data)
+        return (set(el.pk for el in queryset) if queryset and not pks else pks) if return_pks else None
 
     def _compute(self, instance, model, fieldname):
         """
@@ -709,7 +718,7 @@ class Resolver:
             raise ResolverException('resolver has no maps loaded yet')
         return self._fk_map
 
-    def computed(self, field, depends=None, select_related=None, prefetch_related=None):
+    def computed(self, field, depends=None, select_related=None, prefetch_related=None, signal_update=False):
         """
         Decorator to create computed fields.
 
@@ -809,7 +818,8 @@ class Resolver:
                 'func': func,
                 'depends': depends or [],
                 'select_related': select_related,
-                'prefetch_related': prefetch_related
+                'prefetch_related': prefetch_related,
+                'signal_update': signal_update
             }
             field.editable = False
             self.add_field(field)
