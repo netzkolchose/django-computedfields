@@ -931,3 +931,20 @@ class Work(ComputedFieldsModel):
     ])
     def descriptive_assigment(self):
         return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
+
+
+# FIXME: quick hack to test aggregate signal from resolver, needs proper test cases
+from computedfields.signals import resolver_update_done
+import pprint
+
+def update_done_handler(sender, **kwargs):
+    changeset = kwargs.get('changeset')
+    update_fields = kwargs.get('update_fields')
+    data = kwargs.get('data')
+    pprint.pprint({
+        'changeset': changeset,
+        'update_fields': update_fields,
+        'data': data
+    })
+
+resolver_update_done.connect(update_done_handler)
