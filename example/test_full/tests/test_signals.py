@@ -1,18 +1,17 @@
 from django.test import TestCase
 from ..models import SignalParent, SignalChild
-from computedfields.signals import resolver_update_done, state
+from computedfields.signals import post_update, state_changed
 from computedfields.models import update_dependent
 from contextlib import contextmanager
 from computedfields.resolver import Resolver
 
 @contextmanager
 def grab_state_signal(storage):
-    def handler(sender, **kwargs):
-        state = kwargs.get('state')
+    def handler(sender, state, **kwargs):
         storage.append({'sender': sender, 'state': state})
-    state.connect(handler)
+    state_changed.connect(handler)
     yield
-    state.disconnect(handler)
+    state_changed.disconnect(handler)
 
 
 class TestStateSignal(TestCase):
@@ -52,18 +51,15 @@ class TestStateSignal(TestCase):
 
 @contextmanager
 def grab_update_signal(storage):
-    def handler(sender, **kwargs):
-        changeset = kwargs.get('changeset')
-        update_fields = kwargs.get('update_fields')
-        data = kwargs.get('data')
+    def handler(sender, changeset, update_fields, data, **kwargs):
         storage.append({
             'changeset': changeset,
             'update_fields': update_fields,
             'data': data
         })
-    resolver_update_done.connect(handler)
+    post_update.connect(handler)
     yield
-    resolver_update_done.disconnect(handler)
+    post_update.disconnect(handler)
 
 
 class TestUpdateSignal(TestCase):

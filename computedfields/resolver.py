@@ -15,7 +15,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
-from .signals import resolver_update_done, state
+from .signals import post_update, state_changed
 from . import __version__
 
 logger = logging.getLogger(__name__)
@@ -77,11 +77,14 @@ class Resolver:
         self._map_loaded = False    # final stage with fully loaded maps
 
         # make state explicit
+        #: Current resolver state. The state is one of ``'initial'``, ``'models_loaded'``
+        #: or ``'maps_loaded'``. Also see ``state`` signal.
+        self.state = 'initial'
         self._set_state('initial')
 
     def _set_state(self, statestring):
         self.state = statestring
-        state.send(sender=self, state=self.state)
+        state_changed.send(sender=self, state=self.state)
 
     def add_model(self, sender, **kwargs):
         """
@@ -423,10 +426,10 @@ class Resolver:
                          old=None, update_local=True):
         # FIXME: quick hack to separate level 0 invocation from recursive ones
         # FIXME: signal aggregation not reespected in custom handler code yet
-        collected_data = {} if resolver_update_done.has_listeners() else None
+        collected_data = {} if post_update.has_listeners() else None
         self._update_dependent(instance, model, update_fields, old, update_local, collected_data)
         if collected_data:
-            resolver_update_done.send(
+            post_update.send(
                 sender=self,
                 changeset=instance,
                 update_fields=frozenset(update_fields) if update_fields else None,
@@ -651,6 +654,7 @@ class Resolver:
             if collected_data is not None:
                 pks = set(el.pk for el in queryset)
                 # TODO: optimize signal_update flags on CFs into static map
+                # FIXME: filter for signal_update=True
                 if any(self._computed_models[model][f]._computed['signal_update'] for f in mro):
                     collected_data \
                         .setdefault(model, {}) \
