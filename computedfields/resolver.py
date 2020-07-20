@@ -15,7 +15,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
-from .signals import resolver_update_done
+from .signals import resolver_update_done, state
 from . import __version__
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,13 @@ class Resolver:
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
+
+        # make state explicit
+        self._set_state('initial')
+
+    def _set_state(self, statestring):
+        self.state = statestring
+        state.send(sender=self, state=self.state)
 
     def add_model(self, sender, **kwargs):
         """
@@ -185,8 +192,10 @@ class Resolver:
         self.seal()
         self._computed_models = self.extract_computed_models()
         self._initialized = True
+        self._set_state('models_loaded')
         if not models_only:
             self.load_maps()
+            self._set_state('maps_loaded')
 
     def load_maps(self, _force_recreation=False):
         """

@@ -1,12 +1,58 @@
 from django.test import TestCase
 from ..models import SignalParent, SignalChild
-from computedfields.signals import resolver_update_done
+from computedfields.signals import resolver_update_done, state
 from computedfields.models import update_dependent
 from contextlib import contextmanager
+from computedfields.resolver import Resolver
 
 @contextmanager
-def grab_signals(storage):
-    def simple_handler(sender, **kwargs):
+def grab_state_signal(storage):
+    def handler(sender, **kwargs):
+        state = kwargs.get('state')
+        storage.append({'sender': sender, 'state': state})
+    state.connect(handler)
+    yield
+    state.disconnect(handler)
+
+
+class TestStateSignal(TestCase):
+    def test_state_cycle_models(self):
+        data = []
+        with grab_state_signal(data):
+            # initial
+            r = Resolver()
+            self.assertEqual(data, [{'sender': r, 'state': 'initial'}])
+            self.assertEqual(r.state, 'initial')
+            data.clear()
+
+            # models_loaded
+            r.initialize(models_only=True)
+            self.assertEqual(data, [{'sender': r, 'state': 'models_loaded'}])
+            self.assertEqual(r.state, 'models_loaded')
+            data.clear()
+
+    def test_state_cycle_full(self):
+        data = []
+        with grab_state_signal(data):
+            # initial
+            r = Resolver()
+            self.assertEqual(data, [{'sender': r, 'state': 'initial'}])
+            self.assertEqual(r.state, 'initial')
+            data.clear()
+
+            # models_loaded + maps_loaded
+            r.initialize(models_only=False)
+            self.assertEqual(data, [
+                {'sender': r, 'state': 'models_loaded'},
+                {'sender': r, 'state': 'maps_loaded'}
+            ])
+            self.assertEqual(r.state, 'maps_loaded')
+            data.clear()
+
+
+@contextmanager
+def grab_update_signal(storage):
+    def handler(sender, **kwargs):
         changeset = kwargs.get('changeset')
         update_fields = kwargs.get('update_fields')
         data = kwargs.get('data')
@@ -15,15 +61,15 @@ def grab_signals(storage):
             'update_fields': update_fields,
             'data': data
         })
-    resolver_update_done.connect(simple_handler)
+    resolver_update_done.connect(handler)
     yield
-    resolver_update_done.disconnect(simple_handler)
+    resolver_update_done.disconnect(handler)
 
 
-class TestSignals(TestCase):
+class TestUpdateSignal(TestCase):
     def test_with_handler(self):
         data = []
-        with grab_signals(data):
+        with grab_update_signal(data):
 
             # creating parents should be silent
             p1 = SignalParent.objects.create(name='p1')
@@ -88,4 +134,3 @@ class TestSignals(TestCase):
             self.assertEqual(c1.parentname, 'P1')
             self.assertEqual(c2.parentname, 'P2_CHANGED')
             self.assertEqual(c3.parentname, 'P2_CHANGED')
-
