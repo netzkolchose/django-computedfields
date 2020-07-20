@@ -943,3 +943,7 @@ class SignalChild(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[['parent', ['name']]], signal_update=True)
     def parentname(self):
         return self.parent.name
+
+    @computed(models.CharField(max_length=32), depends=[['parent', ['name']]])  # field should not occur in signals
+    def parentname_no_signal(self):
+        return self.parent.name

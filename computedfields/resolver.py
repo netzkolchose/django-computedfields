@@ -654,11 +654,9 @@ class Resolver:
             if collected_data is not None:
                 pks = set(el.pk for el in queryset)
                 # TODO: optimize signal_update flags on CFs into static map
-                # FIXME: filter for signal_update=True
-                if any(self._computed_models[model][f]._computed['signal_update'] for f in mro):
-                    collected_data \
-                        .setdefault(model, {}) \
-                        .setdefault(frozenset(mro), set()).update(pks)
+                signal_fields = frozenset(filter(lambda f: self._computed_models[model][f]._computed['signal_update'], mro))
+                if signal_fields:
+                    collected_data.setdefault(model, {}).setdefault(signal_fields, set()).update(pks)
             # trigger dependent comp field updates on all records
             # skip recursive call if queryset is empty
             if not local_only:
