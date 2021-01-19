@@ -29,17 +29,26 @@ class MyModel(ComputedFieldsModel):
 `computed_field` will be turned into a real database field
 and can be accessed and searched like any other database field.
 During saving the associated method gets called and it’s result
-written to the database. With the method `compute('fieldname')`
-you can inspect the value that will be written, which is useful
-if you have pending changes:
+written to the database. 
+
+
+#### How to recalculate without saving the model record ####
+
+If you need to recalculate the computed field but without saving it, use
+`from computedfields.models import compute`
 
 ```python
->>> person = MyModel(forename='berty')
->>> person.computed_field             # empty since not saved yet
->>> person.compute('computed_field')  # outputs 'BERTY'
->>> person.save()
->>> person.computed_field             # outputs 'BERTY'
+>>> from computedfields.models import compute
+>>> person = MyModel.objects.get(id=1)  # this is to retrieve existing record
+>>> person.computed_field               # outputs 'BERTY'
+>>> person.name = 'nina'                # changing the dependent field `name` to nina
+>>> compute(person, 'computed_field')   # outputs 'NINA'
+>>> person.computed_field               # outputs 'BERTY' because the `person` is not yet saved
+>>> person.save()                       # the save will now alter the database record for `name` and `computed_field`
+>>> person.computed_field               # outputs 'NINA'
 ```
+
+#### `depends` keyword
 
 The  `depends` keyword argument can be used with any relation to indicate dependencies to fields on other models as well:
 
