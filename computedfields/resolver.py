@@ -69,13 +69,12 @@ class Resolver:
         self._fk_map = {}
         self._local_mro = {}
         self._m2m = {}
-        self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+        self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100 if django.VERSION >= (2,2) else 0)
 
         # some internal states
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
-        self._use_bulk_update = django.VERSION >= (2,2)
 
     def add_model(self, sender, **kwargs):
         """
@@ -617,11 +616,11 @@ class Resolver:
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
-                if self._use_bulk_update and len(change) >= self._batchsize:
+                if self._batchsize and len(change) >= self._batchsize:
                     model.objects.bulk_update(change, fields)
                     change = []
             if change:
-                if self._use_bulk_update:
+                if self._batchsize:
                     model.objects.bulk_update(change, fields)
                 else:
                     for elem in change:
