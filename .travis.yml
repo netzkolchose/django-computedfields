@@ -2,9 +2,11 @@ language: python
 
 matrix:
   include:
+    - { python: "3.6", env: DJANGO=2.1 }
     - { python: "3.6", env: DJANGO=2.2 }
     - { python: "3.6", env: DJANGO=3.0 }
 
+    - { python: "3.7", env: DJANGO=2.1 }
     - { python: "3.7", env: DJANGO=2.2 }
     - { python: "3.7", env: DJANGO=3.0 }
 

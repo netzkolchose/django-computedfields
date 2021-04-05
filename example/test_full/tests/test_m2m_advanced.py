@@ -1,3 +1,4 @@
+import django
 from django.test import TestCase
 from ..models import Person, Group, Membership
 from django.test.utils import CaptureQueriesContext
@@ -9,8 +10,14 @@ class SelfDeps(TestCase):
     def setUp(self):
         self.persons = [Person.objects.create(name='P{}'.format(i)) for i in range(10)]
         self.groups = [Group.objects.create(name=g) for g in 'ABCDEFGHJI']
-        self.persons[0].groups.add(self.groups[0], self.groups[1])
-        self.persons[1].groups.add(self.groups[0], self.groups[1])
+        if django.VERSION >= (2,2):
+            self.persons[0].groups.add(self.groups[0], self.groups[1])
+            self.persons[1].groups.add(self.groups[0], self.groups[1])
+        else:
+            Membership.objects.create(person=self.persons[0], group=self.groups[0])
+            Membership.objects.create(person=self.persons[0], group=self.groups[1])
+            Membership.objects.create(person=self.persons[1], group=self.groups[0])
+            Membership.objects.create(person=self.persons[1], group=self.groups[1])
 
     def test_init(self):
         p0 = self.persons[0]
@@ -28,11 +35,19 @@ class SelfDeps(TestCase):
         self.assertEqual(p0.my_groups, 'A,b')
     
     def test_add_group(self):
-        Group.objects.create(name='Z').members.set([self.persons[0]])
+        if django.VERSION >= (2, 2):
+            Group.objects.create(name='Z').members.set([self.persons[0]])
+        else:
+            group = Group.objects.create(name='Z')
+            Membership.objects.create(group=group, person=self.persons[0])
         p0 = self.persons[0]
         p0.refresh_from_db()
         self.assertEqual(p0.my_groups, 'A,B,Z')
-        p0.groups.create(name='X')
+        if django.VERSION >= (2, 2):
+            p0.groups.create(name='X')
+        else:
+            group = Group.objects.create(name='X')
+            Membership.objects.create(group=group, person=p0)
         p0.refresh_from_db()
         self.assertEqual(p0.my_groups, 'A,B,Z,X')
 
@@ -50,11 +65,19 @@ class SelfDeps(TestCase):
         self.assertEqual(g0.my_members, 'P0,Px')
 
     def test_add_person(self):
-        Person.objects.create(name='Py').groups.set([self.groups[0]])
+        if django.VERSION >= (2, 2):
+            Person.objects.create(name='Py').groups.set([self.groups[0]])
+        else:
+            person = Person.objects.create(name='Py')
+            Membership.objects.create(person=person, group=self.groups[0])
         g0 = self.groups[0]
         g0.refresh_from_db()
         self.assertEqual(g0.my_members, 'P0,P1,Py')
-        g0.members.create(name='Pz')
+        if django.VERSION >= (2, 2):
+            g0.members.create(name='Pz')
+        else:
+            person = Person.objects.create(name='Pz')
+            Membership.objects.create(group=g0, person=person)
         g0.refresh_from_db()
         self.assertEqual(g0.my_members, 'P0,P1,Py,Pz')
 
