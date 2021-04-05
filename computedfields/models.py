@@ -28,7 +28,7 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
         """
         if not skip_computedfields:
             update_fields = update_computedfields(self, update_fields)
-        return super(ComputedFieldsModel, self).save(force_insert, force_update, using, update_fields)
+        return super(ComputedFieldsModel, self).save(force_insert=force_insert, force_update=force_update, using=using, update_fields=update_fields)
 
 
 # some convenient access mappings
