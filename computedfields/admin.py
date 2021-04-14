@@ -3,8 +3,7 @@ from django.contrib import admin
 from django.apps import apps
 from django.conf import settings
 from django.utils.html import escape, mark_safe, format_html
-from django.urls import reverse, NoReverseMatch
-from django.conf.urls import url
+from django.urls import reverse, NoReverseMatch, re_path
 from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
 from .models import ComputedFieldsAdminModel, ContributingModelsModel
@@ -101,13 +100,13 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         urls = super(ComputedModelsAdmin, self).get_urls()
         info = self.model._meta.app_label, self.model._meta.model_name
         databaseview_urls = [
-            url(r'^computedfields/rendergraph/$',
+            re_path(r'^computedfields/rendergraph/$',
                 self.admin_site.admin_view(self.render_graph),
                 name='%s_%s_computedfields_rendergraph' % info),
-            url(r'^computedfields/renderuniongraph/$',
+            re_path(r'^computedfields/renderuniongraph/$',
                 self.admin_site.admin_view(self.render_uniongraph),
                 name='%s_%s_computedfields_renderuniongraph' % info),
-            url(r'^computedfields/modelgraph/(?P<modelid>\d+)/$',
+            re_path(r'^computedfields/modelgraph/(?P<modelid>\d+)/$',
                 self.admin_site.admin_view(self.render_modelgraph),
                 name='%s_%s_computedfields_modelgraph' % info),
         ]
