@@ -27,9 +27,31 @@ def generate_computedmodel(resolver, modelname, func, wrong_base=False):
       }
     )
 
+
 class TestResolverInstance(TestCase):
     def setUp(self):
         self.resolver = Resolver()
+
+    # since django 3.2 field in ... check does not work anymore
+    # This is a work around with equality testing on individual basis.
+    def compare_fields(self, fields_left, fields_right):
+        self.assertEqual(len(fields_left), len(fields_right))
+        left_ids = set(f.creation_counter for f in fields_left)
+        right_ids = set(f.creation_counter for f in fields_right)
+        self.assertEqual(left_ids, right_ids)
+        # walk all fields
+        for left in fields_left:
+            for right in fields_right:
+                if left == right:
+                    break
+            else:
+                raise Exception(f'{left} not in right fields')
+        for right in fields_right:
+            for left in fields_left:
+                if left == right:
+                    break
+            else:
+                raise Exception(f'{right} not in left fields')
 
     def test_initialstate(self):
         # all states should be false
@@ -41,7 +63,7 @@ class TestResolverInstance(TestCase):
         class_prepared.connect(self.resolver.add_model)
         rt_field, rt_model = generate_computedmodel(self.resolver, 'RuntimeGeneratedA', lambda self: self.name.upper())
         class_prepared.disconnect(self.resolver.add_model)
-        self.assertEqual(self.resolver.computedfields, {rt_field})
+        self.compare_fields(self.resolver.computedfields, {rt_field})
         self.assertEqual(self.resolver.models, {rt_model})
         
         # should raise on computed_models, models_with_computedfields, computedfields_with_models
