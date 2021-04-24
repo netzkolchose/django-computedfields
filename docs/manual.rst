@@ -437,6 +437,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.1.4
+    - Django 3.2 support
 - 0.1.3
     - better multi table inheritance support and test cases
     - explicit docs for multi table inheritance
