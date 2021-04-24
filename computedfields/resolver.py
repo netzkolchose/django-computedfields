@@ -143,15 +143,25 @@ class Resolver:
 
         This cannot be accessed during the collector phase.
         """
-        # FIXME: needs Django>=3.2 fix!!!
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
-        for field in self.computedfields:
-            models = set()
-            for model in self.models:
-                if field in model._meta.fields:
-                    models.add(model)
-            yield (field, models)
+
+        if django_lesser_3_2:
+            for field in self.computedfields:
+                models = set()
+                for model in self.models:
+                    if field in model._meta.fields:
+                        models.add(model)
+                yield (field, models)
+        else:
+            for field in self.computedfields:
+                creation_counter = field.creation_counter
+                models = set()
+                for model in self.models:
+                    for f in model._meta.fields:
+                        if hasattr(field, '_computed') and f.creation_counter == field.creation_counter:
+                            models.add(model)
+                yield (field, models)
 
     @property
     def computed_models(self):
@@ -180,7 +190,7 @@ class Resolver:
         computed_models = {}
 
         if django_lesser_3_2:
-            # keep old logic for older versions for now
+            # keep logic for older versions for now
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
                     raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
