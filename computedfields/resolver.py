@@ -19,6 +19,9 @@ from . import __version__
 
 logger = logging.getLogger(__name__)
 
+import django
+django_lesser_3_2 = django.VERSION < (3, 2)
+
 
 class ResolverException(ComputedFieldsException):
     """
@@ -112,13 +115,26 @@ class Resolver:
         """
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
-        for model in self.models:
-            fields = set()
-            for field in model._meta.fields:
-                if field in self.computedfields:
-                    fields.add(field)
-            if fields:
-                yield (model, fields)
+
+        if django_lesser_3_2:
+            for model in self.models:
+                fields = set()
+                for field in model._meta.fields:
+                    if field in self.computedfields:
+                        fields.add(field)
+                if fields:
+                    yield (model, fields)
+        else:
+            field_ids = [f.creation_counter for f in self.computedfields]
+            for model in self.models:
+                fields = set()
+                for field in model._meta.fields:
+                    # for some reason the in ... check does not work for Django >= 3.2 anymore
+                    # workaround: check for _computed and the field creation_counter
+                    if hasattr(field, '_computed') and field.creation_counter in field_ids:
+                        fields.add(field)
+                if fields:
+                    yield (model, fields)
 
     @property
     def computedfields_with_models(self):
@@ -129,12 +145,23 @@ class Resolver:
         """
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
-        for field in self.computedfields:
-            models = set()
-            for model in self.models:
-                if field in model._meta.fields:
-                    models.add(model)
-            yield (field, models)
+
+        if django_lesser_3_2:
+            for field in self.computedfields:
+                models = set()
+                for model in self.models:
+                    if field in model._meta.fields:
+                        models.add(model)
+                yield (field, models)
+        else:
+            for field in self.computedfields:
+                creation_counter = field.creation_counter
+                models = set()
+                for model in self.models:
+                    for f in model._meta.fields:
+                        if hasattr(field, '_computed') and f.creation_counter == field.creation_counter:
+                            models.add(model)
+                yield (field, models)
 
     @property
     def computed_models(self):
@@ -161,12 +188,23 @@ class Resolver:
         found in collector phase.
         """
         computed_models = {}
-        for model, computedfields in self.models_with_computedfields:
-            if not issubclass(model, _ComputedFieldsModelBase):
-                raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
-            computed_models[model] = {}
-            for field in computedfields:
-                computed_models[model][field.name] = field
+
+        if django_lesser_3_2:
+            # keep logic for older versions for now
+            for model, computedfields in self.models_with_computedfields:
+                if not issubclass(model, _ComputedFieldsModelBase):
+                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                computed_models[model] = {}
+                for field in computedfields:
+                    computed_models[model][field.name] = field
+        else:
+            for model, computedfields in self.models_with_computedfields:
+                if not issubclass(model, _ComputedFieldsModelBase):
+                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                computed_models[model] = {}
+                for field in computedfields:
+                    computed_models[model][field.name] = field
+
         return computed_models
 
     def initialize(self, models_only=False):

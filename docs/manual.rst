@@ -62,7 +62,7 @@ the ``@computed`` decorator on a method:
 .. code-block:: python
 
     from django.db import models
-    from computedfields.models import ComputedFieldsModel, computed
+    from computedfields.models import ComputedFieldsModel, computed, compute
 
     class Person(ComputedFieldsModel):
         forename = models.CharField(max_length=32)
@@ -74,13 +74,13 @@ the ``@computed`` decorator on a method:
 
 ``combined`` will be turned into a real database field and can be accessed
 and searched like any other database field. During saving the associated method gets called
-and its result written to the database. With the method ``compute('fieldname')`` you can
+and its result written to the database. With ``compute(instance, 'fieldname')`` you can
 inspect the value that will be written, which is useful if you have pending
 changes:
 
     >>> person = Person(forename='Leeroy', surname='Jenkins')
     >>> person.combined             # empty since not saved yet
-    >>> person.compute('combined')  # outputs 'Jenkins, Leeroy'
+    >>> compute(person, 'combined') # outputs 'Jenkins, Leeroy'
     >>> person.save()
     >>> person.combined             # outputs 'Jenkins, Leeroy'
     >>> Person.objects.filter(combined__<some condition>)  # used in a queryset
