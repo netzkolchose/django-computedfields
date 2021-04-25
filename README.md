@@ -1,5 +1,5 @@
 [![build](https://github.com/netzkolchose/django-computedfields/actions/workflows/build.yml/badge.svg)](https://github.com/netzkolchose/django-computedfields/actions/workflows/build.yml)
-[![Coverage Status](https://coveralls.io/repos/github/netzkolchose/django-computedfields/badge.svg?branch=master)](https://coveralls.io/github/netzkolchose/django-computedfields)
+[![Coverage Status](https://coveralls.io/repos/github/netzkolchose/django-computedfields/badge.svg?branch=master)](https://coveralls.io/github/netzkolchose/django-computedfields?branch=master)
 
 
 ### django-computedfields ###
