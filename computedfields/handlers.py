@@ -42,7 +42,8 @@ def get_old_handler(sender, instance, **kwargs):
     if kwargs.get('raw'):
         return
     # exit early if instance is new
-    if instance._state.adding:
+    # issue #67: also exit on empty pk (cloning does not reset state)
+    if instance._state.adding or not instance.pk:
         return
     contributing_fks = active_resolver._fk_map.get(sender)
     # exit early if model contains no contributing fk fields
