@@ -76,6 +76,8 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 #### Changelog ####
 
+- 0.1.5
+    - fix error on model instance cloning
 - 0.1.4
     - Django 3.2 support
 - 0.1.3
