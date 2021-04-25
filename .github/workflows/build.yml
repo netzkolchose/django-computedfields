@@ -43,6 +43,12 @@ jobs:
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine
         coverage report
+    - name: Coveralls Parallel
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.github_token }}
+        flag-name: run-django22-${{ matrix.python-version }}
+        parallel: true
 
   django_32:
 
@@ -77,3 +83,19 @@ jobs:
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine
         coverage report
+    - name: Coveralls Parallel
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.github_token }}
+        flag-name: run-django32-${{ matrix.python-version }}
+        parallel: true
+
+  finish:
+    needs: [django_22, django_32]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Coveralls Finished
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.github_token }}
+        parallel-finished: true
