@@ -79,6 +79,7 @@ jobs:
         coverage report
     - name: Coveralls
       if: ${{ matrix.python-version == '3.9' }}
-      run: coveralls --service=github
+      run: |
+        coveralls
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
