@@ -8,7 +8,7 @@ def pairwise(iterable):
 
 
 def modelname(model):
-    return '%s.%s' % (model._meta.app_label, model._meta.verbose_name)
+    return '%s.%s' % (model._meta.app_label, model._meta.model_name)
 
 
 def is_sublist(needle, haystack):

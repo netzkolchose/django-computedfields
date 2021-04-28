@@ -931,3 +931,19 @@ class Work(ComputedFieldsModel):
     ])
     def descriptive_assigment(self):
         return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
+
+
+# signal test models
+class SignalParent(models.Model):
+    name = models.CharField(max_length=32)
+
+class SignalChild(ComputedFieldsModel):
+    parent = models.ForeignKey(SignalParent, on_delete=models.CASCADE)
+
+    @computed(models.CharField(max_length=32), depends=[['parent', ['name']]], signal_update=True)
+    def parentname(self):
+        return self.parent.name
+
+    @computed(models.CharField(max_length=32), depends=[['parent', ['name']]])  # field should not occur in signals
+    def parentname_no_signal(self):
+        return self.parent.name
