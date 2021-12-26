@@ -66,7 +66,7 @@ class MyModel(ComputedFieldsModel):
         return self.name.upper() + self.fk.fieldname
 ```
 
-Now changes to `self.name` or `fk.fieldname` will update `computed_field`.
+Now changes to `self.name`, `fk` or `fk.fieldname` will update `computed_field`.
 
 
 #### Documentation ####

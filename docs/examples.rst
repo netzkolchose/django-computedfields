@@ -463,7 +463,7 @@ updates from different descendent model fields, example:
             if hasattr(self, 'a'):
                 return a.f_on_a
             if hasattr(self, 'b'):
-                if hasattr(self, 'b'):
+                if hasattr(self, 'c'):
                     return self.b.c.f_on_c
                 return b.f_on_b
             return ''

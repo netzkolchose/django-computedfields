@@ -70,7 +70,7 @@ the ``@computed`` decorator on a method:
 
         @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
         def combined(self):
-            return u'%s, %s' % (self.surname, self.forename)
+            return f'{self.surname}, {self.forename}'
 
 ``combined`` will be turned into a real database field and can be accessed
 and searched like any other database field. During saving the associated method gets called
@@ -110,14 +110,13 @@ The example above extended by a model ``Address``:
             ['person', ['combined']]
         ])
         def full_address(self):
-            return u'%s, %s, %s %s' % (self.person.combined, self.street,
-                                       self.postal, self.city)
+            return f'{self.person.combined}, {self.street}, {self.postal} {self.city}'
 
 Now a change to ``self.street``, ``self.postal``, ``self.city`` or ``person.combined``
 will update ``full_address``. Also changing ``self.person`` will trigger an update of ``full_address``.
 
-Dependencies should be listed as ``['relation_name', concrete_fieldnames]``.
-The relation can span serveral models, simply name the relation
+Dependencies should be listed as ``['relation_path', list_of_concrete_fieldnames]``.
+The relation path can span serveral models, simply name the relation
 in python style with a dot (e.g. ``'a.b.c'``). A relation can be any of
 foreign key, m2m, o2o and their back relations.
 The fieldnames should be a list of strings of concrete fields on the foreign model the method
@@ -205,7 +204,7 @@ to ``save`` or by using the ``precomputed`` decorator with the keyword argument 
 Both will skip the late field updates done by default in ``ComputedFieldModel.save``, thus you have to
 make sure to correctly update field values yourself, e.g. by calling ``update_computedfields``.
 
-Fur further guidance see API docs and the source of :meth:`save<.models.ComputedFieldsModel.save>` and
+Fur further guidance see API docs and the source of :meth:`ComputedFieldsModel.save<.models.ComputedFieldsModel.save>` and
 :meth:`@precomputed<.resolver.Resolver.precomputed>`.
 
 
