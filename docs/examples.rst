@@ -565,7 +565,7 @@ update performance:
     and the question, how to gain back some update performance. For computed field updates the query load plays a
     rather important role, as any relation noted in dependencies is likely to turn into an `n`-case update.
     In theory this expands to `O(n^nested_relations)`, practically it cuts down earlier due to finite
-    records in the database and agressive model/field filtering done by the auto resolver. Still there is
+    records in the database and aggressive model/field filtering done by the auto resolver. Still there is
     much room for further optimizations.
 
     Before applying some of the ideas below make sure to profile your project. Tools that might come

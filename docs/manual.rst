@@ -261,7 +261,7 @@ Similar measures to catch old relations are in place for m2m relations and delet
 
 .. NOTE::
 
-    The fact that you have list all field dependencies explicitly would allow another agressive optimization in
+    The fact that you have list all field dependencies explicitly would allow another aggressive optimization in
     the resolver by filtering the select for update queryset for tracked concrete field changes.
     But to achieve arbitrary concrete field change tracking, a before-after comparison is needed, either by
     another SELECT query, or by some copy-on-write logic on any dependency chain model field.
