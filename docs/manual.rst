@@ -436,6 +436,16 @@ a similar feature in Django's ORM.
 
 Changelog
 ---------
+- 0.1.6
+    - maintenace version with CI test dependencies changes:
+        - removed Python 3.6
+        - removed Django 2.2
+        - added Python 3.10
+        - added Django 4.0
+        - move dev environment to Python 3.10 and Django 3.2
+
+      Note that Django 2.2 will keep working until real incompatible code changes occur.
+      This may happen by any later release, thus treat 0.1.6 as last compatible version.
 
 - 0.1.5
     - fix error on model instance cloning
