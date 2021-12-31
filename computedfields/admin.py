@@ -2,7 +2,8 @@ from json import dumps
 from django.contrib import admin
 from django.apps import apps
 from django.conf import settings
-from django.utils.html import escape, mark_safe, format_html
+from django.utils.html import escape, format_html
+from django.utils.safestring import mark_safe
 from django.urls import reverse, NoReverseMatch, path
 from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
@@ -54,7 +55,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             data = mark_safe(
                 pygments.highlight(data, JsonLexer(stripnl=False),
                                    HtmlFormatter(noclasses=True, nowrap=True)))
-        return format_html(u'<pre>{}</pre>', data)
+        return format_html('<pre>{}</pre>', data)
 
     def computed_fields(self, inst):
         """
@@ -67,7 +68,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
             data = mark_safe(
                 pygments.highlight(data, JsonLexer(stripnl=False),
                                    HtmlFormatter(noclasses=True, nowrap=True)))
-        return format_html(u'<pre>{}</pre>', data)
+        return format_html('<pre>{}</pre>', data)
 
     def local_computed_fields_mro(self, inst):
         """
@@ -83,32 +84,33 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         if pygments:
             data = mark_safe(pygments.highlight(data, JsonLexer(stripnl=False),
                                                 HtmlFormatter(noclasses=True, nowrap=True)))
-        return format_html(u'<pre>{}</pre>', data)
+        return format_html('<pre>{}</pre>', data)
 
     def name(self, obj):
         """
         Resolve modelname, optionally with link.
         """
-        name = escape(u'%s.%s' % (obj.app_label, obj.model))
+        name = escape(f'{obj.app_label}.{obj.model}')
         try:
-            _url = escape(reverse('admin:%s_%s_changelist' % (obj.app_label, obj.model)))
+            _url = escape(reverse(f'admin:{obj.app_label}_{obj.model}_changelist'))
         except NoReverseMatch:
             return name
-        return format_html(u'<a href="{}">{}</a>', _url, name)
+        return format_html('<a href="{}">{}</a>', _url, name)
 
     def get_urls(self):
         urls = super(ComputedModelsAdmin, self).get_urls()
-        info = self.model._meta.app_label, self.model._meta.model_name
+        app_label = self.model._meta.app_label
+        model_name = self.model._meta.model_name
         databaseview_urls = [
             path(r'computedfields/rendergraph/',
                 self.admin_site.admin_view(self.render_graph),
-                name='%s_%s_computedfields_rendergraph' % info),
+                name=f'{app_label}_{model_name}_computedfields_rendergraph'),
             path(r'computedfields/renderuniongraph/',
                 self.admin_site.admin_view(self.render_uniongraph),
-                name='%s_%s_computedfields_renderuniongraph' % info),
+                name=f'{app_label}_{model_name}_computedfields_renderuniongraph'),
             path(r'computedfields/modelgraph/<int:modelid>/',
                 self.admin_site.admin_view(self.render_modelgraph),
-                name='%s_%s_computedfields_modelgraph' % info),
+                name=f'{app_label}_{model_name}_computedfields_modelgraph'),
         ]
         return databaseview_urls + urls
 
@@ -119,11 +121,11 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         model = apps.get_model(inst.app_label, inst.model)
         if not active_resolver._local_mro.get(model, None):
             return 'None'
-        _url = reverse('admin:%s_%s_computedfields_modelgraph' %
-                      (self.model._meta.app_label, self.model._meta.model_name), args=[inst.id])
-        return  mark_safe('''<a href="%s" target="popup"
+        _url = reverse(f'admin:{self.model._meta.app_label}_{self.model._meta.model_name}_computedfields_modelgraph',
+                        args=[inst.id])
+        return mark_safe(f'''<a href="{_url}" target="popup"
             onclick="javascript:open('', 'popup', 'height=400,width=600,resizable=yes')">
-            ModelGraph</a>''' % _url)
+            ModelGraph</a>''')
 
     def render_graph(self, request, extra_context=None):
         """
@@ -214,18 +216,18 @@ class ContributingModelsAdmin(admin.ModelAdmin):
         if pygments:
             vul = mark_safe(pygments.highlight(vul, JsonLexer(stripnl=False),
                                                HtmlFormatter(noclasses=True, nowrap=True)))
-        return format_html(u'<pre>{}</pre>', vul)
+        return format_html('<pre>{}</pre>', vul)
 
     def name(self, obj):
         """
         Resolve modelname, optionally with link.
         """
-        name = escape(u'%s.%s' % (obj.app_label, obj.model))
+        name = escape(f'{obj.app_label}.{obj.model}')
         try:
-            _url = escape(reverse('admin:%s_%s_changelist' % (obj.app_label, obj.model)))
+            _url = escape(reverse(f'admin:{obj.app_label}_{obj.model}_changelist'))
         except NoReverseMatch:
             return name
-        return format_html(u'<a href="{}">{}</a>', _url, name)
+        return format_html('<a href="{}">{}</a>', _url, name)
 
 
 if getattr(settings, 'COMPUTEDFIELDS_ADMIN', False):

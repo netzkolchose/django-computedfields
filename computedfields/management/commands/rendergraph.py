@@ -57,6 +57,6 @@ class Command(BaseCommand):
                 c.attr(label='Colors - edge in cycles', color='white')
                 c.node('1', label=LEGEND, shape='plaintext', color='black')
             dot.render(filename=options['filename'][0], cleanup=True)
-            print(self.style.WARNING('Warning -  %s cycles in dependencies found:' % len(cycles)))
+            print(self.style.WARNING(f'Warning -  {len(cycles)} cycles in dependencies found:'))
             for cycle in cycles:
                 print(graph.edgepath_to_nodepath(cycle))

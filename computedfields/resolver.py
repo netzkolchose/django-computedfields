@@ -192,14 +192,14 @@ class Resolver:
             # keep logic for older versions for now
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
                     computed_models[model][field.name] = field
         else:
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
                     computed_models[model][field.name] = field
@@ -903,11 +903,17 @@ class Resolver:
         """
         return model in self._computed_models
 
+    def get_computedfields(self, model):
+        """
+        Get all computed fields on `model`.
+        """
+        return self._computed_models.get(model, {}).keys()
+
     def is_computedfield(self, model, fieldname):
         """
         Indicate whether `fieldname` on `model` is a computed field.
         """
-        return fieldname in self._computed_models.get(model, {}).keys()
+        return fieldname in self.get_computedfields(model)
 
 
 # active_resolver is currently treated as global singleton (used in imports)
