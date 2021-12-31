@@ -17,10 +17,10 @@ from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
 from . import __version__
 
-logger = logging.getLogger(__name__)
-
 import django
 django_lesser_3_2 = django.VERSION < (3, 2)
+
+logger = logging.getLogger(__name__)
 
 
 class ResolverException(ComputedFieldsException):
@@ -155,7 +155,6 @@ class Resolver:
                 yield (field, models)
         else:
             for field in self.computedfields:
-                creation_counter = field.creation_counter
                 models = set()
                 for model in self.models:
                     for f in model._meta.fields:
@@ -857,7 +856,7 @@ class Resolver:
         func = None
         if dargs:
             if len(dargs) > 1 or not callable(dargs[0]) or dkwargs:
-                raise Resolver('error in @precomputed declaration')
+                raise ResolverException('error in @precomputed declaration')
             func = dargs[0]
         else:
             skip = dkwargs.get('skip_after', False)
