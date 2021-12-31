@@ -17,10 +17,10 @@ from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
 from . import __version__
 
-logger = logging.getLogger(__name__)
-
 import django
 django_lesser_3_2 = django.VERSION < (3, 2)
+
+logger = logging.getLogger(__name__)
 
 
 class ResolverException(ComputedFieldsException):
@@ -155,7 +155,6 @@ class Resolver:
                 yield (field, models)
         else:
             for field in self.computedfields:
-                creation_counter = field.creation_counter
                 models = set()
                 for model in self.models:
                     for f in model._meta.fields:
@@ -193,14 +192,14 @@ class Resolver:
             # keep logic for older versions for now
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
                     computed_models[model][field.name] = field
         else:
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException('{} is not a subclass of ComputedFieldsModel'.format(model))
+                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
                     computed_models[model][field.name] = field
@@ -857,7 +856,7 @@ class Resolver:
         func = None
         if dargs:
             if len(dargs) > 1 or not callable(dargs[0]) or dkwargs:
-                raise Resolver('error in @precomputed declaration')
+                raise ResolverException('error in @precomputed declaration')
             func = dargs[0]
         else:
             skip = dkwargs.get('skip_after', False)
@@ -904,11 +903,17 @@ class Resolver:
         """
         return model in self._computed_models
 
+    def get_computedfields(self, model):
+        """
+        Get all computed fields on `model`.
+        """
+        return self._computed_models.get(model, {}).keys()
+
     def is_computedfield(self, model, fieldname):
         """
         Indicate whether `fieldname` on `model` is a computed field.
         """
-        return fieldname in self._computed_models.get(model, {}).keys()
+        return fieldname in self.get_computedfields(model)
 
 
 # active_resolver is currently treated as global singleton (used in imports)

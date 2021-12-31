@@ -7,7 +7,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 2.2 and 3.2 (Python 3.6 to 3.9).
+Tested with Django 3.2 and 4.0 (Python 3.7 to 3.10).
 
 
 #### Example ####
@@ -66,7 +66,7 @@ class MyModel(ComputedFieldsModel):
         return self.name.upper() + self.fk.fieldname
 ```
 
-Now changes to `self.name` or `fk.fieldname` will update `computed_field`.
+Now changes to `self.name`, `fk` or `fk.fieldname` will update `computed_field`.
 
 
 #### Documentation ####
@@ -75,6 +75,17 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog ####
+
+- 0.1.6
+    - maintenace version with CI test dependencies changes:
+        - removed Python 3.6
+        - removed Django 2.2
+        - added Python 3.10
+        - added Django 4.0
+        - move dev environment to Python 3.10 and Django 3.2
+
+      Note that Django 2.2 will keep working until real incompatible code changes occur.
+      This may happen by any later release, thus treat 0.1.6 as last compatible version.
 
 - 0.1.5
     - fix error on model instance cloning

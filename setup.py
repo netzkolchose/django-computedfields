@@ -9,8 +9,7 @@ def get_version(path):
             if line.startswith('__version__'):
                 delim = '"' if '"' in line else "'"
                 return line.split(delim)[1]
-        else:
-            raise RuntimeError('Unable to find version string.')
+        raise RuntimeError('Unable to find version string.')
 
 setup(
     name='django-computedfields',
@@ -25,7 +24,7 @@ setup(
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.1.5.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.1.6.tar.gz',
     keywords=['django', 'method', 'decorator', 'autoupdate', 'persistent', 'field'],
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -34,13 +33,13 @@ setup(
         'Topic :: Database :: Front-Ends',
         'Topic :: Software Development :: Libraries',
         'Framework :: Django',
-        'Framework :: Django :: 2.2',
         'Framework :: Django :: 3.2',
+        'Framework :: Django :: 4.0',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9'
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10'
     ],
 )

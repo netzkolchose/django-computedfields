@@ -63,7 +63,7 @@ class Edge:
         self.data = data
 
     def __str__(self):
-        return 'Edge %s-%s' % (self.left, self.right)
+        return f'Edge {self.left}-{self.right}'
 
     def __repr__(self):
         return str(self)
@@ -414,8 +414,7 @@ class ComputedModelsGraph(Graph):
         """
         f = model._meta.get_field(fieldname)
         if not f.concrete or f.many_to_many:
-            raise ComputedFieldsException(
-                "%s has no concrete field named '%s'" % (model, fieldname))
+            raise ComputedFieldsException(f"{model} has no concrete field named '{fieldname}'")
 
     def resolve_dependencies(self, computed_models):
         """
@@ -449,8 +448,7 @@ class ComputedModelsGraph(Graph):
                     # these path segments have to be removed from depends
                     remove_segments = parent_to_inherited_path(real_field.model, model)
                     if not remove_segments:
-                        raise ComputedFieldsException(
-                            'field {} cannot be mapped on model {}'.format(real_field, model))
+                        raise ComputedFieldsException(f'field {real_field} cannot be mapped on model {model}')
 
                     # paths starting with these segments belong to other derived models
                     # and get skipped for the dep tree creation on the current model

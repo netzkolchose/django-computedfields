@@ -56,6 +56,8 @@ preupdate_dependent_multi = active_resolver.preupdate_dependent_multi
 # helper
 #: Convenient access to :meth:`has_computedfields<.resolver.Resolver.has_computedfields>`.
 has_computedfields = active_resolver.has_computedfields
+#: Convenient access to :meth:`get_computedfields<.resolver.Resolver.get_computedfields>`.
+get_computedfields = active_resolver.get_computedfields
 #: Convenient access to :meth:`is_computedfield<.resolver.Resolver.is_computedfield>`.
 is_computedfield = active_resolver.is_computedfield
 #: Convenient access to :meth:`get_contributing_fks<.resolver.Resolver.get_contributing_fks>`.
