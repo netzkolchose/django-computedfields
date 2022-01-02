@@ -9,7 +9,7 @@ import logging
 import pickle
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Field
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
@@ -21,6 +21,29 @@ import django
 django_lesser_3_2 = django.VERSION < (3, 2)
 
 logger = logging.getLogger(__name__)
+
+
+MALFORMED_DEPENDS = """
+Your depends keyword argument is malformed.
+
+The depends keyword should either be None, an empty listing or
+a listing of rules as depends=[rule1, rule2, .. ruleN].
+
+A rule is formed as ('relation.path', ['list', 'of', 'fieldnames']).
+The relation path either contains 'self' for fieldnames on the same model,
+or a string as 'a.b.c', where 'a' is a relation on the current model
+descending over 'b' to 'c' to pull fieldnames from 'c'. The denoted fieldnames
+must be concrete fields on the rightmost model of the relation path.
+
+Example:
+depends=[
+    ('self', ['name', 'status']),
+    ('parent.color', ['value'])
+]
+This has 2 path rules - one for fields 'name' and 'status' on the same model,
+and one to a field 'value' on a foreign model behind 'color',
+that is accessible from the current model through a ->parent->color relation.
+"""
 
 
 class ResolverException(ComputedFieldsException):
@@ -825,6 +848,7 @@ class Resolver:
             Also see the graph documentation :ref:`here<graph>`.
         """
         def wrap(func):
+            self._sanity_check(field, depends or [])
             field._computed = {
                 'func': func,
                 'depends': depends or [],
@@ -835,6 +859,17 @@ class Resolver:
             self.add_field(field)
             return field
         return wrap
+
+    def _sanity_check(self, field, depends):
+        if not isinstance(field, Field):
+                raise ResolverException('field argument is not a Field instance')
+        for rule in depends:
+            try:
+                path, fieldnames = rule
+            except ValueError:
+                raise ResolverException(MALFORMED_DEPENDS)
+            if not isinstance(path, str) or not all(isinstance(f, str) for f in fieldnames):
+                raise ResolverException(MALFORMED_DEPENDS)
 
     def precomputed(self, *dargs, **dkwargs):
         """
