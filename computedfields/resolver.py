@@ -15,6 +15,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
+from .signals import post_update, state_changed
 from . import __version__
 
 import django
@@ -77,6 +78,16 @@ class Resolver:
         self._sealed = False        # initial boot phase
         self._initialized = False   # resolver initialized (computed_models populated)?
         self._map_loaded = False    # final stage with fully loaded maps
+
+        # make state explicit
+        #: Current resolver state. The state is one of ``'initial'``, ``'models_loaded'``
+        #: or ``'maps_loaded'``. Also see ``state`` signal.
+        self.state = 'initial'
+        self._set_state('initial')
+
+    def _set_state(self, statestring):
+        self.state = statestring
+        state_changed.send(sender=self, state=self.state)
 
     def add_model(self, sender, **kwargs):
         """
@@ -221,8 +232,10 @@ class Resolver:
         self.seal()
         self._computed_models = self.extract_computed_models()
         self._initialized = True
+        self._set_state('models_loaded')
         if not models_only:
             self.load_maps()
+            self._set_state('maps_loaded')
 
     def load_maps(self, _force_recreation=False):
         """
@@ -448,6 +461,20 @@ class Resolver:
 
     def update_dependent(self, instance, model=None, update_fields=None,
                          old=None, update_local=True):
+        # FIXME: quick hack to separate level 0 invocation from recursive ones
+        # FIXME: signal aggregation not reespected in custom handler code yet
+        collected_data = {} if post_update.has_listeners() else None
+        self._update_dependent(instance, model, update_fields, old, update_local, collected_data)
+        if collected_data:
+            post_update.send(
+                sender=self,
+                changeset=instance,
+                update_fields=frozenset(update_fields) if update_fields else None,
+                data=collected_data
+            )
+
+    def _update_dependent(self, instance, model=None, update_fields=None,
+                         old=None, update_local=True, collected_data=None):
         """
         Updates all dependent computed fields on related models traversing
         the dependency tree as shown in the graphs.
@@ -524,19 +551,19 @@ class Resolver:
                 # caution - might update update_fields
                 # we ensure here, that it is always a set type
                 update_fields = set(update_fields)
-            self.bulk_updater(queryset, update_fields, local_only=True)
+            self.bulk_updater(queryset, update_fields, local_only=True, collected_data=collected_data)
 
         updates = self._querysets_for_update(model, instance, update_fields).values()
         if updates:
+            pks_updated = {}
             with transaction.atomic():
-                pks_updated = {}
                 for queryset, fields in updates:
-                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
+                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True, collected_data=collected_data)
                 if old:
                     for model, data in old.items():
                         pks, fields = data
                         queryset = model.objects.filter(pk__in=pks-pks_updated[model])
-                        self.bulk_updater(queryset, fields)
+                        self.bulk_updater(queryset, fields, collected_data=collected_data)
 
     def update_dependent_multi(self, instances, old=None, update_local=True):
         """
@@ -600,7 +627,7 @@ class Resolver:
                         queryset = model.objects.filter(pk__in=pks-pks_updated[model])
                         self.bulk_updater(queryset, fields)
 
-    def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False):
+    def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False, collected_data=None):
         """
         Update local computed fields and descent in the dependency tree by calling
         ``update_dependent`` for dependent models.
@@ -658,11 +685,21 @@ class Resolver:
             if change:
                 model.objects.bulk_update(change, fields)
 
-        # trigger dependent comp field updates on all records
-        # skip recursive call if queryset is empty
-        if not local_only and queryset:
-            self.update_dependent(queryset, model, fields, update_local=False)
-        return set(el.pk for el in queryset) if return_pks else None
+        pks = set()
+        if queryset:
+            # update signal data
+            if collected_data is not None:
+                pks = set(el.pk for el in queryset)
+                # TODO: optimize signal_update flags on CFs into static map
+                signal_fields = frozenset(filter(lambda f: self._computed_models[model][f]._computed['signal_update'], mro))
+                if signal_fields:
+                    collected_data.setdefault(model, {}).setdefault(signal_fields, set()).update(pks)
+            # trigger dependent comp field updates on all records
+            # skip recursive call if queryset is empty
+            if not local_only:
+                self._update_dependent(
+                    queryset, model, fields, update_local=False, collected_data=collected_data)
+        return (set(el.pk for el in queryset) if queryset and not pks else pks) if return_pks else None
 
     def _compute(self, instance, model, fieldname):
         """
@@ -729,7 +766,7 @@ class Resolver:
             raise ResolverException('resolver has no maps loaded yet')
         return self._fk_map
 
-    def computed(self, field, depends=None, select_related=None, prefetch_related=None):
+    def computed(self, field, depends=None, select_related=None, prefetch_related=None, signal_update=False):
         """
         Decorator to create computed fields.
 
@@ -829,7 +866,8 @@ class Resolver:
                 'func': func,
                 'depends': depends or [],
                 'select_related': select_related,
-                'prefetch_related': prefetch_related
+                'prefetch_related': prefetch_related,
+                'signal_update': signal_update
             }
             field.editable = False
             self.add_field(field)
