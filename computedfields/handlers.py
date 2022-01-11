@@ -157,9 +157,9 @@ def m2m_handler(sender, instance, **kwargs):
     if action == 'post_add':
         pks = kwargs['pk_set']
         data = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields=set([left]))
+            type(instance), instance, update_fields={left})
         other = active_resolver._querysets_for_update(
-            model, model.objects.filter(pk__in=pks), update_fields=set([right]))
+            model, model.objects.filter(pk__in=pks), update_fields={right})
         if other:
             merge_qs_maps(data, other)
         if data:
@@ -170,9 +170,9 @@ def m2m_handler(sender, instance, **kwargs):
     elif action == 'pre_remove':
         pks = kwargs['pk_set']
         data = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields=set([left]), pk_list=True)
+            type(instance), instance, update_fields={left}, pk_list=True)
         other = active_resolver._querysets_for_update(
-            model, model.objects.filter(pk__in=pks), update_fields=set([right]), pk_list=True)
+            model, model.objects.filter(pk__in=pks), update_fields={right}, pk_list=True)
         if other:
             merge_pk_maps(data, other)
         if data:
@@ -187,9 +187,9 @@ def m2m_handler(sender, instance, **kwargs):
 
     elif action == 'pre_clear':
         data = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields=set([left]), pk_list=True)
+            type(instance), instance, update_fields={left}, pk_list=True)
         other = active_resolver._querysets_for_update(
-            model, getattr(instance, left).all(), update_fields=set([right]), pk_list=True)
+            model, getattr(instance, left).all(), update_fields={right}, pk_list=True)
         if other:
             merge_pk_maps(data, other)
         if data:
