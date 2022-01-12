@@ -435,6 +435,8 @@ a similar feature in Django's ORM.
 
 Changelog
 ---------
+- 0.1.7
+    - add list type support for ``update_fields`` in signal handlers
 - 0.1.6
     - maintenace version with CI test dependencies changes:
         - removed Python 3.6
