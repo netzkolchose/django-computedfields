@@ -204,9 +204,9 @@ class DepBaseA(ComputedFieldsModel):
     @computed(models.CharField(max_length=256), depends=[['sub1.sub2.subfinal', ['name']]])
     def final_proxy(self):
         s = ''
-        for s1 in self.sub1.all():
-            for s2 in s1.sub2.all():
-                for sf in s2.subfinal.all():
+        for s1 in self.sub1.all().order_by('pk'):
+            for s2 in s1.sub2.all().order_by('pk'):
+                for sf in s2.subfinal.all().order_by('pk'):
                     s += sf.name
         return s
 
@@ -214,9 +214,9 @@ class DepBaseB(ComputedFieldsModel):
     @computed(models.CharField(max_length=256), depends=[['sub1.sub2.subfinal', ['name']]])
     def final_proxy(self):
         s = ''
-        for s1 in self.sub1.all():
-            for s2 in s1.sub2.all():
-                for sf in s2.subfinal.all():
+        for s1 in self.sub1.all().order_by('pk'):
+            for s2 in s1.sub2.all().order_by('pk'):
+                for sf in s2.subfinal.all().order_by('pk'):
                     s += sf.name
         return s
 
@@ -597,7 +597,7 @@ class Person(ComputedFieldsModel):
         if not self.pk:
             return ''
         result = []
-        for group in self.groups.all():
+        for group in self.groups.all().order_by('pk'):
             result.append(group.name)
         return ','.join(result)
 
@@ -616,7 +616,7 @@ class Group(ComputedFieldsModel):
         if not self.pk:
             return ''
         result = []
-        for member in self.members.all():
+        for member in self.members.all().order_by('pk'):
             result.append(member.name)
         return ','.join(result)
 

@@ -67,8 +67,9 @@ class SelfDeps(TestCase):
     def test_delete_through(self):
         # test manipulations on the through model
         # --> must be listed in depends to work correctly (no auto expansion on m2m internals)
-        t = Membership.objects.all()[0]
-        t.delete()
+
+        # delete membership P0 --> A
+        Membership.objects.filter(person=self.persons[0], group=self.groups[0]).delete()
 
         p0 = self.persons[0]
         p0.refresh_from_db()

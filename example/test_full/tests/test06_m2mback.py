@@ -28,7 +28,7 @@ def B_comp(self):
         return ''
     s = self.name
     if self.bc_m:
-        s += ''.join(self.bc_m.all().values_list('name', flat=True))
+        s += ''.join(self.bc_m.all().order_by('pk').values_list('name', flat=True))
     else:
         s += '-'
     return s
