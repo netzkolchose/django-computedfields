@@ -76,7 +76,7 @@ def postsave_handler(sender, instance, **kwargs):
     if not kwargs.get('raw'):
         active_resolver.update_dependent(
             instance, sender, kwargs.get('update_fields'),
-            old=UPDATE_OLD.pop(instance, []), update_local=False
+            old=UPDATE_OLD.pop(instance, None), update_local=False
         )
 
 

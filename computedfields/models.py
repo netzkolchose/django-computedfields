@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.models import ContentType, ContentTypeManager
 from django.utils.translation import gettext_lazy as _
 from .resolver import active_resolver, _ComputedFieldsModelBase
 
@@ -28,7 +28,12 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
         """
         if not skip_computedfields:
             update_fields = update_computedfields(self, update_fields)
-        return super(ComputedFieldsModel, self).save(force_insert=force_insert, force_update=force_update, using=using, update_fields=update_fields)
+        return super(ComputedFieldsModel, self).save(
+            force_insert=force_insert,
+            force_update=force_update,
+            using=using,
+            update_fields=update_fields
+        )
 
 
 # some convenient access mappings
@@ -64,7 +69,7 @@ is_computedfield = active_resolver.is_computedfield
 get_contributing_fks = active_resolver.get_contributing_fks
 
 
-class ComputedModelManager(models.Manager):
+class ComputedModelManager(ContentTypeManager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
             *active_resolver.computed_models.keys()).values()
@@ -88,7 +93,7 @@ class ComputedFieldsAdminModel(ContentType):
         ordering = ('app_label', 'model')
 
 
-class ModelsWithContributingFkFieldsManager(models.Manager):
+class ModelsWithContributingFkFieldsManager(ContentTypeManager):
     def get_queryset(self):
         objs = ContentType.objects.get_for_models(
             *active_resolver.get_contributing_fks().keys()).values()

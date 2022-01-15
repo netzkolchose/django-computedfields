@@ -7,6 +7,7 @@ from threading import RLock
 from hashlib import sha256
 import logging
 import pickle
+from typing import Any, Dict
 
 from django.db import transaction
 from django.db.models import QuerySet, Field
@@ -297,9 +298,12 @@ class Resolver:
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
             graph.remove_redundant()
             graph.get_uniongraph().get_edgepaths()
-        return (graph, {'lookup_map': graph.generate_lookup_map(),
-                        'fk_map': graph._fk_map,
-                        'local_mro': graph.generate_local_mro_map()})
+        m: Dict[str, Any] = {
+            'lookup_map': graph.generate_lookup_map(),
+            'fk_map': graph._fk_map,
+            'local_mro': graph.generate_local_mro_map()
+        }
+        return (graph, m)
 
     def _extract_m2m_through(self):
         """

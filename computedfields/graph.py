@@ -8,6 +8,7 @@ to the resolver map to be used later by ``update_dependent`` and in
 the signal handlers.
 """
 from collections import OrderedDict
+from typing import Dict, Hashable, Any
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
 from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
@@ -47,7 +48,7 @@ class Edge:
     calling ``Edge('A', 'B')`` multiple times
     will always point to the same object.
     """
-    instances = {}
+    instances: Dict[Hashable, 'Edge'] = {}
 
     def __new__(cls, *args):
         key = (args[0], args[1])
@@ -85,7 +86,7 @@ class Node:
     calling ``Node('A')`` multiple times will
     always point to the same object.
     """
-    instances = {}
+    instances: Dict[Hashable, 'Node'] = {}
 
     def __new__(cls, *args):
         if args[0] in cls.instances:
@@ -482,7 +483,7 @@ class ComputedModelsGraph(Graph):
                     cls = model
                     for symbol in path.split('.'):
                         try:
-                            rel = cls._meta.get_field(symbol)
+                            rel: Any = cls._meta.get_field(symbol)
                             if rel.many_to_many:
                                 # add dependency to m2m relation fields
                                 path_segments.append(symbol)
@@ -612,7 +613,6 @@ class ComputedModelsGraph(Graph):
         return fields, strings
 
     def generate_lookup_map(self):
-        #1/0
         """
         Generates the final lookup map for queryset generation.
 
