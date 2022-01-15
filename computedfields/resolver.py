@@ -775,7 +775,7 @@ class Resolver:
 
             .. code-block:: python
 
-                @computed(models.CharField(max_length=32), depends=[['fk', ['name']]])
+                @computed(models.CharField(max_length=32), depends=[('fk', ['name'])])
                 def ...
 
         Dependencies should be listed as ``['relation_name', concrete_fieldnames]``.
@@ -812,14 +812,14 @@ class Resolver:
             .. code-block:: python
 
                 class A(ComputedFieldsModel):
-                    @computed(models.CharField(max_length=32), depends=[['b_set', ['comp']]])
+                    @computed(models.CharField(max_length=32), depends=[('b_set', ['comp'])])
                     def comp(self):
                         return ''.join(b.comp for b in self.b_set.all())
 
                 class B(ComputedFieldsModel):
                     a = models.ForeignKey(A)
 
-                    @computed(models.CharField(max_length=32), depends=[['a', ['comp']]])
+                    @computed(models.CharField(max_length=32), depends=[('a', ['comp'])])
                     def comp(self):
                         return a.comp
 

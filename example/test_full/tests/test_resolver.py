@@ -16,7 +16,7 @@ from .. import models
 def generate_computedmodel(resolver, modelname, func, wrong_base=False):
     from django.db import models
     from computedfields.models import ComputedFieldsModel
-    field = resolver.computed(models.CharField(max_length=32), depends=[['self', ['name']]])(func)
+    field = resolver.computed(models.CharField(max_length=32), depends=[('self', ['name'])])(func)
     return field, type(
       modelname,
       (models.Model if wrong_base else ComputedFieldsModel,),

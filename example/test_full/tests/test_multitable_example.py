@@ -30,7 +30,7 @@ class TestUserMultiTable(TestCase):
         sally.refresh_from_db()
         self.assertEqual(sally.fullname, 'Houseboat, Sally')
         
-        # this only updates .email_contact correctly with ['user_ptr', ['fullname']] in depends
+        # this only updates .email_contact correctly with ('user_ptr', ['fullname']) in depends
         # (ascending rule to extend EmailUser to User)
         self.email_user.refresh_from_db()
         self.assertEqual(self.email_user.email_contact, 'Houseboat, Sally <s.h@example.com>')
@@ -50,7 +50,7 @@ class TestUserMultiTable(TestCase):
         sally.refresh_from_db()
         self.assertEqual(sally.fullname, 'Houseboat, Sally')
 
-        # .descriptive_assigment only updates correctly with ['user.emailuser', ['fullname']] in depends
+        # .descriptive_assigment only updates correctly with ('user.emailuser', ['fullname']) in depends
         # (descending rule to extend User to EmailUser)
         self.work2.refresh_from_db()
         self.assertEqual(self.work2.descriptive_assigment, '"open door" is assigned to "Houseboat, Sally"')

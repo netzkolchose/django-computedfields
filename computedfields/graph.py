@@ -612,6 +612,7 @@ class ComputedModelsGraph(Graph):
         return fields, strings
 
     def generate_lookup_map(self):
+        #1/0
         """
         Generates the final lookup map for queryset generation.
 
@@ -653,13 +654,13 @@ class ComputedModelsGraph(Graph):
         .. CODE:: python
 
             class A(ComputedFieldsModel):
-                @computed(..., depends=['b_set#comp_b'])
+                @computed(..., depends=[('b_set', ['comp_b'])])
                 def comp_a(self):
                      ...
 
             class B(ComputedFieldsModel):
                 a = ForeignKey(B)
-                @computed(..., depends=['a'])
+                @computed(..., depends=[('a', [...])])
                 def comp_b(self):
                     ...
 

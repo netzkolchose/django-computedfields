@@ -68,7 +68,7 @@ the ``@computed`` decorator on a method:
         forename = models.CharField(max_length=32)
         surname = models.CharField(max_length=32)
 
-        @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
+        @computed(models.CharField(max_length=32), depends=[('self', ['surname', 'forename'])])
         def combined(self):
             return f'{self.surname}, {self.forename}'
 
@@ -106,8 +106,8 @@ The example above extended by a model ``Address``:
         city = models.CharField(max_length=32)
 
         @computed(models.CharField(max_length=256), depends=[
-            ['self', ['street', 'postal', 'city']],
-            ['person', ['combined']]
+            ('self', ['street', 'postal', 'city']),
+            ('person', ['combined'])
         ])
         def full_address(self):
             return f'{self.person.combined}, {self.street}, {self.postal} {self.city}'
@@ -138,7 +138,7 @@ pulls data from.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=[['nullable_relation', ['field']]])
+        @computed(models.CharField(max_length=32), depends=[('nullable_relation', ['field'])])
         def compfield(self):
             # special handling of NULL here as access to
             # self.nullable_relation.field would fail
@@ -153,7 +153,7 @@ pulls data from.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=[['m2m', ['field']]])
+        @computed(models.CharField(max_length=32), depends=[('m2m', ['field'])])
         def compfield(self):
             # no pk yet, access to .m2m will fail
             if not self.pk:
@@ -187,7 +187,7 @@ before entering your custom save method:
     class SomeModel(ComputedFieldsModel):
         fieldA = ...
 
-        @computed(..., depends=['self', ['fieldA']])
+        @computed(..., depends=[('self', ['fieldA'])])
         def comp(self):
             # do something with self.fieldA
             return ...

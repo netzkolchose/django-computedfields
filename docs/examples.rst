@@ -41,7 +41,7 @@ A more useful computed field example would do some calculation based on some oth
         fieldA = Field(...)
         fieldB = Field(...)
 
-        @computed(Field(...), depends=[['self', ['fieldA', 'fieldB']]])
+        @computed(Field(...), depends=[('self', ['fieldA', 'fieldB'])])
         def comp(self):
             return some_calc(self.fieldA, self.fieldB)
 
@@ -70,11 +70,11 @@ To depend on another local computed field, simply list it in the `self` rule as 
         fieldB = Field(...)
         fieldC = Field(...)
 
-        @computed(Field(...), depends=[['self', ['fieldA', 'fieldB']]])
+        @computed(Field(...), depends=[('self', ['fieldA', 'fieldB'])])
         def comp(self):
             return some_calc(self.fieldA, self.fieldB)
         
-        @computed(Field(...), depends=[['self', ['fieldC', 'comp']]])
+        @computed(Field(...), depends=[('self', ['fieldC', 'comp'])])
         def final(self):
             return some__other_calc(self.fieldC, self.comp)
 
@@ -92,11 +92,11 @@ The ability to depend on other local computed fields may lead to update cycles:
         fieldB = Field(...)
         fieldC = Field(...)
 
-        @computed(Field(...), depends=[['self', ['fieldA', 'fieldB', 'final']]])
+        @computed(Field(...), depends=[('self', ['fieldA', 'fieldB', 'final'])])
         def comp(self):
             return some_calc(self.fieldA, self.fieldB, self.final)
         
-        @computed(Field(...), depends=[['self', ['fieldC', 'comp']]])
+        @computed(Field(...), depends=[('self', ['fieldC', 'comp'])])
         def final(self):
             return some__other_calc(self.fieldC, self.comp)
 
@@ -129,9 +129,9 @@ Dependencies to fields on related models can be expressed with the relation name
         foo = models.ForeignKey(Foo, related_name='bazs', ...)
 
         @computed(Field(...), depends=[
-            ['self', ['c']],
-            ['foo', ['a']],   # fk forward relation to foo.a (accidentally forgetting foo.x)
-            ['bars', ['b']]   # fk reverse relation to bar.b in self.bars
+            ('self', ['c']),
+            ('foo', ['a']),   # fk forward relation to foo.a (accidentally forgetting foo.x)
+            ('bars', ['b'])   # fk reverse relation to bar.b in self.bars
         ])
         def comp(self):
             for bar in self.bars.all():
@@ -161,8 +161,8 @@ with their corresponding source fields on the right side:
 .. code-block:: python
 
     @computed(Field(...), depends=[
-        ['related_set', ['a', 'b']],
-        ['related_set.fk', ['xy']]
+        ('related_set', ['a', 'b']),
+        ('related_set.fk', ['xy'])
     ])
     def comp(self):
         result = 0
@@ -178,7 +178,7 @@ to the true concrete source fields behind the annotation:
 .. code-block:: python
 
     @computed(Field(...), depends=[
-        ['related_set', ['value']]        # aggregation itself relies on field 'value'
+        ('related_set', ['value'])        # aggregation itself relies on field 'value'
     ])
     def with_aggregation(self):
         return self.related_set.aggregate(total=Sum('value'))['total'] or some_default
@@ -192,8 +192,8 @@ manipulations:
 .. code-block:: python
 
     @computed(Field(...), depends=[
-        ['related_set', ['a', 'b']],
-        ['related_set.fk', ['c']]
+        ('related_set', ['a', 'b']),
+        ('related_set.fk', ['c'])
     ])
     def with_complicated_aggregation(self):
         return (self.related_set
@@ -214,22 +214,22 @@ in the example above.
     .. code-block:: python
 
         # shorthand notation of nested forward fk relations
-        depends = ['a.b.c', ['fieldX']]
+        depends = [('a.b.c', ['fieldX'])]
         # expands internally to
         depends = [
-          ['a.b.c', ['fieldX']],
-          ['a.b', ['c']],
-          ['a', ['b']],
-          ['self', ['a']]
+          ('a.b.c', ['fieldX']),
+          ('a.b', ['c']),
+          ('a', ['b']),
+          ('self', ['a'])
         ]
 
         # shorthand notation of nested reverse fk relations
-        depends = ['a_set.b_set.c_set', ['fieldX']]
+        depends = [('a_set.b_set.c_set', ['fieldX'])]
         # expands internally to
         depends = [
-          ['a_set.b_set.c_set', ['fieldX', 'fk_field_on_C_pointing_to_B']],
-          ['a_set.b_set', ['fk_field_on_B_pointing_to_A']],
-          ['a_set', ['fk_field_on_A_pointing_to_self']]
+          ('a_set.b_set.c_set', ['fieldX', 'fk_field_on_C_pointing_to_B']),
+          ('a_set.b_set', ['fk_field_on_B_pointing_to_A']),
+          ('a_set', ['fk_field_on_A_pointing_to_self'])
         ]
 
     This is needed to correctly spot and update computed fields on relation changes itself
@@ -273,7 +273,7 @@ Django's `ManyToManyField` can be used in the dependency declaration on the left
     class Person(ComputedFieldsModel):
         name = models.CharField(max_length=32)
 
-        @computed(models.CharField(max_length=256), depends=[['groups', ['name']]])
+        @computed(models.CharField(max_length=256), depends=[('groups', ['name'])])
         def groupnames(self):
             if not self.pk:
                 return ''
@@ -338,7 +338,7 @@ Let's illustrate dealing with updates from neighboring models with an example.
         surname = models.CharField(max_length=32)
 
         @computed(models.CharField(max_length=64), depends=[
-            ['self', ['forname', 'surname']]
+            ('self', ['forname', 'surname'])
         ])
         def fullname(self):
             return '{}, {}'.format(self.surname, self.forname)
@@ -347,8 +347,8 @@ Let's illustrate dealing with updates from neighboring models with an example.
         email = models.CharField(max_length=32)
 
         @computed(models.CharField(max_length=128), depends=[
-            ['self', ['email', 'fullname']],
-            ['user_ptr', ['fullname']]          # trigger updates from User type as well
+            ('self', ['email', 'fullname']),
+            ('user_ptr', ['fullname'])          # trigger updates from User type as well
         ])
         def email_contact(self):
             return '{} <{}>'.format(self.fullname, self.email)
@@ -358,17 +358,17 @@ Let's illustrate dealing with updates from neighboring models with an example.
         user = models.ForeignKey(User, on_delete=models.CASCADE)
 
         @computed(models.CharField(max_length=64), depends=[
-            ['self', ['subject']],
-            ['user', ['fullname']],
-            ['user.emailuser', ['fullname']]    # trigger updates from EmailUser type as well
+            ('self', ['subject']),
+            ('user', ['fullname']),
+            ('user.emailuser', ['fullname'])    # trigger updates from EmailUser type as well
         ])
         def descriptive_assigment(self):
             return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
 
 In the example there are two surprising `depends` rules:
 
-    1. ``['user_ptr', ['fullname']]`` on ``EmailUser.email_contact``
-    2. ``['user.emailuser', ['fullname']]`` on ``Work.descriptive_assigment``
+    1. ``('user_ptr', ['fullname'])`` on ``EmailUser.email_contact``
+    2. ``('user.emailuser', ['fullname'])`` on ``Work.descriptive_assigment``
 
 Both are needed to expand the update rules in a way, that parent or derived models are also respected
 for the field updates. While the first rule extends updates to the parent model `User`
@@ -401,8 +401,8 @@ like a `User` instance here.
 To understand, how to construct those additional rules, we have to look first at the rules,
 they are derived from:
 
-- first one is derived from ``['self', ['email', 'fullname']]``
-- second one is derived from ``['user', ['fullname']]``
+- first one is derived from ``('self', ['email', 'fullname'])``
+- second one is derived from ``('user', ['fullname'])``
 
 **Step 1 - check, whether the path ends on multi table model**
 
@@ -432,7 +432,7 @@ while descending from `User` to `EmailUser` needs a relational path of `emailuse
 For descending rules you can just copy over the field names on the right side. For the descent from
 `User` to `EmailUser` we finally get:
 
-- ``['user.emailuser', ['fullname']]``
+- ``('user.emailuser', ['fullname'])``
 
 to be added to `depends` on ``Work.descriptive_assigment``.
 
@@ -440,7 +440,7 @@ For ascending rules you should be careful not to copy over field names on the ri
 descendent models. After removing `email` from the field names we finally get for the ascent from `EmailUser`
 to `User`:
 
-- ``['user_ptr', ['fullname']]``
+- ``('user_ptr', ['fullname'])``
 
 to be added to `depends` on ``EmailUser.email_contact``.
 
@@ -455,9 +455,9 @@ updates from different descendent model fields, example:
 
     class Base(ComputedFieldsModel):
         @computed(models.CharField(max_length=32), depends=[
-            ['a', ['f_on_a']],      # pull custom field from A descendant
-            ['b', ['f_on_b']],      # pull custom field from B descendant
-            ['b.c', ['f_on_c']]     # pull custom field from C descendant
+            ('a', ['f_on_a']),      # pull custom field from A descendant
+            ('b', ['f_on_b']),      # pull custom field from B descendant
+            ('b.c', ['f_on_c'])     # pull custom field from C descendant
         ])
         def comp(self):
             if hasattr(self, 'a'):
@@ -595,7 +595,7 @@ that have dependency intersections, example:
     class MyModel(ComputedFieldsModel):
         name = models.CharField(max_length=256)
 
-        @computed(models.CharField(max_length=256), depends=[['self', ['name']]])
+        @computed(models.CharField(max_length=256), depends=[('self', ['name'])])
         def uppername(self):
             return self.name.upper()
 
@@ -619,8 +619,8 @@ to be joined into the select for update queryset used by the update resolver:
 
         @computed(Field(...),
             depends=[
-                ['a', ['field_on_a']],
-                ['a.b.c', ['field_on_c']]
+                ('a', ['field_on_a']),
+                ('a.b.c', ['field_on_c'])
             ],
             select_related = ['a', 'a__b__c']
         )
@@ -631,7 +631,7 @@ to be joined into the select for update queryset used by the update resolver:
 
         @computed(Field(...),
             depends=[
-                ['a.b', ['field_on_b']]
+                ('a.b', ['field_on_b'])
             ],
             select_related = ['a__b']
         )
@@ -691,7 +691,7 @@ Lets try to tackle prefetch with a simple example:
     class Bar(ComputedFieldsModel):
         @computed(Field(...),
             depends=[
-                ['foos', ['fieldX']]
+                ('foos', ['fieldX'])
             ],
             prefetch_related=['foos']   # is that any helpful here?
         )
@@ -734,7 +734,7 @@ Let's go one step further and extend the example by another fk relation behind t
     class Bar(ComputedFieldsModel):
         @computed(Field(...),
             depends=[
-                ['foos.c', ['some_baz_field']]
+                ('foos.c', ['some_baz_field'])
             ],
             prefetch_related=['foos__c']        # extended to contain Baz values
         )
@@ -789,7 +789,7 @@ should apply a prefetch lookup. Let's look at the m2m example we used above, but
         name = models.CharField(max_length=32)
 
         @computed(models.CharField(max_length=256),
-            depends=[['groups', ['name']]],
+            depends=[('groups', ['name'])],
             prefetch_related=['groups']
         )
         def groupnames(self):
@@ -820,8 +820,8 @@ though:
 
         @computed(models.CharField(max_length=256),
             depends=[
-                ['memberships', ['joined_at']],
-                ['memberships.group', ['name']]         # replaces groups.name dep
+                ('memberships', ['joined_at']),
+                ('memberships.group', ['name'])         # replaces groups.name dep
             ],
             prefetch_related=['memberships__group']
         )
@@ -877,7 +877,7 @@ at least doubles the query load, plus the time to run the associated field metho
     class SimpleComputed(ComputedFieldsModel):
         fk = models.ForeignKey(OtherModel, ...)
 
-        @computed(Field(...), depends=[['fk', ['some_field']]])
+        @computed(Field(...), depends=[('fk', ['some_field'])])
         def comp(self):
             return self.fk.some_field
 
@@ -956,7 +956,7 @@ need another preparation step, if they are part of a computed field dependency a
 .. code-block:: python
 
     class Parent(ComputedFieldsModel):
-        @computed(models.IntegerField(), depends=[['children', ['parent']]])
+        @computed(models.IntegerField(), depends=[('children', ['parent'])])
         def number_of_children(self):
             return self.children.all().count()
 
@@ -1025,11 +1025,11 @@ So you really want to declare computed fields with dependencies like:
 
         @computed(Field(..),
             depends=[
-                ['a', ['a1', 'a2', ...]],
-                ['a.b_reverse', ['b1', 'b2', ...]],
-                ['a.b_reverse.c', ['c1', 'c2', ...]],
-                ['a.b_reverse.c.d_reverse', ['d1', 'd2', ...]],
-                [...]
+                ('a', ['a1', 'a2', ...]),
+                ('a.b_reverse', ['b1', 'b2', ...]),
+                ('a.b_reverse.c', ['c1', 'c2', ...]),
+                ('a.b_reverse.c.d_reverse', ['d1', 'd2', ...]),
+                ('...very_deep' , [...])
             ],
             prefetch_related=[]     # HELP, what to put here?
         )

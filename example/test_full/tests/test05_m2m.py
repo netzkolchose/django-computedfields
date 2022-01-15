@@ -12,12 +12,12 @@ def h(f):
 class M2MDependencies(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
-            'A': {'depends': [['self', ['name']]],
+            'A': {'depends': [('self', ['name'])],
                   'func': lambda self: self.name},
-            'B': {'depends': [['self', ['name']], ['m_ba', ['name']]],
+            'B': {'depends': [('self', ['name']), ('m_ba', ['name'])],
                   'func': h(lambda self: self.name + ''.join(
                       self.m_ba.all().order_by('pk').values_list('name', flat=True)))},
-            'C': {'depends': [['self', ['name']], ['m_cb.m_ba', ['name']]],
+            'C': {'depends': [('self', ['name']), ('m_cb.m_ba', ['name'])],
                   'func': h(lambda self: self.name + getattr(self.m_cb.first().m_ba.last(), 'name', '-'))}
         })
         self.a1 = self.models.A(name='a1')
