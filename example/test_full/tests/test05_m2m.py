@@ -16,7 +16,7 @@ class M2MDependencies(GenericModelTestBase):
                   'func': lambda self: self.name},
             'B': {'depends': [['self', ['name']], ['m_ba', ['name']]],
                   'func': h(lambda self: self.name + ''.join(
-                      self.m_ba.all().values_list('name', flat=True)))},
+                      self.m_ba.all().order_by('pk').values_list('name', flat=True)))},
             'C': {'depends': [['self', ['name']], ['m_cb.m_ba', ['name']]],
                   'func': h(lambda self: self.name + getattr(self.m_cb.first().m_ba.last(), 'name', '-'))}
         })

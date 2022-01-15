@@ -86,6 +86,31 @@ DATABASES = {
     }
 }
 
+# docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d postgres
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.postgresql',
+#        'NAME': 'postgres',
+#        'USER': 'postgres',
+#        'PASSWORD': 'mysecretpassword',
+#        'HOST': 'localhost',
+#        'PORT': 5432,
+#    }
+#}
+
+# docker run --name some-mariadb -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=database -p 3306:3306 -d mariadb
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.mysql',
+#        'NAME': 'database',
+#        'USER': 'root',
+#        'PASSWORD': 'root',
+#        'HOST': '127.0.0.1',
+#        'PORT': '3306',
+#    }
+#}
+
+
 
 # Password validation
 # https://docs.djangoproject.com/en/1.11/ref/settings/#auth-password-validators

@@ -16,12 +16,13 @@ class ObjectCloning(TestCase):
         self.assertEqual(self.c.subchildren_count, 1)
 
     def test_copyclone_c(self):
+        old_pk = self.c.pk
         c2 = self.c
         c2.pk = None
         c2.save()
 
         # now self.c == c2, thus reload c from db
-        c = Child.objects.get(pk=1)
+        c = Child.objects.get(pk=old_pk)
 
         self.p.refresh_from_db()
         self.assertEqual(self.p.children_count, 2)
@@ -34,8 +35,6 @@ class ObjectCloning(TestCase):
         s2 = self.s
         s2.pk = None
         s2.save()
-
-        s = Subchild.objects.get(pk=1)
 
         self.p.refresh_from_db()
         self.assertEqual(self.p.children_count, 1)
