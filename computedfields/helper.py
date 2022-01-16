@@ -1,17 +1,21 @@
 from itertools import tee, zip_longest
+from django.db.models import Model
+from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple
+
+T = TypeVar('T', covariant=True)
 
 
-def pairwise(iterable):
+def pairwise(iterable: Sequence[T]) -> Iterator[Tuple[T, T]]:
     a, b = tee(iterable)
     next(b, None)
     return zip(a, b)
 
 
-def modelname(model):
-    return '%s.%s' % (model._meta.app_label, model._meta.model_name)
+def modelname(model: Type[Model]) -> str:
+    return f'{model._meta.app_label}.{model._meta.model_name}'
 
 
-def is_sublist(needle, haystack):
+def is_sublist(needle: Sequence[Any], haystack: Sequence[Any]) -> bool:
     if not needle:
         return True
     if not haystack:
@@ -28,26 +32,27 @@ def is_sublist(needle, haystack):
     return False
 
 
-def parent_to_inherited_path(parent, inherited):
+def parent_to_inherited_path(parent: Type[Model], inherited: Type[Model]) -> List[str]:
     """
     Pull relation path segments from `parent` to `inherited` model
     in multi table inheritance.
     """
     bases = inherited._meta.get_base_chain(parent)
-    relations = []
+    relations: List[str] = []
     model = inherited
     for base in bases:
         relations.append(model._meta.parents[base].remote_field.name)
         model = base
     return relations[::-1]
 
-def skip_equal_segments(ps, rs):
+
+def skip_equal_segments(ps: Sequence[str], rs: Sequence[str]) -> List[str]:
     """
     Skips all equal segments from the beginning of `ps` and `rs`
     returning left over segments from `ps`.
     """
-    add = False
-    ret = []
+    add: bool = False
+    ret: List[str] = []
     for left, right in zip_longest(ps, rs):
         if left is None:
             break

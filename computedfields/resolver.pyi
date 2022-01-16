@@ -10,7 +10,7 @@ class Resolver:
     def computed(
         self,
         field: Field[_ST, _GT],
-        depends: Optional[List[Tuple[str, List[str]]]]
+        depends: Optional[List[Tuple[str, List[str]]]] = None
     ) -> Callable[[Callable[..., _ST]], _GT]:
         ...
 
@@ -65,11 +65,14 @@ class Resolver:
 
     computed_models: Dict[Type[Model], Dict[str, Field]]
 
-    # internals
+    # internal
     def _querysets_for_update(self, model, instance, update_fields=None, pk_list=False): ...
     def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False): ...
     _fk_map: Dict[Type[Model], Optional[List[str]]]
     _m2m: Dict[Type[Model], Optional[Dict[str, str]]]
+
+    def _write_pickled_data(self) -> None: ...
+
 
 
 active_resolver: Resolver
