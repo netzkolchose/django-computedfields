@@ -15,7 +15,10 @@ setup(
     name='django-computedfields',
     packages=find_packages(exclude=['example']),
     include_package_data=True,
-    install_requires=[],
+    install_requires=[
+        'Django>=2.2,<4.1',
+        'typing_extensions>=4.0.1'
+    ],
     version=get_version('computedfields/__init__.py'),
     license='MIT',
     description='autoupdated database fields for model methods',
