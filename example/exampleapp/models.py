@@ -62,54 +62,54 @@ class SelfRef(ComputedFieldsModel):
         cast('models.CharField[str, str]', models.CharField(max_length=32)),
         depends=[('self', ['name'])]
     )
-    def c1(self):
+    def c1(self) -> str:
         return self.name.upper()
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32)),
         depends=[('self', ['c1'])]
     )
-    def c2(self):
+    def c2(self) -> str:
         return 'c2' + self.c1
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[('self', ['c1'])]
     )
-    def c3(self):
+    def c3(self) -> str:
         return 'c3' + self.c1
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[('self', ['c3'])]
     )
-    def c4(self):
+    def c4(self) -> str:
         return 'c4' + self.c3
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[('self', ['c2', 'c4', 'c6'])]
     )
-    def c5(self):
+    def c5(self) -> str:
         return 'c5' + self.c2 + self.c4 + self.c6
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[('self', ['xy'])]
     )
-    def c6(self):
+    def c6(self) -> str:
         return 'c6' + str(self.xy)
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[('self', ['c8'])]
     )
-    def c7(self):
+    def c7(self) -> str:
         return 'c7' + self.c8
 
     @computed(
         cast('models.CharField[str, str]', models.CharField(max_length=32, default='')),
         depends=[]
     )
-    def c8(self):
+    def c8(self) -> str:
         return 'c8'
