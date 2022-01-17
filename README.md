@@ -22,7 +22,7 @@ from computedfields.models import ComputedFieldsModel, computed
 class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
 
-    @computed(models.CharField(max_length=32), depends=[['self', ['name']]])
+    @computed(models.CharField(max_length=32), depends=[('self', ['name'])])
     def computed_field(self):
         return self.name.upper()
 ```
@@ -45,7 +45,7 @@ If you need to recalculate the computed field but without saving it, use
 >>> person.name = 'nina'                # changing the dependent field `name` to nina
 >>> compute(person, 'computed_field')   # outputs 'NINA'
 >>> person.computed_field               # outputs 'BERTY' because the `person` is not yet saved
->>> person.save()                       # the save will now alter the database record for `name` and `computed_field`
+>>> person.save()                       # alters the database record for `name` and `computed_field`
 >>> person.computed_field               # outputs 'NINA'
 ```
 
@@ -61,7 +61,13 @@ class MyModel(ComputedFieldsModel):
     name = models.CharField(max_length=32)
     fk = models.ForeignKey(SomeModel)
 
-    @computed(models.CharField(max_length=32), depends=[['self', ['name']], ['fk', ['fieldname']]])
+    @computed(
+        models.CharField(max_length=32),
+        depends=[
+            ('self', ['name']),
+            ('fk', ['fieldname'])
+        ]
+    )
     def computed_field(self):
         return self.name.upper() + self.fk.fieldname
 ```

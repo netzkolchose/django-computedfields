@@ -1,3 +1,4 @@
+from typing import Iterable, Optional
 from django.db import models
 from django.contrib.contenttypes.models import ContentType, ContentTypeManager
 from django.utils.translation import gettext_lazy as _
@@ -14,8 +15,14 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     class Meta:
         abstract = True
 
-    def save(self, force_insert=False, force_update=False, using=None,
-             update_fields=None, skip_computedfields=False):
+    def save(
+        self,
+        force_insert: bool = False,
+        force_update: bool = False,
+        using: Optional[str] = None,
+        update_fields: Optional[Iterable[str]] = None,
+        skip_computedfields: bool = False
+    ) -> None:
         """
         Overloaded to update computed field values before writing to the database.
 

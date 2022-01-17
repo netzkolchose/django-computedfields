@@ -7,10 +7,9 @@ from threading import RLock
 from hashlib import sha256
 import logging
 import pickle
-from typing import Any, Dict
 
 from django.db import transaction
-from django.db.models import QuerySet, Field
+from django.db.models import QuerySet
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
@@ -21,6 +20,27 @@ from . import __version__
 import django
 django_lesser_3_2 = django.VERSION < (3, 2)
 
+# typing imports
+from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
+                    Tuple, Type, Union, cast, overload)
+from typing_extensions import TypedDict
+from django.db.models import Field, Model
+from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F
+
+
+class IM2mData(TypedDict):
+    left: str
+    right: str
+IM2mMap = Dict[Type[Model], IM2mData]
+
+
+class IMaps(TypedDict, total=False):
+    lookup_map: ILookupMap
+    fk_map: IFkMap
+    local_mro: ILocalMroMap
+    hash: str
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +50,7 @@ Your depends keyword argument is malformed.
 The depends keyword should either be None, an empty listing or
 a listing of rules as depends=[rule1, rule2, .. ruleN].
 
-A rule is formed as ('relation.path', ['list', 'of', 'fieldnames']).
+A rule is formed as ('relation.path', ['list', 'of', 'fieldnames']) tuple.
 The relation path either contains 'self' for fieldnames on the same model,
 or a string as 'a.b.c', where 'a' is a relation on the current model
 descending over 'b' to 'c' to pull fieldnames from 'c'. The denoted fieldnames
@@ -42,8 +62,8 @@ depends=[
     ('parent.color', ['value'])
 ]
 This has 2 path rules - one for fields 'name' and 'status' on the same model,
-and one to a field 'value' on a foreign model behind 'color',
-that is accessible from the current model through a ->parent->color relation.
+and one to a field 'value' on a foreign model, which is accessible from
+the current model through self -> parent -> color relation.
 """
 
 
@@ -80,29 +100,28 @@ class Resolver:
     """
     _lock = RLock()
 
-
     def __init__(self):
         # collector phase data
         #: Models from `class_prepared` signal hook during collector phase.
-        self.models = set()
+        self.models: Set[Type[Model]] = set()
         #: Computed fields found during collector phase.
-        self.computedfields = set()
+        self.computedfields: Set[IComputedField] = set()
 
         # resolving phase data and final maps
-        self._graph = None
-        self._computed_models = {}
-        self._map = {}
-        self._fk_map = {}
-        self._local_mro = {}
-        self._m2m = {}
-        self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+        self._graph: Optional[ComputedModelsGraph] = None
+        self._computed_models: Dict[Type[Model], Dict[str, IComputedField]] = {}
+        self._map: ILookupMap = {}
+        self._fk_map: IFkMap = {}
+        self._local_mro: ILocalMroMap = {}
+        self._m2m: IM2mMap = {}
+        self._batchsize: int = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
 
         # some internal states
-        self._sealed = False        # initial boot phase
-        self._initialized = False   # resolver initialized (computed_models populated)?
-        self._map_loaded = False    # final stage with fully loaded maps
+        self._sealed: bool = False        # initial boot phase
+        self._initialized: bool = False   # initialized (computed_models populated)?
+        self._map_loaded: bool = False    # final stage with fully loaded maps
 
-    def add_model(self, sender, **kwargs):
+    def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
         `class_prepared` signal hook to collect models during ORM registration.
         """
@@ -110,7 +129,7 @@ class Resolver:
             raise ResolverException('cannot add models on sealed resolver')
         self.models.add(sender)
 
-    def add_field(self, field):
+    def add_field(self, field: IComputedField) -> None:
         """
         Collects fields from decoration stage of @computed.
         """
@@ -118,7 +137,7 @@ class Resolver:
             raise ResolverException('cannot add computed fields on sealed resolver')
         self.computedfields.add(field)
 
-    def seal(self):
+    def seal(self) -> None:
         """
         Seal the resolver, so no new models or computed fields can be added anymore.
 
@@ -131,7 +150,7 @@ class Resolver:
         self._sealed = True
 
     @property
-    def models_with_computedfields(self):
+    def models_with_computedfields(self) -> Generator[Tuple[Type[Model], Set[IComputedField]], None, None]:
         """
         Generator of tracked models with their computed fields.
 
@@ -142,14 +161,14 @@ class Resolver:
 
         if django_lesser_3_2:
             for model in self.models:
-                fields = set()
+                fields: Set[IComputedField] = set()
                 for field in model._meta.fields:
                     if field in self.computedfields:
                         fields.add(field)
                 if fields:
                     yield (model, fields)
         else:
-            field_ids = [f.creation_counter for f in self.computedfields]
+            field_ids: List[int] = [f.creation_counter for f in self.computedfields]
             for model in self.models:
                 fields = set()
                 for field in model._meta.fields:
@@ -161,7 +180,7 @@ class Resolver:
                     yield (model, fields)
 
     @property
-    def computedfields_with_models(self):
+    def computedfields_with_models(self) -> Generator[Tuple[IComputedField, Set[Type[Model]]], None, None]:
         """
         Generator of tracked computed fields and their models.
 
@@ -172,7 +191,7 @@ class Resolver:
 
         if django_lesser_3_2:
             for field in self.computedfields:
-                models = set()
+                models: Set[Type[Model]] = set()
                 for model in self.models:
                     if field in model._meta.fields:
                         models.add(model)
@@ -187,7 +206,7 @@ class Resolver:
                 yield (field, models)
 
     @property
-    def computed_models(self):
+    def computed_models(self) -> Dict[Type[Model], Dict[str, IComputedField]]:
         """
         Mapping of `ComputedFieldModel` models and their computed fields.
 
@@ -205,12 +224,12 @@ class Resolver:
             return self._computed_models
         raise ResolverException('resolver is not properly initialized')
 
-    def extract_computed_models(self):
+    def extract_computed_models(self) -> Dict[Type[Model], Dict[str, IComputedField]]:
         """
         Creates `computed_models` mapping from models and computed fields
         found in collector phase.
         """
-        computed_models = {}
+        computed_models: Dict[Type[Model], Dict[str, IComputedField]] = {}
 
         if django_lesser_3_2:
             # keep logic for older versions for now
@@ -230,7 +249,7 @@ class Resolver:
 
         return computed_models
 
-    def initialize(self, models_only=False):
+    def initialize(self, models_only: bool = False) -> None:
         """
         Entrypoint for ``app.ready`` to seal the resolver and trigger
         the resolver map creation.
@@ -248,7 +267,7 @@ class Resolver:
         if not models_only:
             self.load_maps()
 
-    def load_maps(self, _force_recreation=False):
+    def load_maps(self, _force_recreation: bool = False) -> None:
         """
         Load all needed resolver maps.
 
@@ -274,7 +293,7 @@ class Resolver:
             if self._map_loaded and not _force_recreation:  # pragma: no cover
                 return
 
-            maps = None
+            maps: Optional[IMaps] = None
             if getattr(settings, 'COMPUTEDFIELDS_MAP', False) and not _force_recreation:
                 maps = self._load_pickled_data()
                 if maps:
@@ -290,7 +309,7 @@ class Resolver:
             self._extract_m2m_through()
             self._map_loaded = True
 
-    def _graph_reduction(self):
+    def _graph_reduction(self) -> Tuple[ComputedModelsGraph, IMaps]:
         """
         Creates resolver maps from full graph reduction.
         """
@@ -298,29 +317,29 @@ class Resolver:
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
             graph.remove_redundant()
             graph.get_uniongraph().get_edgepaths()
-        m: Dict[str, Any] = {
+        maps: IMaps = {
             'lookup_map': graph.generate_lookup_map(),
             'fk_map': graph._fk_map,
             'local_mro': graph.generate_local_mro_map()
         }
-        return (graph, m)
+        return (graph, maps)
 
-    def _extract_m2m_through(self):
+    def _extract_m2m_through(self) -> None:
         """
         Creates M2M through model mappings with left/right field names.
         The map is used by the m2m_changed handler for faster name lookups.
         This cannot be pickled, thus is built for every resolver bootstrapping.
         """
         for model, fields in self.computed_models.items():
-            for field, real_field in fields.items():
+            for _, real_field in fields.items():
                 depends = real_field._computed['depends']
-                for path, fieldnames in depends:
+                for path, _ in depends:
                     if path == 'self':
                         continue
-                    cls = model
+                    cls: Type[Model] = model
                     for symbol in path.split('.'):
                         try:
-                            rel = cls._meta.get_field(symbol)
+                            rel: Any = cls._meta.get_field(symbol)
                             if rel.many_to_many:
                                 if hasattr(rel, 'through'):
                                     self._m2m[rel.through] = {
@@ -333,7 +352,7 @@ class Resolver:
                             rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
                         cls = rel.related_model
 
-    def _calc_modelhash(self):
+    def _calc_modelhash(self) -> str:
         """
         Create a hash from computed models data. This is used to determine,
         whether a pickled map is outdated.
@@ -356,18 +375,19 @@ class Resolver:
             data.append(modelname(models) + ''.join(sorted(field_data)))
         return sha256(''.join(sorted(data)).encode('utf-8')).hexdigest()
 
-    def _load_pickled_data(self):
+    def _load_pickled_data(self) -> Optional[IMaps]:
         """
         Load pickled resolver maps from path in ``COMPUTEDFIELDS_MAP``.
 
         Discards loaded data if the computed model hashs are not equal.
         """
         with open(settings.COMPUTEDFIELDS_MAP, 'rb') as mapfile:
-            data = pickle.load(mapfile)
+            data: IMaps = pickle.load(mapfile)
             if self._calc_modelhash() == data.get('hash'):
                 return data
+        return None
 
-    def _write_pickled_data(self):
+    def _write_pickled_data(self) -> None:
         """
         Pickle resolver maps to path in ``COMPUTEDFIELDS_MAP``.
         Called by the management command ``createmap``.
@@ -380,7 +400,11 @@ class Resolver:
         with open(settings.COMPUTEDFIELDS_MAP, 'wb') as mapfile:
             pickle.dump(maps, mapfile, pickle.HIGHEST_PROTOCOL)
 
-    def get_local_mro(self, model, update_fields=None):
+    def get_local_mro(
+        self,
+        model: Type[Model],
+        update_fields: Optional[Iterable[str]] = None
+    ) -> List[str]:
         """
         Return `MRO` for local computed field methods for a given set of `update_fields`.
         The returned list of fieldnames must be calculated in order to correctly update
@@ -402,35 +426,41 @@ class Resolver:
             mro |= fields.get(field, 0)
         return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
-    def _querysets_for_update(self, model, instance, update_fields=None, pk_list=False):
+    def _querysets_for_update(
+        self,
+        model: Type[Model],
+        instance: Union[Model, QuerySet],
+        update_fields: Optional[Iterable[str]] = None,
+        pk_list: bool = False
+    ) -> Dict[Type[Model], List[Any]]:
         """
         Returns a mapping of all dependent models, dependent fields and a
         queryset containing all dependent objects.
         """
-        final = OrderedDict()
+        final: Dict[Type[Model], List[Any]] = OrderedDict()
         modeldata = self._map.get(model)
         if not modeldata:
             return final
         if not update_fields:
-            updates = set(modeldata.keys())
+            updates: Set[str] = set(modeldata.keys())
         else:
             updates = set()
             for fieldname in update_fields:
                 if fieldname in modeldata:
                     updates.add(fieldname)
         subquery = '__in' if isinstance(instance, QuerySet) else ''
-        model_updates = OrderedDict()
+        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
         for update in updates:
             # first aggregate fields and paths to cover
             # multiple comp field dependencies
             for model, resolver in modeldata[update].items():
                 fields, paths = resolver
-                m_fields, m_paths = model_updates.setdefault(model, [set(), set()])
+                m_fields, m_paths = model_updates.setdefault(model, (set(), set()))
                 m_fields.update(fields)
                 m_paths.update(paths)
         for model, data in model_updates.items():
             fields, paths = data
-            queryset = model.objects.none()
+            queryset: Any = model.objects.none()
             for path in paths:
                 queryset |= model.objects.filter(**{path+subquery: instance})
             if pk_list:
@@ -441,10 +471,19 @@ class Resolver:
                 queryset = set(queryset.distinct().values_list('pk', flat=True))
                 if not queryset:
                     continue
+            # FIXME: change to tuple or dict for narrower type
             final[model] = [queryset, fields]
         return final
+    
+    def _get_model(self, instance: Union[Model, QuerySet]) -> Type[Model]:
+        return instance.model if isinstance(instance, QuerySet) else type(instance)
 
-    def preupdate_dependent(self, instance, model=None, update_fields=None):
+    def preupdate_dependent(
+        self,
+        instance: Union[QuerySet, Model],
+        model: Optional[Type[Model]] = None,
+        update_fields: Optional[Iterable[str]] = None,
+    ) -> Dict[Type[Model], List[Any]]:
         """
         Create a mapping of currently associated computed field records,
         that might turn dirty by a follow-up bulk action.
@@ -452,18 +491,20 @@ class Resolver:
         Feed the mapping back to ``update_dependent`` as `old` argument
         after your bulk action to update de-associated computed field records as well.
         """
-        if not model:
-            model = instance.model if isinstance(instance, QuerySet) else type(instance)
-        return self._querysets_for_update(model, instance, update_fields, pk_list=True)
+        return self._querysets_for_update(
+            model or self._get_model(instance), instance, update_fields, pk_list=True)
 
-    def preupdate_dependent_multi(self, instances):
+    def preupdate_dependent_multi(
+        self,
+        instances: Iterable[Union[QuerySet, Model]]
+    ) -> Dict[Type[Model], List[Any]]:
         """
         Same as ``preupdate_dependent``, but for multiple bulk actions at once.
 
         After done with the bulk actions, feed the mapping back to ``update_dependent_multi``
         as `old` argument to update de-associated computed field records as well.
         """
-        final = {}
+        final: Dict[Type[Model], List[Any]] = {}
         for instance in instances:
             model = instance.model if isinstance(instance, QuerySet) else type(instance)
             updates = self._querysets_for_update(model, instance, pk_list=True)
@@ -473,8 +514,14 @@ class Resolver:
                 query_field[1].update(data[1])  # add fields
         return final
 
-    def update_dependent(self, instance, model=None, update_fields=None,
-                         old=None, update_local=True):
+    def update_dependent(
+        self,
+        instance: Union[QuerySet, Model],
+        model: Optional[Type[Model]] = None,
+        update_fields: Optional[Iterable[str]] = None,
+        old: Optional[Dict[Type[Model], List[Any]]] = None,
+        update_local: bool = True
+    ) -> None:
         """
         Updates all dependent computed fields on related models traversing
         the dependency tree as shown in the graphs.
@@ -531,41 +578,43 @@ class Resolver:
                 >>> Entry.objects.filter(pub_date__year=2010).update(fk_field=new_related_obj)
                 >>> update_dependent(Entry.objects.filter(pub_date__year=2010), old=old_relations)
 
-        `update_local` disables model local computed field updates of the entry node
-        (used as optimization during tree traversal). You should not set it when called from outside.
+        `update_local=False` disables model local computed field updates of the entry node. 
+        (used as optimization during tree traversal). You should not disable it yourself.
         """
-        if not model:
-            if isinstance(instance, QuerySet):
-                model = instance.model
-            else:
-                model = type(instance)
+        _model = model or self._get_model(instance)
+
+        # bulk_updater might change fields, ensure we have set/None
+        _update_fields = None if update_fields is None else set(update_fields)
 
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
-        if update_local and self.has_computedfields(model):
+        if update_local and self.has_computedfields(_model):
             # We skip a transaction here in the same sense,
             # as local cf updates are not guarded either.
             queryset = instance if isinstance(instance, QuerySet) \
-                else model.objects.filter(pk__in=[instance.pk])
-            if update_fields:
-                # caution - might update update_fields
-                # we ensure here, that it is always a set type
-                update_fields = set(update_fields)
-            self.bulk_updater(queryset, update_fields, local_only=True)
+                else _model.objects.filter(pk__in=[instance.pk])
+            self.bulk_updater(queryset, _update_fields, local_only=True)
 
-        updates = self._querysets_for_update(model, instance, update_fields).values()
+        updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
-            with transaction.atomic():
-                pks_updated = {}
+            with transaction.atomic():  # FIXME: place transaction only once in tree descent
+                pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
-                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
+                    _pks = self.bulk_updater(queryset, fields, True)
+                    if _pks:
+                        pks_updated[queryset.model] = _pks
                 if old:
-                    for model, data in old.items():
+                    for model2, data in old.items():
                         pks, fields = data
-                        queryset = model.objects.filter(pk__in=pks-pks_updated[model])
+                        queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
                         self.bulk_updater(queryset, fields)
 
-    def update_dependent_multi(self, instances, old=None, update_local=True):
+    def update_dependent_multi(
+        self,
+        instances: Iterable[Union[QuerySet, Model]],
+        old: Optional[Dict[Type[Model], List[Any]]] = None,
+        update_local: bool = True
+    ) -> None:
         """
         Basically the as ``update_dependent``, but for multiple querysets at once.
 
@@ -602,9 +651,9 @@ class Resolver:
         to create a record mapping of the current state and after your bulk changes feed it
         back as `old` argument to this function.
         """
-        final = {}
+        final: Dict[Type[Model], List[Any]] = {}
         for instance in instances:
-            model = instance.model if isinstance(instance, QuerySet) else type(instance)
+            model = self._get_model(instance)
 
             if update_local and self.has_computedfields(model):
                 queryset = instance if isinstance(instance, QuerySet) \
@@ -612,22 +661,30 @@ class Resolver:
                 self.bulk_updater(queryset, None, local_only=True)
 
             updates = self._querysets_for_update(model, instance, None)
-            for model, data in updates.items():
-                query_field = final.setdefault(model, [model.objects.none(), set()])
+            for model1, data in updates.items():
+                query_field = final.setdefault(model1, [model1.objects.none(), set()])
                 query_field[0] |= data[0]       # or'ed querysets
                 query_field[1].update(data[1])  # add fields
         if final:
             with transaction.atomic():
-                pks_updated = {}
+                pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in final.values():
-                    pks_updated[queryset.model] = self.bulk_updater(queryset, fields, True)
+                    _pks = self.bulk_updater(queryset, fields, True)
+                    if _pks:
+                        pks_updated[queryset.model] = _pks
                 if old:
-                    for model, data in old.items():
+                    for model2, data in old.items():
                         pks, fields = data
-                        queryset = model.objects.filter(pk__in=pks-pks_updated[model])
+                        queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
                         self.bulk_updater(queryset, fields)
 
-    def bulk_updater(self, queryset, update_fields, return_pks=False, local_only=False):
+    def bulk_updater(
+        self,
+        queryset: QuerySet,
+        update_fields: Optional[Set[str]] = None,
+        return_pks: bool = False,
+        local_only: bool = False
+    ) -> Optional[Set[Any]]:
         """
         Update local computed fields and descent in the dependency tree by calling
         ``update_dependent`` for dependent models.
@@ -647,20 +704,20 @@ class Resolver:
         If `return_pks` is set, the method returns a set of altered pks of `queryset`.
         """
         queryset = queryset.distinct()
-        model = queryset.model
+        model: Type[Model] = queryset.model
 
         # correct update_fields by local mro
-        mro = self.get_local_mro(queryset.model, update_fields)
-        fields = set(mro)
+        mro = self.get_local_mro(model, update_fields)
+        fields: Any = set(mro)  # FIXME: narrow type once issue in djgno-stubs is resolved
         if update_fields:
             update_fields.update(fields)
 
         # TODO: precalc and check prefetch/select related entries during map creation somehow?
-        select = set()
-        prefetch = []
+        select: Set[str] = set()
+        prefetch: List[Any] = []
         for field in fields:
-            select.update(self._computed_models[model][field]._computed['select_related'] or [])
-            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'] or [])
+            select.update(self._computed_models[model][field]._computed['select_related'])
+            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
         if select:
             queryset = queryset.select_related(*select)
         if prefetch:
@@ -669,7 +726,7 @@ class Resolver:
         # do bulk_update on computed fields in question
         # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
         if fields:
-            change = []
+            change: List[Model] = []
             for elem in queryset:
                 has_changed = False
                 for comp_field in mro:
@@ -689,9 +746,10 @@ class Resolver:
         # skip recursive call if queryset is empty
         if not local_only and queryset:
             self.update_dependent(queryset, model, fields, update_local=False)
+        # FIXME: perf - can we pull pks in loop above?
         return set(el.pk for el in queryset) if return_pks else None
 
-    def _compute(self, instance, model, fieldname):
+    def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
         Returns the computed field value for ``fieldname``.
         Note that this is just a shorthand method for calling the underlying computed
@@ -703,7 +761,7 @@ class Resolver:
         field = self._computed_models[model][fieldname]
         return field._computed['func'](instance)
 
-    def compute(self, instance, fieldname):
+    def compute(self, instance: Model, fieldname: str) -> Any:
         """
         Returns the computed field value for ``fieldname``. This method allows
         to inspect the new calculated value, that would be written to the database
@@ -723,7 +781,7 @@ class Resolver:
             return getattr(instance, fieldname)
         entries = self._local_mro[type(instance)]['fields']
         pos = 1 << mro.index(fieldname)
-        stack = []
+        stack: List[Tuple[str, Any]] = []
         model = type(instance)
         for field in mro:
             if field == fieldname:
@@ -739,7 +797,7 @@ class Resolver:
                 stack.append((field, getattr(instance, field)))
                 setattr(instance, field, self._compute(instance, model, field))
 
-    def get_contributing_fks(self):
+    def get_contributing_fks(self) -> IFkMap:
         """
         Get a mapping of models and their local foreign key fields,
         that are part of a computed fields dependency chain.
@@ -756,7 +814,13 @@ class Resolver:
             raise ResolverException('resolver has no maps loaded yet')
         return self._fk_map
 
-    def computed(self, field, depends=None, select_related=None, prefetch_related=None):
+    def computed(
+        self,
+        field: 'Field[_ST, _GT]',
+        depends: Optional[IDepends] = None,
+        select_related: Optional[Sequence[str]] = None,
+        prefetch_related: Optional[Sequence[Any]] = None
+    ) -> Callable[[Callable[..., _ST]], 'Field[_ST, _GT]']:
         """
         Decorator to create computed fields.
 
@@ -851,20 +915,21 @@ class Resolver:
 
             Also see the graph documentation :ref:`here<graph>`.
         """
-        def wrap(func):
+        def wrap(func: Callable[..., _ST]) -> 'Field[_ST, _GT]':
             self._sanity_check(field, depends or [])
-            field._computed = {
+            cf = cast('IComputedField[_ST, _GT]', field)
+            cf._computed = {
                 'func': func,
                 'depends': depends or [],
-                'select_related': select_related,
-                'prefetch_related': prefetch_related
+                'select_related': select_related or [],
+                'prefetch_related': prefetch_related or []
             }
-            field.editable = False
-            self.add_field(field)
+            cf.editable = False
+            self.add_field(cf)
             return field
         return wrap
 
-    def _sanity_check(self, field, depends):
+    def _sanity_check(self, field: Field, depends: IDepends) -> None:
         if not isinstance(field, Field):
                 raise ResolverException('field argument is not a Field instance')
         for rule in depends:
@@ -875,7 +940,13 @@ class Resolver:
             if not isinstance(path, str) or not all(isinstance(f, str) for f in fieldnames):
                 raise ResolverException(MALFORMED_DEPENDS)
 
-    def precomputed(self, *dargs, **dkwargs):
+    @overload
+    def precomputed(self, f: F) -> F:
+        ...
+    @overload
+    def precomputed(self, skip_after: bool) -> Callable[[F], F]:
+        ...
+    def precomputed(self, *dargs, **dkwargs) -> Union[F, Callable[[F], F]]:
         """
         Decorator for custom ``save`` methods, that expect local computed fields
         to contain already updated values on enter.
@@ -891,8 +962,8 @@ class Resolver:
         Note that this might lead to desychronized computed field values, if you do late
         field changes in your save method without another resync afterwards.
         """
-        skip = False
-        func = None
+        skip: bool = False
+        func: Optional[F] = None
         if dargs:
             if len(dargs) > 1 or not callable(dargs[0]) or dkwargs:
                 raise ResolverException('error in @precomputed declaration')
@@ -900,18 +971,22 @@ class Resolver:
         else:
             skip = dkwargs.get('skip_after', False)
         
-        def wrap(func):
+        def wrap(func: F) -> F:
             def _save(instance, *args, **kwargs):
                 new_fields = self.update_computedfields(instance, kwargs.get('update_fields'))
                 if new_fields:
                     kwargs['update_fields'] = new_fields
                 kwargs['skip_computedfields'] = skip
                 return func(instance, *args, **kwargs)
-            return _save
+            return cast(F, _save)
         
         return wrap(func) if func else wrap
 
-    def update_computedfields(self, instance, update_fields=None):
+    def update_computedfields(
+        self,
+        instance: Model,
+        update_fields: Optional[Iterable[str]] = None
+        ) -> Optional[Iterable[str]]:
         """
         Update values of local computed fields of `instance`.
 
@@ -936,19 +1011,19 @@ class Resolver:
             return update_fields
         return None
 
-    def has_computedfields(self, model):
+    def has_computedfields(self, model: Type[Model]) -> bool:
         """
         Indicate whether `model` has computed fields.
         """
         return model in self._computed_models
 
-    def get_computedfields(self, model):
+    def get_computedfields(self, model: Type[Model]) -> Iterable[str]:
         """
         Get all computed fields on `model`.
         """
         return self._computed_models.get(model, {}).keys()
 
-    def is_computedfield(self, model, fieldname):
+    def is_computedfield(self, model: Type[Model], fieldname: str) -> bool:
         """
         Indicate whether `fieldname` on `model` is a computed field.
         """

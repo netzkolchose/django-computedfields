@@ -10,28 +10,55 @@ the signal handlers.
 from collections import OrderedDict
 from os import PathLike
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import ForeignKey, Model, Field
+from django.db.models import ForeignKey
 from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
 
-from typing import Dict, FrozenSet, Hashable, Any, List, Optional, Sequence, Set, Tuple, Union, Type
+# typing imports
+from typing import (Callable, Dict, FrozenSet, Generic, Hashable, Any, List, Optional, Sequence,
+                    Set, Tuple, TypeVar, Type, Union)
 from typing_extensions import TypedDict
+from django.db.models import Model, Field
 
-class IComputedField(Field):
-    _computed: Any
+
+_ST = TypeVar("_ST", contravariant=True)
+_GT = TypeVar("_GT", covariant=True)
+F = TypeVar('F', bound=Callable[..., Any])
+
+
+# depends interface
+IDepends = Sequence[Tuple[str, Sequence[str]]]
+IDependsAppend = List[Tuple[str, Sequence[str]]]
+
+# _computed container
+class IComputedData(TypedDict):
+    depends: IDepends
+    func: Callable[[Model], Any]
+    select_related: Sequence[str]
+    prefetch_related: Sequence[Any]
+
+
+# django Field type extended by our _computed data attribute
+class IComputedField(Field, Generic[_ST, _GT]):
+    _computed: IComputedData
+    creation_counter: int
+
 
 class ICycleData(TypedDict):
     entries: Set['Edge']
     path: List['Edge']
 
+
 class IDependsData(TypedDict):
     path: str
     depends: str
+
 
 class ILocalMroData(TypedDict):
     base: List[str]
     fields: Dict[str, int]
 
-# global deps: {Model: ...}
+
+# global deps: {cfModel: {cfname: {srcModel: {'path': lookup_path, 'depends': src_fieldname}}}}
 IGlobalDeps = Dict[Type[Model], Dict[str, Dict[Type[Model], List[IDependsData]]]]
 # local deps: {Model: {'cfname': {'depends', 'on', 'these', 'local', 'fieldnames'}}}
 ILocalDeps = Dict[Type[Model], Dict[str, Set[str]]]
@@ -39,19 +66,18 @@ ILocalDeps = Dict[Type[Model], Dict[str, Set[str]]]
 IGlobalDepsCleaned = Dict[Tuple[str, str], Set[Tuple[str, str]]]
 IInterimTable = Dict[Type[Model], Dict[str, Dict[Type[Model], Dict[str, List[IDependsData]]]]]
 
-# exported maps
-# LookupMap: ...
+# maps exported to resolver
+# LookupMap: {srcModel: {srcfield: {cfModel, ({querystrings}, {cfields})}}}
 ILookupMap = Dict[Type[Model], Dict[str, Dict[Type[Model], Tuple[Set[str], Set[str]]]]]
 # fk map: {Model: {fkname, ...}}
 IFkMap = Dict[Type[Model], Set[str]]
-# local MRO
+# local MRO: {Model: {'base': [mro of all fields], 'fields': {fname: bitarray into base}}}
 ILocalMroMap = Dict[Type[Model], ILocalMroData]
+
 
 class IResolvedDeps(TypedDict):
     globalDeps: IGlobalDeps
     localDeps: ILocalDeps
-
-IDepends = List[Tuple[str, List[str]]]
 
 
 class ComputedFieldsException(Exception):
@@ -161,6 +187,7 @@ class Graph:
 
     Simple directed graph implementation.
     """
+
     def __init__(self):
         self.nodes: Set[Node] = set()
         self.edges: Set[Edge] = set()
@@ -199,10 +226,10 @@ class Graph:
         self.edges.remove(edge)
 
     def get_dot(
-        self,
-        format: Optional[str] = 'pdf',
-        mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
-        mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
+            self,
+            format: str = 'pdf',
+            mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
+            mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
     ):
         """
         Returns the graphviz object of the graph
@@ -221,11 +248,11 @@ class Graph:
         return dot
 
     def render(
-        self,
-        filename: Optional[Union[PathLike, str]] = None,
-        format: Optional[str] = 'pdf',
-        mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
-        mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
+            self,
+            filename: Optional[Union[PathLike, str]] = None,
+            format: str = 'pdf',
+            mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
+            mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
     ) -> None:
         """
         Renders the graph to file (needs the :mod:`graphviz` package).
@@ -234,10 +261,10 @@ class Graph:
             filename=filename, cleanup=True)
 
     def view(
-        self,
-        format: Optional[str] = 'pdf',
-        mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
-        mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
+            self,
+            format: str = 'pdf',
+            mark_edges: Optional[Dict[Edge, Dict[str, Any]]] = None,
+            mark_nodes: Optional[Dict[Node, Dict[str, Any]]] = None
     ) -> None:
         """
         Directly opens the graph in the associated desktop viewer
@@ -260,11 +287,11 @@ class Graph:
         return [Edge(*pair) for pair in pairwise(path)]
 
     def _get_edge_paths(
-        self,
-        edge: Edge,
-        left_edges: Dict[Node, List[Edge]],
-        paths: List[List[Edge]],
-        seen: Optional[List[Edge]] = None
+            self,
+            edge: Edge,
+            left_edges: Dict[Node, List[Edge]],
+            paths: List[List[Edge]],
+            seen: Optional[List[Edge]] = None
     ) -> None:
         """
         Walks the graph recursively to get all possible paths.
@@ -314,11 +341,11 @@ class Graph:
         return node_paths
 
     def _get_cycles(
-        self,
-        edge: Edge,
-        left_edges: Dict[Node, List[Edge]],
-        cycles: Dict[FrozenSet[Edge], ICycleData],
-        seen: Optional[List[Edge]] = None
+            self,
+            edge: Edge,
+            left_edges: Dict[Node, List[Edge]],
+            cycles: Dict[FrozenSet[Edge], ICycleData],
+            seen: Optional[List[Edge]] = None
     ) -> None:
         """
         Walks the graph to collect all cycles.
@@ -402,14 +429,16 @@ class Graph:
         except CycleEdgeException:
             return False
 
-    def _can_replace_nodepath(self, needle, haystack) -> bool:
+    @staticmethod
+    def _can_replace_nodepath(needle, haystack) -> bool:
         if not set(haystack).issuperset(needle):
             return False
         if is_sublist(needle, haystack):
             return False
         return True
 
-    def _compare_startend_nodepaths(self, new_paths, base_paths):
+    @staticmethod
+    def _compare_startend_nodepaths(new_paths, base_paths):
         base_points = set((path[0], path[-1]) for path in base_paths)
         new_points = set((path[0], path[-1]) for path in new_paths)
         return base_points == new_points
@@ -462,6 +491,7 @@ class ComputedModelsGraph(Graph):
     - In ``generate_lookup_map`` the path segments of remaining edges
       are collected into the final lookup map.
     """
+
     def __init__(self, computed_models: Dict[Type[Model], Dict[str, IComputedField]]):
         """
         ``computed_models`` is ``Resolver.computed_models``.
@@ -488,7 +518,10 @@ class ComputedModelsGraph(Graph):
         if not f.concrete or f.many_to_many:
             raise ComputedFieldsException(f"{model} has no concrete field named '{fieldname}'")
 
-    def resolve_dependencies(self, computed_models: Dict[Type[Model], Dict[str, IComputedField]]) -> IResolvedDeps:
+    def resolve_dependencies(
+        self,
+        computed_models: Dict[Type[Model], Dict[str, IComputedField]]
+    ) -> IResolvedDeps:
         """
         Converts `depends` rules into ORM lookups and checks the source fields' existance.
 
@@ -506,7 +539,7 @@ class ComputedModelsGraph(Graph):
         global_deps: IGlobalDeps = OrderedDict()
         local_deps: ILocalDeps = {}
         for model, fields in computed_models.items():
-            local_deps.setdefault(model, {})    # always add to local to get a result for MRO
+            local_deps.setdefault(model, {})  # always add to local to get a result for MRO
             for field, real_field in fields.items():
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
                 local_deps.setdefault(model, {}).setdefault(field, set())
@@ -532,7 +565,7 @@ class ComputedModelsGraph(Graph):
                             skip_paths.append(rel1.name)
 
                     # do a full rewrite of depends entry
-                    depends_overwrite: IDepends = []
+                    depends_overwrite: IDependsAppend = []
                     for path, fieldnames in depends:
                         ps = path.split('.')
                         if ps[0] in skip_paths:
@@ -566,8 +599,8 @@ class ComputedModelsGraph(Graph):
                             descriptor = getattr(cls, symbol)
                             rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
                             symbol = rel.related_name \
-                                or rel.related_query_name \
-                                or rel.related_model._meta.model_name
+                                     or rel.related_query_name \
+                                     or rel.related_model._meta.model_name
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
                             path_segments.append(symbol)
@@ -647,11 +680,11 @@ class ComputedModelsGraph(Graph):
             lmodel = self.models[lmodel]
             rmodel, rfield = edge.right.data
             rmodel = self.models[rmodel]
-            table.setdefault(lmodel, {})\
-                 .setdefault(lfield, {})\
-                 .setdefault(rmodel, {})\
-                 .setdefault(rfield, [])\
-                 .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
+            table.setdefault(lmodel, {}) \
+                .setdefault(lfield, {}) \
+                .setdefault(rmodel, {}) \
+                .setdefault(rfield, []) \
+                .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
 
         # extract all field paths for model dependencies
         path_map: Dict[Type[Model], Set[str]] = {}
@@ -758,19 +791,19 @@ class ComputedModelsGraph(Graph):
             lmodel = self.models[lmodel]
             rmodel, rfield = edge.right.data
             rmodel = self.models[rmodel]
-            table.setdefault(lmodel, {})\
-                 .setdefault(lfield, {})\
-                 .setdefault(rmodel, {})\
-                 .setdefault(rfield, [])\
-                 .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
+            table.setdefault(lmodel, {}) \
+                .setdefault(lfield, {}) \
+                .setdefault(rmodel, {}) \
+                .setdefault(rfield, []) \
+                .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
 
         # finally build map for the signal handler
         lookup_map: ILookupMap = {}
         for lmodel, data in table.items():
             for lfield, ldata in data.items():
                 for rmodel, rdata in ldata.items():
-                    lookup_map.setdefault(lmodel, {})\
-                              .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
+                    lookup_map.setdefault(lmodel, {}) \
+                        .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
         return lookup_map
 
     def prepare_modelgraphs(self) -> None:
@@ -817,7 +850,7 @@ class ComputedModelsGraph(Graph):
         self.prepare_modelgraphs()
         return dict(
             (model, g.generate_local_mapping(g.generate_field_paths(g.get_topological_paths())))
-                for model, g in self.modelgraphs.items()
+            for model, g in self.modelgraphs.items()
         )
 
     def get_uniongraph(self) -> Graph:
@@ -855,11 +888,12 @@ class ModelGraph(Graph):
     """
     Graph to resolve model local computed field dependencies in right calculation order.
     """
+
     def __init__(
-        self,
-        model: Type[Model],
-        local_dependencies: Dict[str, Set[str]],
-        computed_fields: Dict[str, IComputedField]
+            self,
+            model: Type[Model],
+            local_dependencies: Dict[str, Set[str]],
+            computed_fields: Dict[str, IComputedField]
     ):
         super(ModelGraph, self).__init__()
         self.model = model
@@ -898,11 +932,11 @@ class ModelGraph(Graph):
             self.remove_edge(edge)
 
     def _tsort(
-        self,
-        graph: Dict[Node, List[Node]],
-        start: Node,
-        paths: Dict[Node, List[Node]],
-        path: List[Node]
+            self,
+            graph: Dict[Node, List[Node]],
+            start: Node,
+            paths: Dict[Node, List[Node]],
+            path: List[Node]
     ):
         """
         Recursive deep first search variant of topsort.
