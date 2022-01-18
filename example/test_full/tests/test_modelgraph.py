@@ -6,16 +6,16 @@ from ..models import SelfA, SelfB
 class TestModelGraphInit(TestCase):
     def test_init(self):
         base_graph = active_resolver._graph
-        depsA = base_graph.resolved['local'][SelfA]
-        depsB = base_graph.resolved['local'][SelfB]
+        depsA = base_graph.resolved['localDeps'][SelfA]
+        depsB = base_graph.resolved['localDeps'][SelfB]
         ga = ModelGraph(SelfA, depsA, active_resolver._computed_models[SelfA])  # FIXME: simplify ctor call
         gb = ModelGraph(SelfB, depsB, active_resolver._computed_models[SelfB])
 
 class TestModelGraph(TestCase):
     def setUp(self):
         base_graph = active_resolver._graph
-        self.depsA = base_graph.resolved['local'][SelfA]
-        self.depsB = base_graph.resolved['local'][SelfB]
+        self.depsA = base_graph.resolved['localDeps'][SelfA]
+        self.depsB = base_graph.resolved['localDeps'][SelfB]
         self.ga = ModelGraph(SelfA, self.depsA, active_resolver._computed_models[SelfA])
         self.gb = ModelGraph(SelfB, self.depsB, active_resolver._computed_models[SelfB])
 

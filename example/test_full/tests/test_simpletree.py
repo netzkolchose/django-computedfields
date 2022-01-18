@@ -18,30 +18,30 @@ def patch_tree(with_recreation=True):
     """
     depends = Tree._meta.get_field('path')._computed['depends']
     depends.clear()
-    depends.append(['self', ['name']])
-    depends.append(['parent', ['path']])
+    depends.append(('self', ['name']))
+    depends.append(('parent', ['path']))
     if with_recreation:
         active_resolver.load_maps(_force_recreation=True)
     yield
     depends.clear()
-    depends.append(['self', ['name']])
+    depends.append(('self', ['name']))
     if with_recreation:
         active_resolver.load_maps(_force_recreation=True)
 
 class TestTree(TestCase):
     def test_patchsetup(self):
         with patch_tree(False):
-            self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']], ['parent', ['path']]])
+            self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name']), ('parent', ['path'])])
             with self.assertRaises(CycleNodeException):
                 active_resolver.load_maps(_force_recreation=True)
-        self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']]])
+        self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name'])])
         active_resolver.load_maps(_force_recreation=True)
 
     @override_settings(COMPUTEDFIELDS_ALLOW_RECURSION=True)
     def test_allow_recursion(self):
         with patch_tree():
-            self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']], ['parent', ['path']]])
-        self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [['self', ['name']]])
+            self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name']), ('parent', ['path'])])
+        self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name'])])
 
     @override_settings(COMPUTEDFIELDS_ALLOW_RECURSION=True)
     def test_object_creation(self):

@@ -68,7 +68,7 @@ the ``@computed`` decorator on a method:
         forename = models.CharField(max_length=32)
         surname = models.CharField(max_length=32)
 
-        @computed(models.CharField(max_length=32), depends=[['self', ['surname', 'forename']]])
+        @computed(models.CharField(max_length=32), depends=[('self', ['surname', 'forename'])])
         def combined(self):
             return f'{self.surname}, {self.forename}'
 
@@ -106,8 +106,8 @@ The example above extended by a model ``Address``:
         city = models.CharField(max_length=32)
 
         @computed(models.CharField(max_length=256), depends=[
-            ['self', ['street', 'postal', 'city']],
-            ['person', ['combined']]
+            ('self', ['street', 'postal', 'city']),
+            ('person', ['combined'])
         ])
         def full_address(self):
             return f'{self.person.combined}, {self.street}, {self.postal} {self.city}'
@@ -138,7 +138,7 @@ pulls data from.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=[['nullable_relation', ['field']]])
+        @computed(models.CharField(max_length=32), depends=[('nullable_relation', ['field'])])
         def compfield(self):
             # special handling of NULL here as access to
             # self.nullable_relation.field would fail
@@ -153,7 +153,7 @@ pulls data from.
 
     .. CODE:: python
 
-        @computed(models.CharField(max_length=32), depends=[['m2m', ['field']]])
+        @computed(models.CharField(max_length=32), depends=[('m2m', ['field'])])
         def compfield(self):
             # no pk yet, access to .m2m will fail
             if not self.pk:
@@ -187,7 +187,7 @@ before entering your custom save method:
     class SomeModel(ComputedFieldsModel):
         fieldA = ...
 
-        @computed(..., depends=['self', ['fieldA']])
+        @computed(..., depends=[('self', ['fieldA'])])
         def comp(self):
             # do something with self.fieldA
             return ...
@@ -329,6 +329,63 @@ Proxy Models
 Computed fields cannot be placed on proxy models, as it would involve a change to the table,
 which is not allowed. Computed fields placed on the original model the proxy links to,
 can be used as any other concrete field.
+
+
+Type Hints
+----------
+
+Since version 0.2.0 :mod:`django-computedfields` supports type hints.
+A fully type annotated example would look like this:
+
+
+.. CODE:: python
+
+    from django.db.models import CharField
+    from computedfields.models import ComputedFieldsModel, computed
+    from typing import cast
+
+    class MyModel(ComputedFieldsModel):
+        name: 'CharField[str, str]' = CharField(max_length=32)
+
+        @computed(
+            cast('CharField[str, str]', CharField(max_length=32)),
+            depends=[('self', ['name'])]
+        )
+        def upper(self) -> str:
+            return self.name.upper()
+
+    # run this in mypy
+    reveal_type(MyModel.name)       # Revealed type is "django.db.models.fields.CharField[builtins.str, builtins.str]"
+    reveal_type(MyModel().name)     # Revealed type is "builtins.str*"
+    reveal_type(MyModel.upper)      # Revealed type is "django.db.models.fields.Field[builtins.str, builtins.str]"
+    reveal_type(MyModel().upper)    # Revealed type is "builtins.str*"
+
+
+This works with any IDE using a recent `mypy` version with :mod:`django-stubs` (while `Visual Studio Code` works,
+`PyCharm` does not work, seems it does its own type guessing).
+
+Currently it is needed to explicitly cast the fields as shown above,
+otherwise mypy cannot infer the instance field value types properly.
+
+Note, that the field instance on the class got widened to the more general `Field` type,
+since :mod:`django-computedfields` does not care about field specifics
+(if that is an issue, just cast it back).
+
+The `depends` argument is typed as ``Sequence[Tuple[str, Sequence[str]]]``.
+Note the change of a single depends rule into a tuple, while the other types got widened to a sequence.
+While the old format keeps working as before, it is needed to change the rules to a tuple to silence
+type warnings, e.g.:
+
+.. CODE:: python
+
+    # marked as wrong now
+    @computed(..., depends=[['path', ['list', 'of', 'fieldnames']], ...])
+    def ...
+
+    # passes type test
+    @computed(..., depends=[('path', ['list', 'of', 'fieldnames']), ...])
+    def ...
+
 
 
 Management Commands

@@ -16,18 +16,18 @@ class CommandTests(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # deps only to itself
-            'B': {'depends': [['self', ['name']]],
+            'B': {'depends': [('self', ['name'])],
                   'func': lambda self: self.name},
             # one fk step deps to comp field
-            'C': {'depends': [['self', ['name']], ['f_cb', ['comp']]],
+            'C': {'depends': [('self', ['name']), ('f_cb', ['comp'])],
                   'func': lambda self: self.name + self.f_cb.comp},
-            'D': {'depends': [['self', ['name']], ['f_dc', ['comp']]],
+            'D': {'depends': [('self', ['name']), ('f_dc', ['comp'])],
                   'func': lambda self: self.name + self.f_dc.comp},
             # multi fk steps deps to non comp field
-            'E': {'depends': [['self', ['name']], ['f_ed.f_dc.f_cb.f_ba', ['name']]],
+            'E': {'depends': [('self', ['name']), ('f_ed.f_dc.f_cb.f_ba', ['name'])],
                   'func': lambda self: self.name + self.f_ed.f_dc.f_cb.f_ba.name},
             # multi fk steps deps to comp field
-            'F': {'depends': [['self', ['name']], ['f_fe.f_ed.f_dc.f_cb', ['name']]],
+            'F': {'depends': [('self', ['name']), ('f_fe.f_ed.f_dc.f_cb', ['name'])],
                   'func': lambda self: self.name + self.f_fe.f_ed.f_dc.f_cb.name}
         })
 
@@ -47,16 +47,16 @@ class CommandTests(GenericModelTestBase):
         self.assertRaises(
             CycleNodeException,
             lambda: self.setDeps({
-                    'A': {'depends': [['f_ag', ['comp']]]},
-                    'G': {'depends': [['f_ga', ['comp']]]},
+                    'A': {'depends': [('f_ag', ['comp'])]},
+                    'G': {'depends': [('f_ga', ['comp'])]},
             })
         )
 
         # does not raise anymore with COMPUTEDFIELDS_ALLOW_RECURSION
         setattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', True)
         self.setDeps({
-            'A': {'depends': [['f_ag', ['comp']]]},
-            'G': {'depends': [['f_ga', ['comp']]]},
+            'A': {'depends': [('f_ag', ['comp'])]},
+            'G': {'depends': [('f_ga', ['comp'])]},
         })
         self.assertEqual(active_resolver._graph.is_cyclefree, False)
         stdout = sys.stdout

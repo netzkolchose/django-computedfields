@@ -11,21 +11,21 @@ class ForeignKeyDependencies(GenericModelTestBase):
     def setUp(self):
         self.setDeps({
             # deps only to itself
-            'B': {'depends': [['self', ['name']]],
+            'B': {'depends': [('self', ['name'])],
                   'func': lambda self: self.name},
             # one fk step deps to comp field
-            'C': {'depends': [['self', ['name']], ['o_cb', ['comp']]],
+            'C': {'depends': [('self', ['name']), ('o_cb', ['comp'])],
                   'func': lambda self: self.name + self.o_cb.comp},
-            'D': {'depends': [['self', ['name']], ['o_dc', ['comp']]],
+            'D': {'depends': [('self', ['name']), ('o_dc', ['comp'])],
                   'func': lambda self: self.name + (self.o_dc.comp if self.o_dc else '-')},
             # multi fk steps deps to non comp field
-            'E': {'depends': [['self', ['name']], ['o_ed.o_dc.o_cb.o_ba', ['name']]],
+            'E': {'depends': [('self', ['name']), ('o_ed.o_dc.o_cb.o_ba', ['name'])],
                   'func': lambda self: self.name + (self.o_ed.o_dc.o_cb.o_ba.name if self.o_ed.o_dc else '-')},
             # multi fk steps deps to comp field
-            'F': {'depends': [['self', ['name']], ['o_fe.o_ed.o_dc.o_cb', ['name']]],
+            'F': {'depends': [('self', ['name']), ('o_fe.o_ed.o_dc.o_cb', ['name'])],
                   'func': lambda self: self.name + (self.o_fe.o_ed.o_dc.o_cb.name if self.o_fe.o_ed.o_dc else '-')},
             # multiple mixed deps
-            'G': {'depends': [['self', ['name']], ['o_gf', ['comp']], ['o_gf.o_fe.o_ed', ['name']]],
+            'G': {'depends': [('self', ['name']), ('o_gf', ['comp']), ('o_gf.o_fe.o_ed', ['name'])],
                   'func': lambda self: self.name + self.o_gf.comp + self.o_gf.o_fe.o_ed.name}
         })
         # test data - fk chained objects
