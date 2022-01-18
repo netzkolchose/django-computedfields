@@ -10,11 +10,11 @@ class Foo(ComputedFieldsModel):
         cast('models.CharField[str, str]', models.CharField(max_length=32)),
         depends=[('bar_set.baz_set', ['name'])]
     )
-    def bazzes(self):
+    def bazzes(self) -> str:
         return ', '.join(Baz.objects.filter(
             bar__foo=self).values_list('name', flat=True))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -29,10 +29,10 @@ class Bar(ComputedFieldsModel):
             ('foo', ['name'])
         ]
     )
-    def foo_bar(self):
+    def foo_bar(self) -> str:
         return self.foo.name + self.name
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 
@@ -47,10 +47,10 @@ class Baz(ComputedFieldsModel):
             ('bar', ['foo_bar'])
         ]
     )
-    def foo_bar_baz(self):
+    def foo_bar_baz(self) -> str:
         return self.bar.foo_bar + self.name
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 

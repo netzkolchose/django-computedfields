@@ -331,6 +331,63 @@ which is not allowed. Computed fields placed on the original model the proxy lin
 can be used as any other concrete field.
 
 
+Type Hints
+----------
+
+Since version 0.2.0 :mod:`django-computedfields` supports type hints.
+A fully type annotated example would look like this:
+
+
+.. CODE:: python
+
+    from django.db.models import CharField
+    from computedfields.models import ComputedFieldsModel, computed
+    from typing import cast
+
+    class MyModel(ComputedFieldsModel):
+        name: 'CharField[str, str]' = CharField(max_length=32)
+
+        @computed(
+            cast('CharField[str, str]', CharField(max_length=32)),
+            depends=[('self', ['name'])]
+        )
+        def upper(self) -> str:
+            return self.name.upper()
+
+    # run this in mypy
+    reveal_type(MyModel.name)       # Revealed type is "django.db.models.fields.CharField[builtins.str, builtins.str]"
+    reveal_type(MyModel().name)     # Revealed type is "builtins.str*"
+    reveal_type(MyModel.upper)      # Revealed type is "django.db.models.fields.Field[builtins.str, builtins.str]"
+    reveal_type(MyModel().upper)    # Revealed type is "builtins.str*"
+
+
+This works with any IDE using a recent `mypy` version with :mod:`django-stubs` (while `Visual Studio Code` works,
+`PyCharm` does not work, seems it does its own type guessing).
+
+Currently it is needed to explicitly cast the fields as shown above,
+otherwise mypy cannot infer the instance field value types properly.
+
+Note, that the field instance on the class got widened to the more general `Field` type,
+since :mod:`django-computedfields` does not care about field specifics
+(if that is an issue, just cast it back).
+
+The `depends` argument is typed as ``Sequence[Tuple[str, Sequence[str]]]``.
+Note the change of a single depends rule into a tuple, while the other types got widened to a sequence.
+While the old format keeps working as before, it is needed to change the rules to a tuple to silence
+type warnings, e.g.:
+
+.. CODE:: python
+
+    # marked as wrong now
+    @computed(..., depends=[['path', ['list', 'of', 'fieldnames']], ...])
+    def ...
+
+    # passes type test
+    @computed(..., depends=[('path', ['list', 'of', 'fieldnames']), ...])
+    def ...
+
+
+
 Management Commands
 -------------------
 
