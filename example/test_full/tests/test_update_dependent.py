@@ -1,6 +1,6 @@
 from django.test import TestCase
 from ..models import DepBaseA, DepBaseB, DepSub1, DepSub2, DepSubFinal
-from computedfields.models import update_dependent, update_dependent_multi, preupdate_dependent, preupdate_dependent_multi
+from computedfields.models import update_dependent, preupdate_dependent
 
 
 class TestUpdateDependency(TestCase):
@@ -133,34 +133,5 @@ class TestUpdateDependency(TestCase):
         self.bb2.refresh_from_db()
         self.assertEqual(self.ba1.final_proxy, 'f1f2f3f4f5')
         self.assertEqual(self.ba2.final_proxy, 'f6f7f8f9f0')
-        self.assertEqual(self.bb1.final_proxy, 'f1f2f3f4f5f6f7f8f9f0')
-        self.assertEqual(self.bb2.final_proxy, '')
-
-    def test_update_bulk_multi(self):
-        # get initial currently related cf records
-        old_relations = preupdate_dependent_multi([
-            DepSub1.objects.filter(b=self.bb2),
-            DepSub2.objects.filter(sub1=self.s11)
-        ])
-
-        # do multiple bulk updates
-        DepSub1.objects.filter(b=self.bb2).update(b=self.bb1)
-        DepSub2.objects.filter(sub1=self.s11).update(sub1=self.s12)
-
-        # fix cf records
-        # Note: new querysets shifted shape, since they moved
-        # old records are covered by old_relations
-        update_dependent_multi([
-            DepSub1.objects.filter(b=self.bb1),
-            DepSub2.objects.filter(sub1=self.s12)
-        ], old=old_relations)
-
-
-        self.ba1.refresh_from_db()
-        self.ba2.refresh_from_db()
-        self.bb1.refresh_from_db()
-        self.bb2.refresh_from_db()
-        self.assertEqual(self.ba1.final_proxy, '')
-        self.assertEqual(self.ba2.final_proxy, 'f1f2f3f4f5f6f7f8f9f0')
         self.assertEqual(self.bb1.final_proxy, 'f1f2f3f4f5f6f7f8f9f0')
         self.assertEqual(self.bb2.final_proxy, '')
