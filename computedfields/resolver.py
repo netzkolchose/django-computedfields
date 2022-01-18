@@ -494,26 +494,6 @@ class Resolver:
         return self._querysets_for_update(
             model or self._get_model(instance), instance, update_fields, pk_list=True)
 
-    def preupdate_dependent_multi(
-        self,
-        instances: Iterable[Union[QuerySet, Model]]
-    ) -> Dict[Type[Model], List[Any]]:
-        """
-        Same as ``preupdate_dependent``, but for multiple bulk actions at once.
-
-        After done with the bulk actions, feed the mapping back to ``update_dependent_multi``
-        as `old` argument to update de-associated computed field records as well.
-        """
-        final: Dict[Type[Model], List[Any]] = {}
-        for instance in instances:
-            model = instance.model if isinstance(instance, QuerySet) else type(instance)
-            updates = self._querysets_for_update(model, instance, pk_list=True)
-            for model, data in updates.items():
-                query_field = final.setdefault(model, [model.objects.none(), set()])
-                query_field[0] |= data[0]       # or'ed querysets
-                query_field[1].update(data[1])  # add fields
-        return final
-
     def update_dependent(
         self,
         instance: Union[QuerySet, Model],
@@ -600,75 +580,6 @@ class Resolver:
             with transaction.atomic():  # FIXME: place transaction only once in tree descent
                 pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
-                    _pks = self.bulk_updater(queryset, fields, True)
-                    if _pks:
-                        pks_updated[queryset.model] = _pks
-                if old:
-                    for model2, data in old.items():
-                        pks, fields = data
-                        queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
-                        self.bulk_updater(queryset, fields)
-
-    def update_dependent_multi(
-        self,
-        instances: Iterable[Union[QuerySet, Model]],
-        old: Optional[Dict[Type[Model], List[Any]]] = None,
-        update_local: bool = True
-    ) -> None:
-        """
-        Basically the as ``update_dependent``, but for multiple querysets at once.
-
-        This function avoids redundant updates if consecutive ``update_dependent``
-        have intersections, example:
-
-            >>> update_dependent(Foo.objects.filter(i='x'))  # updates A, B, C
-            >>> update_dependent(Bar.objects.filter(j='y'))  # updates B, C, D
-            >>> update_dependent(Baz.objects.filter(k='z'))  # updates C, D, E
-
-        In the example the models ``B`` and ``D`` would be queried twice,
-        ``C`` even three times. Those intersections would be queried and saved
-        several times.
-
-        With ``update_dependent_multi`` the updates above can be rewritten as:
-
-            >>> update_dependent_multi([
-            ...     Foo.objects.filter(i='x'),
-            ...     Bar.objects.filter(j='y'),
-            ...     Baz.objects.filter(k='z')])
-
-        where all dependent model objects get queried and saved only once.
-        The underlying querysets are expanded accordingly.
-
-        .. TIP::
-
-            ``instances`` can also contain model instances. Don't use
-            this function for multiple instances of the same type,
-            instead aggregate those to querysets and use ``update_dependent``
-            as shown above.
-
-        Again special care is needed, if the bulk actions involve foreign key changes,
-        that are part of computed field dependency chains. Use ``preupdate_dependent_multi``
-        to create a record mapping of the current state and after your bulk changes feed it
-        back as `old` argument to this function.
-        """
-        final: Dict[Type[Model], List[Any]] = {}
-        for instance in instances:
-            model = self._get_model(instance)
-
-            if update_local and self.has_computedfields(model):
-                queryset = instance if isinstance(instance, QuerySet) \
-                    else model.objects.filter(pk__in=[instance.pk])
-                self.bulk_updater(queryset, None, local_only=True)
-
-            updates = self._querysets_for_update(model, instance, None)
-            for model1, data in updates.items():
-                query_field = final.setdefault(model1, [model1.objects.none(), set()])
-                query_field[0] |= data[0]       # or'ed querysets
-                query_field[1].update(data[1])  # add fields
-        if final:
-            with transaction.atomic():
-                pks_updated: Dict[Type[Model], Set[Any]] = {}
-                for queryset, fields in final.values():
                     _pks = self.bulk_updater(queryset, fields, True)
                     if _pks:
                         pks_updated[queryset.model] = _pks
