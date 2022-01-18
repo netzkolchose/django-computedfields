@@ -16,7 +16,7 @@ Install the package with pip:
 
 and add ``computedfields`` to your ``INSTALLED_APPS``.
 
-For graph rendering also install :mod:`graphviz`:
+To render the update dependency graph during development, also install :mod:`graphviz`:
 
 .. code:: bash
 
@@ -202,7 +202,7 @@ before entering your custom save method:
 It is also possible to further customize the update behavior by applying `skip_computedfields=True`
 to ``save`` or by using the ``precomputed`` decorator with the keyword argument `skip_after=True`.
 Both will skip the late field updates done by default in ``ComputedFieldModel.save``, thus you have to
-make sure to correctly update field values yourself, e.g. by calling ``update_computedfields``.
+make sure to correctly update field values yourself, e.g. by calling ``update_computedfields`` manually.
 
 Fur further guidance see API docs and the source of :meth:`ComputedFieldsModel.save<.models.ComputedFieldsModel.save>` and
 :meth:`@precomputed<.resolver.Resolver.precomputed>`.
@@ -267,8 +267,8 @@ Similar measures to catch old relations are in place for m2m relations and delet
     Currently both seems inappropriate, compared to a slightly sub-optimal single SELECT query for pending updates.
 
 
-Advanced Usage
---------------
+Advanced Bulk Usage
+-------------------
 
 The runtime model described above does not work with bulk actions.
 :mod:`django-computedfields` still can be used in combination with bulk actions,
@@ -280,7 +280,7 @@ but you have to trigger the needed updates yourself by calling ``update_dependen
 
 Special care is needed, if the bulk changes involve foreign key fields itself,
 that are part of a dependency chain. Here related computed model instances have to be collected
-before doing the bulk change to correctly update the old relations as well after the action took place:
+before doing the bulk change to correctly update the old relations as well after the bulk action took place:
 
     >>> # given: some computed fields model depends somehow on Entry.fk_field
     >>> from computedfields.models import update_dependent, preupdate_dependent
@@ -293,12 +293,9 @@ before doing the bulk change to correctly update the old relations as well after
     Handling of old relations doubles the needed database interactions and should not be used,
     if the bulk action does not involve any relation updates at all. It can also be skipped,
     if the foreign key fields do not contribute to a computed field. Since this is sometimes hard to spot,
-    :mod:`django-computedfields` provides a convenient listing of contributing foreign key fields accessible
-    by ``models.get_contributing_fks()`` or as admin view (if ``COMPUTEDFIELDS_ADMIN`` is set).
-
-
-For multiple bulk actions consider using ``update_dependent_multi`` in conjunction with
-``preupdate_dependent_multi``, which will avoid unnecessary multiplied updates across affected tables.
+    :mod:`django-computedfields` provides a convenient mapping of models and their
+    contributing foreign key fields accessible by ``get_contributing_fks()`` or as admin view
+    (if ``COMPUTEDFIELDS_ADMIN`` is set).
 
 See method description in the API Reference for further details.
 
@@ -369,7 +366,7 @@ otherwise mypy cannot infer the instance field value types properly.
 
 Note, that the field instance on the class got widened to the more general `Field` type,
 since :mod:`django-computedfields` does not care about field specifics
-(if that is an issue, just cast it back).
+(if that is an issue, just cast it back to your more specific field type).
 
 The `depends` argument is typed as ``Sequence[Tuple[str, Sequence[str]]]``.
 Note the change of a single depends rule into a tuple, while the other types got widened to a sequence.

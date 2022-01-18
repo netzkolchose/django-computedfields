@@ -58,12 +58,8 @@ compute = active_resolver.compute
 update_computedfields = active_resolver.update_computedfields
 #: Convenient access to :meth:`update_dependent<.resolver.Resolver.update_dependent>`.
 update_dependent = active_resolver.update_dependent
-#: Convenient access to :meth:`update_dependent_multi<.resolver.Resolver.update_dependent_multi>`.
-update_dependent_multi = active_resolver.update_dependent_multi
 #: Convenient access to :meth:`preupdate_dependent<.resolver.Resolver.preupdate_dependent>`.
 preupdate_dependent = active_resolver.preupdate_dependent
-#: Convenient access to :meth:`preupdate_dependent_multi<.resolver.Resolver.preupdate_dependent_multi>`.
-preupdate_dependent_multi = active_resolver.preupdate_dependent_multi
 
 # helper
 #: Convenient access to :meth:`has_computedfields<.resolver.Resolver.has_computedfields>`.

@@ -320,7 +320,7 @@ Multi Table Inheritance
 Multi table inheritance works with computed fields with some restrictions you have to be aware of.
 The following requires basic knowledge about multi table inheritance in Django and its similarities
 to o2o relations on accessor level (also see `official Django docs
-<https://docs.djangoproject.com/en/3.0/topics/db/models/#multi-table-inheritance>`_).
+<https://docs.djangoproject.com/en/3.2/topics/db/models/#multi-table-inheritance>`_).
 
 Neighboring Models
 ^^^^^^^^^^^^^^^^^^
@@ -444,6 +444,11 @@ to `User`:
 
 to be added to `depends` on ``EmailUser.email_contact``.
 
+(Note: While not shown above, these steps can also be applied to neighboring tables in the middle of a relation path
+to sidestep into a different path defined on a submodel. When doing this, keep in mind, that the JOINs in the DBMS
+will grow a lot with heavy multi table inheritance eventually creating a select bottleneck just to figure out the
+update candidates.)
+
 Up-Pulling Fields
 ^^^^^^^^^^^^^^^^^
 
@@ -460,6 +465,7 @@ updates from different descendent model fields, example:
             ('b.c', ['f_on_c'])     # pull custom field from C descendant
         ])
         def comp(self):
+            # guard access to attributes from submodels
             if hasattr(self, 'a'):
                 return a.f_on_a
             if hasattr(self, 'b'):
@@ -475,7 +481,7 @@ updates from different descendent model fields, example:
     class C(B):
         f_on_c = models.CharField(max_length=32, default='sub-c')
 
-Note that you have to guard the attribute access yourself in the method code.
+Note that you have to guard the attribute access yourself in the method code as shown above.
 
 
 Forced Update of Computed Fields
@@ -896,7 +902,7 @@ that regain performance by operating more close to the DB/SQL level.
 .. WARNING::
 
     Using bulk actions does not update dependent computed fields automatically anymore. You have to trigger
-    the updates yourself by calling `update_dependent` or `update_dependent_multi`.
+    the updates yourself by calling `update_dependent`.
 
 `update_dependent` is in fact the "main gateway" of the update resolver, it is also used internally for updates
 triggered by instance signals. So lets have a look on how that function can be used and its catches.
@@ -991,13 +997,9 @@ behind the related name in `depends` of some computed field elsewhere. Therefore
     model.objects.your_bulk_action()
     update_dependent(model.objects..., old=old)
 
-Last but not least - it is also possible to do several bulk actions at once and use the
-`preupdate_dependent_multi` and `update_dependent_multi` pendants. Argument is a list of querysets reflecting
-the changing records.
-
 .. NOTE::
 
-    When using bulk actions and the `update_dependent` variants yourself, always make sure, that
+    When using bulk actions and `update_dependent` yourself, always make sure, that
     the given querysets correctly reflect the changeset made by the bulk action.
     If in doubt, expand the queryset to a superset to not miss records by accident. Special care
     is needed for bulk actions, that alter fk relations itself.
