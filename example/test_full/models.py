@@ -934,3 +934,29 @@ class Work(ComputedFieldsModel):
     ])
     def descriptive_assigment(self):
         return '"{}" is assigned to "{}"'.format(self.subject, self.user.fullname)
+
+# issue #93
+class MultiBase(ComputedFieldsModel):
+    @computed(models.CharField(max_length=32), depends=[
+        ('multia', ['f_on_a']),         # pull custom field from A descendant
+        ('multib', ['f_on_b']),         # pull custom field from B descendant
+        ('multib.multic', ['f_on_c'])   # pull custom field from C descendant
+    ])
+    def comp(self):
+        # since we dont know the actual sub model,
+        # we have to guard the attribute access
+        # important: isinstance check will not work here!
+        if hasattr(self, 'multia'):
+            return self.multia.f_on_a
+        if hasattr(self, 'multib'):
+            if hasattr(self.multib, 'multic'):
+                return self.multib.multic.f_on_c
+            return self.multib.f_on_b
+        return ''
+
+class MultiA(MultiBase):
+    f_on_a = models.CharField(max_length=32, default='a')
+class MultiB(MultiBase):
+    f_on_b = models.CharField(max_length=32, default='b')
+class MultiC(MultiB):
+    f_on_c = models.CharField(max_length=32, default='sub-c')
