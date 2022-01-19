@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import MtBase, MtDerived, MtRelated, MtDerived2, MtSubDerived
+from ..models import MtBase, MtDerived, MtRelated, MtDerived2, MtSubDerived, MultiBase, MultiA, MultiB, MultiC
 from ..models import ChildModel, ChildModel2, ParentModel, DependsOnParent, DependsOnParentComputed
 from ..models import MtPtrBase, MtPtrDerived
 from computedfields.models import update_dependent
@@ -211,3 +211,39 @@ class TestMultiTableWithPtr(TestCase):
         update_dependent(MtPtrBase.objects.all(), update_fields=['basename'])
 
         self.assertEqual(list(MtPtrDerived.objects.all().values_list('basename', flat=True)), ['new value'] * 10)
+
+
+class TestMultiTableUpPullingExample(TestCase):
+    def setUp(self) -> None:
+        self.base = MultiBase.objects.create()
+        self.a = MultiA.objects.create()
+        self.b = MultiB.objects.create()
+        self.c = MultiC.objects.create()
+
+    def test_init(self):
+        self.base.refresh_from_db()
+        self.a.refresh_from_db()
+        self.b.refresh_from_db()
+        self.c.refresh_from_db()
+        self.assertEqual(self.base.comp, '')
+        self.assertEqual(self.a.comp, 'a')
+        self.assertEqual(self.b.comp, 'b')
+        self.assertEqual(self.c.comp, 'sub-c')
+
+    def test_update(self):
+        self.a.f_on_a = 'A'
+        self.a.save()
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.comp, 'A')
+        self.b.f_on_b = 'B'
+        self.b.save(update_fields=['f_on_b'])
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.comp, 'B')
+        self.c.f_on_c = 'C'
+        self.c.save()
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'C')
+        self.c.f_on_c = 'CC'
+        self.c.save(update_fields=['f_on_c'])
+        self.c.refresh_from_db()
+        self.assertEqual(self.c.comp, 'CC')

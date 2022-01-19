@@ -458,30 +458,38 @@ updates from different descendent model fields, example:
 
 .. code-block:: python
 
-    class Base(ComputedFieldsModel):
+    class MultiBase(ComputedFieldsModel):
         @computed(models.CharField(max_length=32), depends=[
-            ('a', ['f_on_a']),      # pull custom field from A descendant
-            ('b', ['f_on_b']),      # pull custom field from B descendant
-            ('b.c', ['f_on_c'])     # pull custom field from C descendant
+            ('multia', ['f_on_a']),         # pull custom field from A descendant
+            ('multib', ['f_on_b']),         # pull custom field from B descendant
+            ('multib.multic', ['f_on_c'])   # pull custom field from C descendant
         ])
         def comp(self):
-            # guard access to attributes from submodels
-            if hasattr(self, 'a'):
-                return a.f_on_a
-            if hasattr(self, 'b'):
-                if hasattr(self, 'c'):
-                    return self.b.c.f_on_c
-                return b.f_on_b
+            # since we dont know the actual sub model,
+            # we have to guard the attribute access
+            # important: isinstance check will not work here!
+            if hasattr(self, 'multia'):
+                return self.multia.f_on_a
+            if hasattr(self, 'multib'):
+                if hasattr(self.multib, 'multic'):
+                    return self.multib.multic.f_on_c
+                return self.multib.f_on_b
             return ''
 
-    class A(Base):
+    class MultiA(MultiBase):
         f_on_a = models.CharField(max_length=32, default='a')
-    class B(Base):
+    class MultiB(MultiBase):
         f_on_b = models.CharField(max_length=32, default='b')
-    class C(B):
+    class MultiC(MultiB):
         f_on_c = models.CharField(max_length=32, default='sub-c')
 
-Note that you have to guard the attribute access yourself in the method code as shown above.
+Note that you have to guard the attribute access yourself in the method as shown above.
+Also you cannot rely on the type of `self` with `isinstance`, since the method
+will run late on the model, where the field is defined (`MultiBase` above).
+
+Sidenote: The up-pulling is currently not further optimized in the resolver,
+which leads to a bad update cascade when used across deeper submodels. In the example above
+saving a `MultiC` instance will cascade through updates on `MultiB` to `MultiBase`.
 
 
 Forced Update of Computed Fields
