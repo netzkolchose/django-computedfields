@@ -636,6 +636,23 @@ class Resolver:
 
         # do bulk_update on computed fields in question
         # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
+        #if fields:
+        #    change: List[Model] = []
+        #    for elem in queryset:
+        #        has_changed = False
+        #        for comp_field in mro:
+        #            new_value = self._compute(elem, model, comp_field)
+        #            if new_value != getattr(elem, comp_field):
+        #                has_changed = True
+        #                setattr(elem, comp_field, new_value)
+        #        if has_changed:
+        #            change.append(elem)
+        #        if len(change) >= self._batchsize:
+        #            model.objects.bulk_update(change, fields)
+        #            change = []
+        #    if change:
+        #        model.objects.bulk_update(change, fields)
+
         if fields:
             change: List[Model] = []
             for elem in queryset:
@@ -648,10 +665,16 @@ class Resolver:
                 if has_changed:
                     change.append(elem)
                 if len(change) >= self._batchsize:
-                    model.objects.bulk_update(change, fields)
+                    if self.use_normal:
+                        model.objects.bulk_update(change, fields)
+                    else:
+                        self._fast_update(model, change, fields)
                     change = []
             if change:
-                model.objects.bulk_update(change, fields)
+                if self.use_normal:
+                    model.objects.bulk_update(change, fields)
+                else:
+                    self._fast_update(model, change, fields)
 
         # trigger dependent comp field updates on all records
         # skip recursive call if queryset is empty
@@ -659,6 +682,77 @@ class Resolver:
             self.update_dependent(queryset, model, fields, update_local=False)
         # FIXME: perf - can we pull pks in loop above?
         return set(el.pk for el in queryset) if return_pks else None
+    
+    use_normal = False
+    
+    def _fast_update(self, model: Type[Model], changeset, fields):
+        from django.db import connection
+        if connection.vendor == 'postgresql':
+            # use special optimization for postgres:
+            # >>> execute_values(cur,
+            # ... """UPDATE test SET v1 = data.v1 FROM (VALUES %s) AS data (id, v1)
+            # ... WHERE test.id = data.id""",
+            # ... [(1, 20), (4, 50)])
+            from psycopg2.extras import execute_values
+            table = model._meta.db_table
+            pkname = model._meta.pk.db_column or model._meta.pk.name
+            _fields = [self.computed_models[model][f] for f in fields]
+            fnames = [f.db_column or f.name for f in _fields]
+
+            # construct update string
+            _set = ', '.join(f'{fname} = data.{fname}' for fname in fnames)
+            _data_as = f'{pkname}, ' + ', '.join(fnames)
+            _where = f'{table}.{pkname} = data.{pkname}'
+            q = f'UPDATE {table} SET {_set} FROM (VALUES %s) AS data ({_data_as}) WHERE {_where}'
+
+            # construct update data
+            data = []
+            for e in changeset:
+                sub = [e.pk]
+                for f in fields:
+                    sub.append(getattr(e, f))
+                data.append(sub)
+            with connection.cursor() as cur:
+                execute_values(cur,  q, data)
+        elif connection.vendor == 'sqlite':
+            # only works for >3.33
+            # activate newer version:
+            # export PATH="/usr/local/lib:$PATH"
+            # replace
+            #   from sqlite3 import dbapi2 as Database
+            # with
+            #   from pysqlite3 import dbapi2 as Database
+            # c2.execute("update exampleapp_selfref set c8 = data.column2 from (values (?, ?), (?, ?)) as data 
+            #             where exampleapp_selfref.id=data.column1", [1, 'aaa', 2, 'pansen'])
+            table = model._meta.db_table
+            pkname = model._meta.pk.db_column or model._meta.pk.name
+            _fields = [self.computed_models[model][f] for f in fields]
+            fnames = [f.db_column or f.name for f in _fields]
+
+            # construct update data
+            data = []
+            counter = 0
+            for e in changeset:
+                counter += 1
+                sub = [e.pk]
+                for f in fields:
+                    sub.append(getattr(e, f))
+                data += sub
+
+            # construct update string
+            _set = ', '.join(f'{fname} = data.column{i+2}' for i, fname in enumerate(fnames))
+            _where = f'{table}.{pkname} = data.column1'
+            _values = f'({",".join("?" * (len(fnames)+1))})'
+            q = f'UPDATE {table} SET {_set} FROM (VALUES {",".join(_values for _ in range(counter))}) AS data WHERE {_where}'
+            #with connection.connection.cursor() as cur:
+            #    cur.execute(q, data)
+            # FIXME: above break with string concat error - has upper bulk size limit?
+            cur = connection.connection.cursor()
+            cur.execute(q, data)
+            cur.close()
+        else:
+            model.objects.bulk_update(changeset, fields)
+        
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
