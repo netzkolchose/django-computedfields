@@ -742,14 +742,34 @@ class Resolver:
             # construct update string
             _set = ', '.join(f'{fname} = data.column{i+2}' for i, fname in enumerate(fnames))
             _where = f'{table}.{pkname} = data.column1'
-            _values = f'({",".join("?" * (len(fnames)+1))})'
+            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
             q = f'UPDATE {table} SET {_set} FROM (VALUES {",".join(_values for _ in range(counter))}) AS data WHERE {_where}'
-            #with connection.connection.cursor() as cur:
-            #    cur.execute(q, data)
-            # FIXME: above break with string concat error - has upper bulk size limit?
-            cur = connection.connection.cursor()
-            cur.execute(q, data)
-            cur.close()
+            with connection.cursor() as cur:
+                cur.execute(q, data)
+        elif connection.vendor == 'mysql':
+            # mysql/mariadb has seen several changes to the VALUES support
+            # in recent versions, needs a compatibility/version check command?
+            table = model._meta.db_table
+            pkname = model._meta.pk.db_column or model._meta.pk.name
+            _fields = [self.computed_models[model][f] for f in fields]
+            fnames = [f.db_column or f.name for f in _fields]
+
+            # construct update data
+            data = list(range(len(fnames) + 1))
+            counter = 0
+            for e in changeset:
+                counter += 1
+                sub = [e.pk]
+                for f in fields:
+                    sub.append(getattr(e, f))
+                data += sub
+
+            _on = f'{table}.{pkname} = data.0'
+            _set = ', '.join(f'{fname} = data.{i+1}' for i, fname in enumerate(fnames))
+            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
+            q = f'UPDATE {table} INNER JOIN (SELECT * FROM (VALUES {",".join(_values for _ in range(counter+1))}) AS foo) AS data ON {_on} SET {_set}'
+            with connection.cursor() as cur:
+                cur.execute(q, data)
         else:
             model.objects.bulk_update(changeset, fields)
         
