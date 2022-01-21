@@ -688,12 +688,6 @@ class Resolver:
     def _fast_update(self, model: Type[Model], changeset, fields):
         from django.db import connection
         if connection.vendor == 'postgresql':
-            # use special optimization for postgres:
-            # >>> execute_values(cur,
-            # ... """UPDATE test SET v1 = data.v1 FROM (VALUES %s) AS data (id, v1)
-            # ... WHERE test.id = data.id""",
-            # ... [(1, 20), (4, 50)])
-            from psycopg2.extras import execute_values
             table = model._meta.db_table
             pkname = model._meta.pk.db_column or model._meta.pk.name
             _fields = [self.computed_models[model][f] for f in fields]
@@ -703,17 +697,19 @@ class Resolver:
             _set = ', '.join(f'{fname} = data.{fname}' for fname in fnames)
             _data_as = f'{pkname}, ' + ', '.join(fnames)
             _where = f'{table}.{pkname} = data.{pkname}'
-            q = f'UPDATE {table} SET {_set} FROM (VALUES %s) AS data ({_data_as}) WHERE {_where}'
 
-            # construct update data
             data = []
+            counter = 0
             for e in changeset:
+                counter += 1
                 sub = [e.pk]
                 for f in fields:
                     sub.append(getattr(e, f))
-                data.append(sub)
+                data += sub
+            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
+            q = f'UPDATE {table} SET {_set} FROM (VALUES {",".join(_values for _ in range(counter))}) AS data ({_data_as}) WHERE {_where}'
             with connection.cursor() as cur:
-                execute_values(cur,  q, data)
+                cur.execute(q, data)
         elif connection.vendor == 'sqlite':
             # only works for >3.33
             # activate newer version:
