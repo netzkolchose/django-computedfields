@@ -975,7 +975,8 @@ class FieldUpdate(ComputedFieldsModel):
     float_field = models.FloatField(null=True)
     integer_field = models.IntegerField(null=True)
     ip_field = models.GenericIPAddressField(null=True)
-    json_field = models.JSONField(null=True)
+    # uncomment when Django 2.2 removed
+    # json_field = models.JSONField(null=True)
     slug_field = models.SlugField(null=True)
     text_field = models.TextField(null=True)
     time_field = models.TimeField(null=True)
@@ -1026,9 +1027,9 @@ class FieldUpdate(ComputedFieldsModel):
     def ip_comp(self):
         return self.ip_field
 
-    @computed(models.JSONField(null=True), depends=[('self', ['json_field'])])
-    def json_comp(self):
-        return self.json_field
+    # @computed(models.JSONField(null=True), depends=[('self', ['json_field'])])
+    # def json_comp(self):
+    #     return self.json_field
 
     @computed(models.SlugField(null=True), depends=[('self', ['slug_field'])])
     def slug_comp(self):
