@@ -44,6 +44,7 @@ INSTALLED_APPS = [
 
 COMPUTEDFIELDS_ADMIN = True
 # COMPUTEDFIELDS_MAP = os.path.join(BASE_DIR, 'map.pickle')
+COMPUTEDFIELDS_FASTUPDATE = True
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

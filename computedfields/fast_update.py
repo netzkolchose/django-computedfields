@@ -28,8 +28,7 @@ from typing import Any, Iterable, Sequence
 
 
 # FIXME: avoid collision with AS foo in mysql
-# FIXME: avoid dname collision with tname
-# FIXME: check name escaping in sqlite/mysql
+# FIXME: check name escaping in mysql
 # TODO: also test COPY_FROM with temp table in between for postgres
 # FIXME: filter mysql versions, that are known to not work (also test by custom django management command?)
 
@@ -57,7 +56,7 @@ def as_postgresql(
     compiler: SQLCompiler,
     connection: Any
 ) -> str:
-    dname = 'd'
+    dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'"{f.column}"={_cast_col_postgres(dname, f, compiler, connection)}' for f in fields)
     value = f'({",".join(["%s"] * (len(fields) + 1))})'
     values = ','.join([value] * count)
@@ -74,12 +73,12 @@ def as_sqlite(
     compiler: SQLCompiler,
     connection: Any
 ) -> str:
-    dname = 'd'
-    cols = ', '.join(f'"{f.column}"={dname}.column{i + 2}' for i, f in enumerate(fields))
+    dname = 'd' if tname != 'd' else 'c'
+    cols = ','.join(f'"{f.column}"="{dname}"."column{i + 2}"' for i, f in enumerate(fields))
     value = f'({",".join(["%s"] * (len(fields) + 1))})'
     values = ','.join([value] * count)
-    where = f'{tname}.{pkname}={dname}.column1'
-    return f'UPDATE {tname} SET {cols} FROM (VALUES {values}) AS {dname} WHERE {where}'
+    where = f'"{tname}"."{pkname}"="{dname}"."column1"'
+    return f'UPDATE "{tname}" SET {cols} FROM (VALUES {values}) AS "{dname}" WHERE {where}'
 
 
 def as_mysql(
@@ -90,7 +89,7 @@ def as_mysql(
     compiler: SQLCompiler,
     connection: Any
 ) -> str:
-    dname = 'd'
+    dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'{f.column}={dname}.{i+1}' for i, f in enumerate(fields))
     value = f'({",".join(["%s"] * (len(fields) + 1))})'
     values = ",".join([value] * (count + 1))
