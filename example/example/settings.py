@@ -100,6 +100,7 @@ DATABASES = {
 #}
 
 # docker run --name some-mariadb -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=database -p 3306:3306 -d mariadb
+# docker run --name some-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=database -p 3306:3306 -d mysql
 #DATABASES = {
 #    'default': {
 #        'ENGINE': 'django.db.backends.mysql',

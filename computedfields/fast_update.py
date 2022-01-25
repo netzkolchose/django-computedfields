@@ -7,7 +7,8 @@ for bigger changesets.
 Currently supported DBMS:
 - sqlite 3.33+ (3.37 and 3.38 tested)
 - postgresql (14 tested, should work with all versions 9.1+)
-- mariabd 10.3+ (tested with 10.6.5)
+- mariabd 10.3+
+- mysql 8
 
 Note:
 Support testing of db backends is still wonky, thus you should check yourself,
@@ -20,11 +21,16 @@ Usage:
 
 from django.db.models.functions import Cast
 from django.db.models.expressions import Col
+from django.db import transaction
+from django.db.utils import ProgrammingError
+import logging
+
+logger = logging.getLogger(__name__)
 
 # typing imports
 from django.db.models import Field, QuerySet
 from django.db.models.sql.compiler import SQLCompiler
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, List, Optional, Sequence
 
 
 # TODO: also test COPY_FROM with temp table in between for postgres
@@ -93,15 +99,59 @@ def as_mysql(
     value = f'({",".join(["%s"] * (len(fields) + 1))})'
     values = ",".join([value] * (count + 1))
     on = f'`{tname}`.`{pkname}` = {dname}.0'
-    temp = 'b' if tname != 'b' else 'a'
-    return f'UPDATE `{tname}` INNER JOIN (SELECT * FROM (VALUES {values}) AS {temp}) AS {dname} ON {on} SET {cols}'
+    return f'UPDATE `{tname}` INNER JOIN (VALUES {values}) AS {dname} ON {on} SET {cols}'
+
+
+def as_mysql8(
+    tname: str,
+    pkname: str,
+    fields: Sequence[Field],
+    count: int,
+    compiler: SQLCompiler,
+    connection: Any
+) -> str:
+    dname = 'd' if tname != 'd' else 'c'
+    cols = ','.join(f'`{f.column}`={dname}.column_{i+1}' for i, f in enumerate(fields))
+    value = f'ROW({",".join(["%s"] * (len(fields) + 1))})'
+    values = ",".join([value] * count)
+    on = f'`{tname}`.`{pkname}` = {dname}.column_0'
+    return f'UPDATE `{tname}` INNER JOIN (VALUES {values}) AS {dname} ON {on} SET {cols}'
 
 
 QUERY = {
     'sqlite': as_sqlite,
     'postgresql': as_postgresql,
-    'mysql': as_mysql
+    'mysql': as_mysql,
+    'mysql8': as_mysql8
 }
+
+# decide at runtine on connection level, which mysql impl to use
+CONNECTION_HASHES = {}
+
+def _adjust_mysql(connection: Any) -> str:
+    if connection.connection:
+        vendor = CONNECTION_HASHES.get(hash(connection.connection), None)
+        if vendor is not None:
+            return vendor
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                cur.execute("SELECT foo.0 FROM (VALUES (0, 1), (1, 'zzz'),(2, 'yyy')) as foo")
+            CONNECTION_HASHES[hash(connection.connection)] = 'mysql'
+            return 'mysql'
+    except ProgrammingError:
+        pass
+    try:
+        with transaction.atomic():
+            with connection.cursor() as cur:
+                cur.execute("SELECT column_1 FROM (VALUES ROW(1, 'zzz'), ROW(2, 'yyy')) as foo")
+            CONNECTION_HASHES[hash(connection.connection)] = 'mysql8'
+            return 'mysql8'
+    except ProgrammingError:
+        pass
+    CONNECTION_HASHES[hash(connection.connection)] = ''
+    logger.warning('mysql backend without UPDATE FROM VALUES support, falling back to bulk_update')
+    return ''
 
 
 def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], batch_size: int = 1000) -> None:
@@ -149,16 +199,19 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], ba
 
         sql = ''
         last_counter = -1
+        vendor = connection.vendor
+        if vendor == 'mysql':
+            vendor = _adjust_mysql(connection)
         for counter, data in batches:
             # construct update string
             if counter != last_counter:
-                sql = QUERY.get(connection.vendor, as_dummy)(
+                sql = QUERY.get(vendor, as_dummy)(
                     tablename, pk_field.column, fields, counter, compiler, connection)
                 if not sql:
                     # exist with bulk_update for non supported db backends
                     return model.objects.bulk_update(objs, fieldnames, batch_size)
             
-            if connection.vendor == 'mysql':
+            if vendor == 'mysql':
                 # mysql needs data patch with (0,1,2,...) as first VALUES entry
                 data = list(range(len(fields) + 1)) + data
 
@@ -172,18 +225,16 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], ba
 def check_support(using: str = 'default') -> bool:
     from django.db import connections
     connection = connections[using]
-    fast = False
     if connection.vendor == 'postgresql':
-        fast = True
+        return True
     elif connection.vendor == 'sqlite':
         # FIXME: also test 3.33 - 3.36 versions
         import importlib
         _mod = importlib.import_module(connection.connection.__class__.__module__)
         major, minor, _ = _mod.sqlite_version_info
         if major >= 3 and minor > 32:
-            fast = True
+            return True
     elif connection.vendor == 'mysql':
-        fast = True
-    else:
-        fast = False
-    return fast
+        if _adjust_mysql(connection):
+            return True
+    return False
