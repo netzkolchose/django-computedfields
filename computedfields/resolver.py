@@ -666,7 +666,7 @@ class Resolver:
             self.update_dependent(queryset, model, fields, update_local=False)
         return set(el.pk for el in queryset) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change, fields):
+    def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Iterable[str]) -> None:
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, self._batchsize)
         return queryset.model.objects.bulk_update(change, fields)

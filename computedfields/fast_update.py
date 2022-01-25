@@ -34,7 +34,7 @@ from typing import Any, Iterable, Sequence
 # FIXME: filter mysql versions, that are known to not work (also test by custom django management command?)
 
 
-def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any):
+def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
     return Cast(Col(tname, field), output_field=field).as_postgresql(compiler, connection)[0]
 
 
@@ -170,7 +170,7 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], ba
         model.objects.bulk_update(objs, non_local_fieldnames, batch_size)
 
 
-def check_support(using: str = 'default'):
+def check_support(using: str = 'default') -> bool:
     from django.db import connections
     connection = connections[using]
     fast = False
