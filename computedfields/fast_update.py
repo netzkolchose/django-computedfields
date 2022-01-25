@@ -27,10 +27,9 @@ from django.db.models.sql.compiler import SQLCompiler
 from typing import Any, Iterable, Sequence
 
 
-# FIXME: avoid collision with AS foo in mysql
-# FIXME: check name escaping in mysql
 # TODO: also test COPY_FROM with temp table in between for postgres
 # FIXME: filter mysql versions, that are known to not work (also test by custom django management command?)
+# FIXME: check sqlite/mysql for cast needs
 
 
 def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
@@ -90,11 +89,12 @@ def as_mysql(
     connection: Any
 ) -> str:
     dname = 'd' if tname != 'd' else 'c'
-    cols = ','.join(f'{f.column}={dname}.{i+1}' for i, f in enumerate(fields))
+    cols = ','.join(f'`{f.column}`={dname}.{i+1}' for i, f in enumerate(fields))
     value = f'({",".join(["%s"] * (len(fields) + 1))})'
     values = ",".join([value] * (count + 1))
-    on = f'{tname}.{pkname} = {dname}.0'
-    return f'UPDATE {tname} INNER JOIN (SELECT * FROM (VALUES {values}) AS foo) AS {dname} ON {on} SET {cols}'
+    on = f'`{tname}`.`{pkname}` = {dname}.0'
+    temp = 'b' if tname != 'b' else 'a'
+    return f'UPDATE `{tname}` INNER JOIN (SELECT * FROM (VALUES {values}) AS {temp}) AS {dname} ON {on} SET {cols}'
 
 
 QUERY = {
