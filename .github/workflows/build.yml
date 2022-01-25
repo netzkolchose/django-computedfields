@@ -225,8 +225,57 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
+  mariadb:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    services:
+      mysql:
+        image: mariadb:latest
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: database
+        ports: ['3306:3306']
+    steps:
+    - uses: actions/checkout@v2
+    - uses: kamiazya/setup-graphviz@v1
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install "Django~=4.0"
+        pip install -r example/requirements-ci.txt
+    - name: Setup DB
+      run: |
+        ./example/manage.py makemigrations
+        ./example/manage.py migrate
+      env:
+        DBENGINE: mysql
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
+    - name: Run tests
+      run: |
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
+        coverage combine
+        coverage report
+      env:
+        DBENGINE: mysql
+    - name: Coveralls
+      uses: AndreMiras/coveralls-python-action@develop
+      with:
+        parallel: true
+        flag-name: Unit Test
+
   coveralls_finish:
-    needs: [django_32, django_40, mysql, postgres]
+    needs: [django_32, django_40, mysql, postgres, mariadb]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
