@@ -28,9 +28,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 # typing imports
-from django.db.models import Field, QuerySet
+from django.db.models import Field, QuerySet, Model
 from django.db.models.sql.compiler import SQLCompiler
-from typing import Any, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Type
 
 
 def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
@@ -121,7 +121,7 @@ QUERY = {
 }
 
 # decide at runtine on connection level, which mysql impl to use
-CONNECTION_HASHES = {}
+CONNECTION_HASHES: Dict[int, str] = {}
 
 def _adjust_mysql(connection: Any) -> str:
     if connection.connection:
@@ -149,8 +149,8 @@ def _adjust_mysql(connection: Any) -> str:
     return ''
 
 
-def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], batch_size: int = 1000) -> None:
-    model = qs.model
+def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Sequence[str], batch_size: int = 1000) -> None:
+    model: Type[Model] = qs.model
 
     # filter all non model local fields --> still handled by bulk_update
     non_local_fieldnames = []
@@ -170,6 +170,8 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], ba
 
         tablename = model._meta.db_table
         pk_field = model._meta.pk
+        if not pk_field:
+            return model.objects.bulk_update(objs, fieldnames, batch_size)
         fields = [model._meta.get_field(f) for f in local_fieldnames]
         compiler = qs.query.get_compiler(qs.db)
         connection = connections[qs.db]
@@ -182,8 +184,8 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Iterable[str], ba
             counter += 1
             # pk as first value to "join" on
             sub = [pk_field.get_db_prep_save(getattr(o, pk_field.attname), connection)]
-            for f in fields:
-                sub.append(f.get_db_prep_save(getattr(o, f.attname), connection))
+            for field in fields:
+                sub.append(field.get_db_prep_save(getattr(o, field.attname), connection))
             data += sub
             if counter >= batch_size:
                 batches.append((counter, data))
