@@ -20,11 +20,11 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
             # multi o2o back steps deps to non comp field
             'C': {'depends': [('self', ['name']), ('cd_o.de_o', ['name'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['E'].objects.filter(o_ed__o_dc=self).values_list('name', flat=True))},
+                      MODELS['E'].objects.filter(o_ed__o_dc=self).values_list('name', flat=True).order_by('pk'))},
             # multi o2o back steps deps to comp field
             'D': {'depends': [('self', ['name']), ('de_o.ef_o.fg_o', ['comp'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['G'].objects.filter(o_gf__o_fe__o_ed=self).values_list('comp', flat=True))},
+                      MODELS['G'].objects.filter(o_gf__o_fe__o_ed=self).values_list('comp', flat=True).order_by('pk'))},
         })
         self.a = self.models.A(name='a')
         self.a.save()

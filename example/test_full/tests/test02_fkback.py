@@ -14,17 +14,17 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
                   'func': lambda self: self.name},
             # one fk back step deps to comp field
             'F': {'depends': [('self', ['name']), ('fg_f', ['comp'])],
-                  'func': lambda self: self.name + ''.join(self.fg_f.all().values_list('comp', flat=True))},
+                  'func': lambda self: self.name + ''.join(self.fg_f.all().values_list('comp', flat=True).order_by('pk'))},
             'E': {'depends': [('self', ['name']), ('ef_f', ['comp'])],
-                  'func': lambda self: self.name + ''.join(self.ef_f.all().values_list('comp', flat=True))},
+                  'func': lambda self: self.name + ''.join(self.ef_f.all().values_list('comp', flat=True).order_by('pk'))},
             # multi fk back steps deps to non comp field
             'C': {'depends': [('self', ['name']), ('cd_f.de_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['E'].objects.filter(f_ed__f_dc=self).values_list('name', flat=True))},
+                      MODELS['E'].objects.filter(f_ed__f_dc=self).values_list('name', flat=True).order_by('pk'))},
             # multi fk back steps deps to comp field
             'D': {'depends': [('self', ['name']), ('de_f.ef_f.fg_f', ['comp'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['G'].objects.filter(f_gf__f_fe__f_ed=self).values_list('comp', flat=True))},
+                      MODELS['G'].objects.filter(f_gf__f_fe__f_ed=self).values_list('comp', flat=True).order_by('pk'))},
         })
         self.a = self.models.A(name='a')
         self.a.save()
