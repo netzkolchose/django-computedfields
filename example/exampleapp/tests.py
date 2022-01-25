@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.admin.sites import AdminSite
 from computedfields.models import ComputedFieldsAdminModel, active_resolver, ContributingModelsModel
 from computedfields.admin import ComputedModelsAdmin, ContributingModelsAdmin
-from .models import Foo, Bar, Baz
+from .models import Foo, Bar, Baz, SelfRef
 
 
 class TestModels(TestCase):
@@ -78,3 +78,33 @@ class TestModelClassesForAdmin(TestCase):
         for instance in ContributingModelsModel.objects.all():
             self.adminobj_contributing.fk_fields(instance)
             self.adminobj_contributing.name(instance)
+
+
+from computedfields.models import update_dependent
+from time import time
+
+
+def timer(f):
+    s = time()
+    r = f()
+    print(time() - s)
+    return r
+
+
+def create_instances(n):
+    inst = []
+    for i in range(n):
+        inst.append(SelfRef(name='a', xy=10))
+    return inst
+
+
+class TestBigUpdate(TestCase):
+    def setUp(self) -> None:
+        print('create 10000 records of SelfRef:')
+        _ = timer(lambda : SelfRef.objects.bulk_create(create_instances(10000)))
+    
+    def test_updatetime(self):
+        print('update 10000 records of SelfRef:')
+        timer(lambda : update_dependent(SelfRef.objects.all()))
+        print('check 10000 records of SelfRef:')
+        timer(lambda : update_dependent(SelfRef.objects.all()))
