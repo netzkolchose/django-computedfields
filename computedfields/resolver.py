@@ -15,6 +15,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
+from .fast_update import fast_update, check_support
 from . import __version__
 
 import django
@@ -120,6 +121,9 @@ class Resolver:
         self._sealed: bool = False        # initial boot phase
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
+
+        # whether to use fastupdate (lazy eval'ed during first bulk_updater run)
+        self.use_fastupdate: Optional[bool] = None
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -238,14 +242,14 @@ class Resolver:
                     raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
-                    computed_models[model][field.name] = field
+                    computed_models[model][field.attname] = field
         else:
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
                     raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
-                    computed_models[model][field.name] = field
+                    computed_models[model][field.attname] = field
 
         return computed_models
 
@@ -634,24 +638,10 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
-        # do bulk_update on computed fields in question
-        # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
-        #if fields:
-        #    change: List[Model] = []
-        #    for elem in queryset:
-        #        has_changed = False
-        #        for comp_field in mro:
-        #            new_value = self._compute(elem, model, comp_field)
-        #            if new_value != getattr(elem, comp_field):
-        #                has_changed = True
-        #                setattr(elem, comp_field, new_value)
-        #        if has_changed:
-        #            change.append(elem)
-        #        if len(change) >= self._batchsize:
-        #            model.objects.bulk_update(change, fields)
-        #            change = []
-        #    if change:
-        #        model.objects.bulk_update(change, fields)
+        if self.use_fastupdate is None:
+            self.use_fastupdate = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False) and check_support()
+            if self.use_fastupdate:
+                self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', self._batchsize * 10)
 
         if fields:
             change: List[Model] = []
@@ -665,110 +655,21 @@ class Resolver:
                 if has_changed:
                     change.append(elem)
                 if len(change) >= self._batchsize:
-                    if self.use_normal:
-                        model.objects.bulk_update(change, fields)
-                    else:
-                        self._fast_update(model, change, fields)
+                    self._update(queryset, change, fields)
                     change = []
             if change:
-                if self.use_normal:
-                    model.objects.bulk_update(change, fields)
-                else:
-                    self._fast_update(model, change, fields)
+                self._update(queryset, change, fields)
 
         # trigger dependent comp field updates on all records
         # skip recursive call if queryset is empty
         if not local_only and queryset:
             self.update_dependent(queryset, model, fields, update_local=False)
-        # FIXME: perf - can we pull pks in loop above?
         return set(el.pk for el in queryset) if return_pks else None
     
-    use_normal = False
-    
-    def _fast_update(self, model: Type[Model], changeset, fields):
-        from django.db import connection
-        if connection.vendor == 'postgresql':
-            table = model._meta.db_table
-            pkname = model._meta.pk.db_column or model._meta.pk.name
-            _fields = [self.computed_models[model][f] for f in fields]
-            fnames = [f.db_column or f.name for f in _fields]
-
-            # construct update string
-            _set = ', '.join(f'{fname} = data.{fname}' for fname in fnames)
-            _data_as = f'{pkname}, ' + ', '.join(fnames)
-            _where = f'{table}.{pkname} = data.{pkname}'
-
-            data = []
-            counter = 0
-            for e in changeset:
-                counter += 1
-                sub = [e.pk]
-                for f in fields:
-                    sub.append(getattr(e, f))
-                data += sub
-            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
-            q = f'UPDATE {table} SET {_set} FROM (VALUES {",".join(_values for _ in range(counter))}) AS data ({_data_as}) WHERE {_where}'
-            with connection.cursor() as cur:
-                cur.execute(q, data)
-        elif connection.vendor == 'sqlite':
-            # only works for >3.33
-            # activate newer version:
-            # export PATH="/usr/local/lib:$PATH"
-            # replace
-            #   from sqlite3 import dbapi2 as Database
-            # with
-            #   from pysqlite3 import dbapi2 as Database
-            # c2.execute("update exampleapp_selfref set c8 = data.column2 from (values (?, ?), (?, ?)) as data 
-            #             where exampleapp_selfref.id=data.column1", [1, 'aaa', 2, 'pansen'])
-            table = model._meta.db_table
-            pkname = model._meta.pk.db_column or model._meta.pk.name
-            _fields = [self.computed_models[model][f] for f in fields]
-            fnames = [f.db_column or f.name for f in _fields]
-
-            # construct update data
-            data = []
-            counter = 0
-            for e in changeset:
-                counter += 1
-                sub = [e.pk]
-                for f in fields:
-                    sub.append(getattr(e, f))
-                data += sub
-
-            # construct update string
-            _set = ', '.join(f'{fname} = data.column{i+2}' for i, fname in enumerate(fnames))
-            _where = f'{table}.{pkname} = data.column1'
-            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
-            q = f'UPDATE {table} SET {_set} FROM (VALUES {",".join(_values for _ in range(counter))}) AS data WHERE {_where}'
-            with connection.cursor() as cur:
-                cur.execute(q, data)
-        elif connection.vendor == 'mysql':
-            # mysql/mariadb has seen several changes to the VALUES support
-            # in recent versions, needs a compatibility/version check command?
-            table = model._meta.db_table
-            pkname = model._meta.pk.db_column or model._meta.pk.name
-            _fields = [self.computed_models[model][f] for f in fields]
-            fnames = [f.db_column or f.name for f in _fields]
-
-            # construct update data
-            data = list(range(len(fnames) + 1))
-            counter = 0
-            for e in changeset:
-                counter += 1
-                sub = [e.pk]
-                for f in fields:
-                    sub.append(getattr(e, f))
-                data += sub
-
-            _on = f'{table}.{pkname} = data.0'
-            _set = ', '.join(f'{fname} = data.{i+1}' for i, fname in enumerate(fnames))
-            _values = f'({",".join(["%s"] * (len(fnames)+1))})'
-            q = f'UPDATE {table} INNER JOIN (SELECT * FROM (VALUES {",".join(_values for _ in range(counter+1))}) AS foo) AS data ON {_on} SET {_set}'
-            with connection.cursor() as cur:
-                cur.execute(q, data)
-        else:
-            model.objects.bulk_update(changeset, fields)
-        
+    def _update(self, queryset: QuerySet, change, fields):
+        if self.use_fastupdate:
+            return fast_update(queryset, change, fields, self._batchsize)
+        return queryset.model.objects.bulk_update(change, fields)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
