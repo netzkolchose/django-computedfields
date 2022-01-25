@@ -33,11 +33,6 @@ from django.db.models.sql.compiler import SQLCompiler
 from typing import Any, Iterable, List, Optional, Sequence
 
 
-# TODO: also test COPY_FROM with temp table in between for postgres
-# FIXME: filter mysql versions, that are known to not work (also test by custom django management command?)
-# FIXME: check sqlite/mysql for cast needs
-
-
 def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
     return Cast(Col(tname, field), output_field=field).as_postgresql(compiler, connection)[0]
 
