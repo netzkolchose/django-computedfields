@@ -405,9 +405,9 @@ if the `UPDATE FROM VALUES` pattern is not available for the current database ba
 
 Supported database backend versions:
 
-- sqlite 3.33+, tested with 3.37
-- Postgresql 9.1+, tested with 14
-- MariaDB 10.3+, tested with 10.6
+- sqlite 3.33+
+- Postgresql 9.1+
+- MariaDB 10.3+
 - Mysql 8
 
 `fast_update` was tested to work with all Django standard fields including `ArrayField` and `HStoreField` for Postgres.

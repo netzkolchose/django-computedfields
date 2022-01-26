@@ -6,7 +6,7 @@ for bigger changesets.
 
 Currently supported DBMS:
 
-- sqlite 3.33+ (3.37 and 3.38 tested)
+- sqlite 3.33+ (3.33, 3.37 and 3.38 tested)
 - postgresql (14 tested, should work with all versions 9.1+)
 - mariabd 10.3+ (10.3 to 10.6 tested)
 - mysql 8
