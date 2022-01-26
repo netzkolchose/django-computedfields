@@ -324,7 +324,7 @@ jobs:
 
 
   coveralls_finish:
-    needs: [django_32, django_40, mysql, postgres, mariadb]
+    needs: [django_32, django_40, mysql, postgres, mariadb, sqlite333]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
