@@ -38,3 +38,11 @@ admin.py
 .. automodule:: computedfields.admin
    :members:
    :show-inheritance:
+
+
+fast_update.py
+--------------
+
+.. automodule:: computedfields.fast_update
+   :members:
+   :show-inheritance:

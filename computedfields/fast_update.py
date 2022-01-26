@@ -1,22 +1,15 @@
 """
-``fast_update`` drop-in to avoid bad performance with ``bulk_update``.
+Drop-in to avoid bad update performance with ``bulk_update``.
 
-The update is based on 'UPDATE FROM VALUES' variants, which performs much better
+The update is based on `UPDATE FROM VALUES` variants, which performs much better
 for bigger changesets.
 
 Currently supported DBMS:
+
 - sqlite 3.33+ (3.37 and 3.38 tested)
 - postgresql (14 tested, should work with all versions 9.1+)
-- mariabd 10.3+
+- mariabd 10.3+ (10.3 to 10.6 tested)
 - mysql 8
-
-Note:
-Support testing of db backends is still wonky, thus you should check yourself,
-if your updates get properly applied.
-
-Usage:
->>> from fast_update import fast_update
->>> fast_update(MyModel.objects.all(), [list of changed model objects], [fieldnames to update])
 """
 
 from django.db.models.functions import Cast
@@ -30,7 +23,7 @@ logger = logging.getLogger(__name__)
 # typing imports
 from django.db.models import Field, QuerySet, Model
 from django.db.models.sql.compiler import SQLCompiler
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Type
+from typing import Any, Dict, Iterable, Sequence, Type
 
 
 def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
@@ -150,6 +143,36 @@ def _adjust_mysql(connection: Any) -> str:
 
 
 def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Sequence[str], batch_size: int = 1000) -> None:
+    """
+    Drop-in for `bulk_update` with much better update performance for model local fields (10 - 25x faster).
+    Note that non-local fields (e.g. from multi table inheritance) still will be updated with `bulk_update`.
+
+    Example usage:
+
+        >>> # change big stack of instances
+        >>> changed = []
+        >>> queryset = MyModel.objects.filter(...)
+        >>> for instance in queryset:
+        ...     instance.name = ...
+        ...     instance.age = ...
+        ...     changed.append(instance)
+        >>> # instead of:
+        >>> queryset.bulk_update(changed, ['name', 'age'])
+        >>> # update with:
+        >>> fast_update(queryset, changed, ['name', 'age'])
+
+    `qs` is used to derive the model class and db connection settings. It is **not** used to filter or
+    narrow the records to be updated.
+
+    `objs` is a sequence of altered model instances. The objects **must** be model instances the queryset
+    would return. This is not explicitly tested, giving other model types is undefined behavior.
+
+    `fieldnames` denoted the fields, that should be updated.
+
+    `batch_size` controls how many records a single SQL statement will update. For tiny data loads per record
+    (less and/or smaller fields), increase the batch size. For more or bigger fields, lower the batchsize
+    or increase the database temp buffer before doing the big updates. Defaults to 1000 records.
+    """
     model: Type[Model] = qs.model
 
     # filter all non model local fields --> still handled by bulk_update
@@ -220,12 +243,25 @@ def fast_update(qs: QuerySet, objs: Iterable[Any], fieldnames: Sequence[str], ba
 
 
 def check_support(using: str = 'default') -> bool:
+    """
+    Check support for `fast_update` with your current database backend.
+    To test it on-the-fly, run these in `./manage.py shell`:
+
+        >>> from computedfields.fast_update import check_support
+        >>> check_support()
+        True
+
+    `using` denotes the database connection to be tested.
+    """
     from django.db import connections
     connection = connections[using]
     if connection.vendor == 'postgresql':
         return True
     elif connection.vendor == 'sqlite':
-        # FIXME: also test 3.33 - 3.36 versions
+        if not connection.connection:
+            with connection.cursor():
+                pass
+        # grab the module to also work with pysqlite3
         import importlib
         _mod = importlib.import_module(connection.connection.__class__.__module__)
         major, minor, _ = _mod.sqlite_version_info
