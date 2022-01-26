@@ -288,6 +288,7 @@ jobs:
         mkdir sqlite3 && cd sqlite3
         wget https://github.com/sqlite/sqlite/archive/refs/tags/version-3.33.0.tar.gz
         tar -xvf version-3.33.0.tar.gz
+        cd sqlite-version-3.33.0
         ./configure && make
     - uses: kamiazya/setup-graphviz@v1
     - name: Set up Python ${{ matrix.python-version }}
