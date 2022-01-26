@@ -53,6 +53,14 @@ The module respects optional settings in `settings.py`:
     penalize update performance due high memory usage on Python side to hold the row instances
     and construct the final SQL command. This is further restricted by certain database adapters.
 
+- ``COMPUTEDFIELDS_FASTUPDATE`` (Alpha)
+    Set this to ``True`` to use the new `fast_update` feature. See :ref:`Fast Update` for more information.
+
+- ``COMPUTEDFIELDS_BATCHSIZE_FAST``
+    Batch size for `fast_update`, which scales much better with bigger batches than `bulk_update`.
+    Typically this can be be set to a value >1000, default is `COMPUTEDFIELDS_BATCHSIZE * 10`.
+
+
 Basic usage
 -----------
 
@@ -383,6 +391,33 @@ type warnings, e.g.:
     @computed(..., depends=[('path', ['list', 'of', 'fieldnames']), ...])
     def ...
 
+
+Fast Update
+-----------
+
+`fast_update` acts as a drop-in replacement for Django's `bulk_update` method.
+It is based on a custom update SQL statement using variants of `UPDATE FROM VALUES`,
+which updates data 10 - 25 times faster compared to `bulk_update`.
+
+Note that the faster update statement is not supported by all database versions supported by Django.
+Therefore :mod:`django-computedfields` tries to detect support upfront and will fall back to `bulk_update`,
+if the `UPDATE FROM VALUES` pattern is not available for the current database backend.
+
+Supported database backend versions:
+
+- sqlite 3.33+
+- Postgresql 9.1+
+- MariaDB 10.3+
+- Mysql 8
+
+`fast_update` was tested to work with all Django standard fields including `ArrayField` and `HStoreField` for Postgres.
+If you use third-party or your very own field type for a computed field, make sure to test the proper updating yourself.
+This is especially important for fields, that do nasty column tricks on database level.
+Please file a bug, if you find a field type not properly updating with `fast_update`.
+
+This feature is currently labelled as `Alpha` and disabled by default. To enable it,
+place ``COMPUTEDFIELDS_FASTUPDATE = True`` in your `settings.py`. Additionally with ``COMPUTEDFIELDS_BATCHSIZE_FAST``
+the batch size can be tweaked.
 
 
 Management Commands

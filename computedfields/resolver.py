@@ -15,6 +15,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname
+from .fast_update import fast_update, check_support
 from . import __version__
 
 import django
@@ -120,6 +121,9 @@ class Resolver:
         self._sealed: bool = False        # initial boot phase
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
+
+        # whether to use fastupdate (lazy eval'ed during first bulk_updater run)
+        self.use_fastupdate: Optional[bool] = None
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -238,14 +242,14 @@ class Resolver:
                     raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
-                    computed_models[model][field.name] = field
+                    computed_models[model][field.attname] = field
         else:
             for model, computedfields in self.models_with_computedfields:
                 if not issubclass(model, _ComputedFieldsModelBase):
                     raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
                 computed_models[model] = {}
                 for field in computedfields:
-                    computed_models[model][field.name] = field
+                    computed_models[model][field.attname] = field
 
         return computed_models
 
@@ -634,8 +638,11 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
-        # do bulk_update on computed fields in question
-        # set COMPUTEDFIELDS_BATCHSIZE in settings.py to adjust batchsize (default 100)
+        if self.use_fastupdate is None:
+            self.use_fastupdate = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False) and check_support()
+            if self.use_fastupdate:
+                self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', self._batchsize * 10)
+
         if fields:
             change: List[Model] = []
             for elem in queryset:
@@ -648,17 +655,21 @@ class Resolver:
                 if has_changed:
                     change.append(elem)
                 if len(change) >= self._batchsize:
-                    model.objects.bulk_update(change, fields)
+                    self._update(queryset, change, fields)
                     change = []
             if change:
-                model.objects.bulk_update(change, fields)
+                self._update(queryset, change, fields)
 
         # trigger dependent comp field updates on all records
         # skip recursive call if queryset is empty
         if not local_only and queryset:
             self.update_dependent(queryset, model, fields, update_local=False)
-        # FIXME: perf - can we pull pks in loop above?
         return set(el.pk for el in queryset) if return_pks else None
+    
+    def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
+        if self.use_fastupdate:
+            return fast_update(queryset, change, fields, self._batchsize)
+        return queryset.model.objects.bulk_update(change, fields)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """

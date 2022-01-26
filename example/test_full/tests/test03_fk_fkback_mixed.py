@@ -11,12 +11,12 @@ class MixedForeignKeysAndBackDependenciesSimple(GenericModelTestBase):
             # fk + fk_back
             'B': {'depends': [('self', ['name']), ('f_ba.ag_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['G'].objects.filter(f_ga=self.f_ba).values_list('name', flat=True))},
+                      MODELS['G'].objects.filter(f_ga=self.f_ba).values_list('name', flat=True).order_by('pk'))},
             # fk_back + fk
             'F': {'depends': [('self', ['name']), ('fg_f.f_ga', ['name'])],
                   'func': lambda self: self.name + ''.join(MODELS['A'].objects.filter(
-                      pk__in=self.fg_f.all().values_list('f_ga', flat=True).distinct()
-                  ).values_list('name', flat=True))},
+                      pk__in=self.fg_f.all().values_list('f_ga', flat=True).order_by('pk').distinct()
+                  ).values_list('name', flat=True).order_by('pk'))},
         })
         self.a = self.models.A(name='a')
         self.a.save()

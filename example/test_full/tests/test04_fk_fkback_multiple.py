@@ -8,8 +8,8 @@ class MultipleDependenciesOne(GenericModelTestBase):
             'C': {'depends': [('self', ['name']), ('f_cb.f_ba.ag_f.gd_f', ['name']), ('cd_f.de_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
                       MODELS['D'].objects.filter(f_dg__in=MODELS['G'].objects.filter(
-                          f_ga=self.f_cb.f_ba)).values_list('name', flat=True)) + ''.join(
-                      MODELS['E'].objects.filter(f_ed__in=self.cd_f.all()).values_list('name', flat=True)
+                          f_ga=self.f_cb.f_ba)).values_list('name', flat=True).order_by('pk')) + ''.join(
+                      MODELS['E'].objects.filter(f_ed__in=self.cd_f.all()).values_list('name', flat=True).order_by('pk')
                   )},
         })
         self.a = self.models.A(name='a')
