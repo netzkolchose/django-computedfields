@@ -27,7 +27,8 @@ class Bar(ComputedFieldsModel):
         depends=[
             ('self', ['name']),
             ('foo', ['name'])
-        ]
+        ],
+        select_related = ['foo']
     )
     def foo_bar(self) -> str:
         return self.foo.name + self.name
@@ -45,7 +46,8 @@ class Baz(ComputedFieldsModel):
         depends=[
             ('self', ['name']),
             ('bar', ['foo_bar'])
-        ]
+        ],
+        select_related = ['bar']
     )
     def foo_bar_baz(self) -> str:
         return self.bar.foo_bar + self.name

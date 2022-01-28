@@ -618,8 +618,20 @@ class Resolver:
 
         If `return_pks` is set, the method returns a set of altered pks of `queryset`.
         """
-        queryset = queryset.distinct()
         model: Type[Model] = queryset.model
+
+        # distinct issue workaround
+        # the workaround is needed for already sliced/distinct queryysets coming from outside
+        if queryset.query.can_filter() and not queryset.query.distinct_fields:
+            queryset = queryset.distinct()
+        else:
+            queryset = model.objects.filter(pk__in=queryset.values('pk'))
+
+        # FIXME: if we have select/prefetch related, we might need to slice to keep mem usage down
+        # FIXME: slice over qs below, also expose interface (to be used in updatedata)
+        #        this is needed to avoid really bad mem usage with select/prefetch on big qs
+        #        prolly needs a new setting COMPUTEDFIELDS_QUERYSIZE
+        # TODO: allow (model, pks) as arguments beside queryset?
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)
@@ -628,6 +640,8 @@ class Resolver:
             update_fields.update(fields)
 
         # TODO: precalc and check prefetch/select related entries during map creation somehow?
+        # TODO: move select/prefetch extraction to own methods to disable/enable them on purpose
+        #       also needed in updatedata to pull them for loop mode
         select: Set[str] = set()
         prefetch: List[Any] = []
         for field in fields:
@@ -643,6 +657,10 @@ class Resolver:
             if self.use_fastupdate:
                 self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', self._batchsize * 10)
 
+        # TODO: investigate, whether we should descend only for real field value changes
+        # (not working yet with our current transitive reduction on intermodel graph)
+        # TODO: pre/post update signal hooks would in the loop below...
+        #true_change = set()
         if fields:
             change: List[Model] = []
             for elem in queryset:
@@ -651,6 +669,7 @@ class Resolver:
                     new_value = self._compute(elem, model, comp_field)
                     if new_value != getattr(elem, comp_field):
                         has_changed = True
+                        #true_change.add(elem.pk)
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
@@ -664,6 +683,7 @@ class Resolver:
         # skip recursive call if queryset is empty
         if not local_only and queryset:
             self.update_dependent(queryset, model, fields, update_local=False)
+            #self.update_dependent(model.objects.filter(pk__in=true_change), model, fields, update_local=False)
         return set(el.pk for el in queryset) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
