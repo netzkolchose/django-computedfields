@@ -3,9 +3,25 @@ from django.apps import apps
 from django.db import transaction
 from computedfields.models import active_resolver
 from computedfields.helper import modelname
-from tqdm import tqdm
 from time import time
 from datetime import timedelta
+
+
+class _Tqdm:
+    def __init__(self, *args, **kwargs):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, type, value, traceback):
+        pass
+    def update(self, *args):
+        pass
+
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = _Tqdm
 
 
 class Command(BaseCommand):
@@ -45,6 +61,8 @@ class Command(BaseCommand):
         progress = options['progress']
         mode = options['mode']
         size = options['querysize']
+        if progress and tqdm == _Tqdm:
+            raise CommandError("Package 'tqdm' needed for the progressbar.")
         models = retrieve_computed_models(app_labels)
         getattr(self, 'action_' + mode, self.action_default)(models, size, progress)
         end_time = time()
@@ -74,18 +92,15 @@ class Command(BaseCommand):
             print(f'  Fields: {", ".join(active_resolver.computed_models[model].keys())}')
             print(f'  Records: {amount}')
             fields = set(active_resolver.computed_models[model].keys())
-            if not show_progress:
-                active_resolver.update_dependent(qs, update_fields=fields)
-            else:
-                # FIXME: use slice interface from bulk_updater, once we have it
-                pos = 0
-                with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
-                    while pos < amount:
-                        active_resolver.update_dependent(
-                            qs.order_by('pk')[pos:pos+size+1], update_fields=fields)
-                        progress = min(pos+size, amount) - pos
-                        bar.update(progress)
-                        pos += size
+            # FIXME: use slice interface from bulk_updater, once we have it
+            pos = 0
+            with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
+                while pos < amount:
+                    active_resolver.update_dependent(
+                        qs.order_by('pk')[pos:pos+size+1], update_fields=fields)
+                    progress = min(pos+size, amount) - pos
+                    bar.update(progress)
+                    pos += size
 
     def action_bulk(self, models, size, show_progress):
         active_resolver.use_fastupdate = False
@@ -116,12 +131,10 @@ class Command(BaseCommand):
             print(f'  Fields: {", ".join(active_resolver.computed_models[model].keys())}')
             print(f'  Records: {amount}')
             fields = list(active_resolver.computed_models[model].keys())
-            with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
+            with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
                 for obj in qs.iterator(size):
                     obj.save(update_fields=fields)
                     bar.update(1)
-            #for obj in tqdm(qs.iterator(size), desc='  progress', disable=not show_progress, unit=' rec'):
-            #    obj.save(update_fields=fields)
 
 
 def retrieve_computed_models(app_labels):
