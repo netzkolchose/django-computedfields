@@ -1,6 +1,7 @@
 from itertools import tee, zip_longest
-from django.db.models import Model
-from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple
+from django.db.models import Model, QuerySet
+from typing import Any, Iterable, Iterator, List, Sequence, Type, TypeVar, Tuple
+from django.db.backends.base.base import BaseDatabaseWrapper
 
 T = TypeVar('T', covariant=True)
 
@@ -61,3 +62,9 @@ def skip_equal_segments(ps: Sequence[str], rs: Sequence[str]) -> List[str]:
         if add:
             ret.append(left)
     return ret
+
+
+def subquery_pk(qs: QuerySet, connection: BaseDatabaseWrapper) -> Iterable[Any]:
+    if connection.vendor == 'mysql':
+        return set(qs.values_list('pk', flat=True))
+    return qs.values('pk')

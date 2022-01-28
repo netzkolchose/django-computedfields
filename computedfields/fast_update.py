@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 from django.db.models import Field, QuerySet, Model
 from django.db.models.sql.compiler import SQLCompiler
 from typing import Any, Dict, Iterable, Sequence, Type
+from django.db.backends.base.base import BaseDatabaseWrapper
 
 
 def _cast_col_postgres(tname: str, field: Field, compiler: SQLCompiler, connection: Any) -> str:
@@ -47,7 +48,7 @@ def as_postgresql(
     fields: Sequence[Field],
     count: int,
     compiler: SQLCompiler,
-    connection: Any
+    connection: BaseDatabaseWrapper
 ) -> str:
     dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'"{f.column}"={_cast_col_postgres(dname, f, compiler, connection)}' for f in fields)
@@ -64,7 +65,7 @@ def as_sqlite(
     fields: Sequence[Field],
     count: int,
     compiler: SQLCompiler,
-    connection: Any
+    connection: BaseDatabaseWrapper
 ) -> str:
     dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'"{f.column}"="{dname}"."column{i + 2}"' for i, f in enumerate(fields))
@@ -80,7 +81,7 @@ def as_mysql(
     fields: Sequence[Field],
     count: int,
     compiler: SQLCompiler,
-    connection: Any
+    connection: BaseDatabaseWrapper
 ) -> str:
     dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'`{f.column}`={dname}.{i+1}' for i, f in enumerate(fields))
@@ -96,7 +97,7 @@ def as_mysql8(
     fields: Sequence[Field],
     count: int,
     compiler: SQLCompiler,
-    connection: Any
+    connection: BaseDatabaseWrapper
 ) -> str:
     dname = 'd' if tname != 'd' else 'c'
     cols = ','.join(f'`{f.column}`={dname}.column_{i+1}' for i, f in enumerate(fields))
@@ -116,7 +117,7 @@ QUERY = {
 # decide at runtine on connection level, which mysql impl to use
 CONNECTION_HASHES: Dict[int, str] = {}
 
-def _adjust_mysql(connection: Any) -> str:
+def _adjust_mysql(connection: BaseDatabaseWrapper) -> str:
     if connection.connection:
         vendor = CONNECTION_HASHES.get(hash(connection.connection), None)
         if vendor is not None:

@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
-from .helper import modelname
+from .helper import modelname, subquery_pk
 from .fast_update import fast_update, check_support
 from . import __version__
 
@@ -625,7 +625,8 @@ class Resolver:
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
             queryset = queryset.distinct()
         else:
-            queryset = model.objects.filter(pk__in=queryset.values('pk'))
+            from django.db import connection
+            queryset = model.objects.filter(pk__in=subquery_pk(queryset, connection))
 
         # FIXME: if we have select/prefetch related, we might need to slice to keep mem usage down
         # FIXME: slice over qs below, also expose interface (to be used in updatedata)
