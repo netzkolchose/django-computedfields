@@ -453,6 +453,16 @@ class Resolver:
                 if fieldname in modeldata:
                     updates.add(fieldname)
         subquery = '__in' if isinstance(instance, QuerySet) else ''
+
+        # fix #100
+        # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
+        # thus we extract pks explicitly instead
+        # TODO: cleanup type the mess here including this workaround
+        if isinstance(instance, QuerySet):
+            from django.db import connections
+            if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
+                instance = set(instance.values_list('pk', flat=True))
+
         model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
         for update in updates:
             # first aggregate fields and paths to cover
@@ -472,7 +482,7 @@ class Resolver:
                 # after deleting the instance in question
                 # since we need to interact with the db anyways
                 # we can already drop empty results here
-                queryset = set(queryset.distinct().values_list('pk', flat=True))
+                queryset = set(queryset.values_list('pk', flat=True))
                 if not queryset:
                     continue
             # FIXME: change to tuple or dict for narrower type
@@ -621,12 +631,11 @@ class Resolver:
         model: Type[Model] = queryset.model
 
         # distinct issue workaround
-        # the workaround is needed for already sliced/distinct queryysets coming from outside
+        # the workaround is needed for already sliced/distinct querysets coming from outside
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
             queryset = queryset.distinct()
         else:
-            from django.db import connection
-            queryset = model.objects.filter(pk__in=subquery_pk(queryset, connection))
+            queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # FIXME: if we have select/prefetch related, we might need to slice to keep mem usage down
         # FIXME: slice over qs below, also expose interface (to be used in updatedata)

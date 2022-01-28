@@ -24,6 +24,8 @@ except ImportError:
     tqdm = _Tqdm
 
 
+# TODO: skip progress for 0 records
+
 class Command(BaseCommand):
     help = 'Update computed fields.'
 

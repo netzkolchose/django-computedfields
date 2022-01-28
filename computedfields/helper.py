@@ -64,7 +64,8 @@ def skip_equal_segments(ps: Sequence[str], rs: Sequence[str]) -> List[str]:
     return ret
 
 
-def subquery_pk(qs: QuerySet, connection: BaseDatabaseWrapper) -> Iterable[Any]:
-    if connection.vendor == 'mysql':
+def subquery_pk(qs: QuerySet, using: str = 'default') -> Iterable[Any]:
+    from django.db import connections
+    if connections[using].vendor == 'mysql':
         return set(qs.values_list('pk', flat=True))
     return qs.values('pk')
