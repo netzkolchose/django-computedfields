@@ -44,6 +44,14 @@ class IMaps(TypedDict, total=False):
 
 logger = logging.getLogger(__name__)
 
+# global defaults for optional settings.py settings
+COMPUTEDFIELDS_BATCHSIZE = 100
+COMPUTEDFIELDS_MAP = False
+COMPUTEDFIELDS_ALLOW_RECURSION = False
+COMPUTEDFIELDS_FASTUPDATE = False
+COMPUTEDFIELDS_BATCHSIZE_FAST = 1000
+COMPUTEDFIELDS_ADMIN = False
+
 
 MALFORMED_DEPENDS = """
 Your depends keyword argument is malformed.
@@ -115,7 +123,8 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
-        self._batchsize: int = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+        self._batchsize: int = getattr(
+            settings, 'COMPUTEDFIELDS_BATCHSIZE', COMPUTEDFIELDS_BATCHSIZE)
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
@@ -298,7 +307,7 @@ class Resolver:
                 return
 
             maps: Optional[IMaps] = None
-            if getattr(settings, 'COMPUTEDFIELDS_MAP', False) and not _force_recreation:
+            if getattr(settings, 'COMPUTEDFIELDS_MAP', COMPUTEDFIELDS_MAP) and not _force_recreation:
                 maps = self._load_pickled_data()
                 if maps:
                     logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
@@ -318,7 +327,7 @@ class Resolver:
         Creates resolver maps from full graph reduction.
         """
         graph = ComputedModelsGraph(self.computed_models)
-        if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
+        if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', COMPUTEDFIELDS_ALLOW_RECURSION):
             graph.remove_redundant()
             graph.get_uniongraph().get_edgepaths()
         maps: IMaps = {
@@ -663,9 +672,11 @@ class Resolver:
             queryset = queryset.prefetch_related(*prefetch)
 
         if self.use_fastupdate is None:
-            self.use_fastupdate = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False) and check_support()
+            self.use_fastupdate = getattr(
+                settings, 'COMPUTEDFIELDS_FASTUPDATE', COMPUTEDFIELDS_FASTUPDATE) and check_support()
             if self.use_fastupdate:
-                self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', self._batchsize * 10)
+                self._batchsize = getattr(
+                    settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', COMPUTEDFIELDS_BATCHSIZE_FAST)
 
         # TODO: investigate, whether we should descend only for real field value changes
         # (not working yet with our current transitive reduction on intermodel graph)

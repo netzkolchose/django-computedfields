@@ -58,7 +58,7 @@ The module respects optional settings in `settings.py`:
 
 - ``COMPUTEDFIELDS_BATCHSIZE_FAST``
     Batch size for `fast_update`, which scales much better with bigger batches than `bulk_update`.
-    Typically this can be be set to a value >1000, default is `COMPUTEDFIELDS_BATCHSIZE * 10`.
+    Typically this can be be set to a value >1000, default is 1000.
 
 
 Basic usage

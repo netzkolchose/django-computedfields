@@ -3,6 +3,7 @@ from django.apps import apps
 from django.db import transaction
 from computedfields.models import active_resolver
 from computedfields.helper import modelname
+from computedfields.resolver import COMPUTEDFIELDS_FASTUPDATE, COMPUTEDFIELDS_BATCHSIZE_FAST
 from time import time
 from datetime import timedelta
 
@@ -79,7 +80,7 @@ class Command(BaseCommand):
         # TODO: move this outside of transaction?
         if not mode:
             from django.conf import settings
-            if getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False):
+            if getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', COMPUTEDFIELDS_FASTUPDATE):
                 from computedfields.fast_update import check_support
                 if check_support():
                     mode = 'fast'
@@ -116,7 +117,7 @@ class Command(BaseCommand):
         active_resolver.use_fastupdate = True
         from django.conf import settings
         active_resolver._batchsize = getattr(
-            settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', active_resolver._batchsize * 10)
+            settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', COMPUTEDFIELDS_BATCHSIZE_FAST)
         print('Update mode: fast')
         self.action_default(models, size, show_progress, 'fast')
 

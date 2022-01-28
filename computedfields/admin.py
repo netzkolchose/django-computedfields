@@ -8,7 +8,7 @@ from django.urls import reverse, NoReverseMatch, path
 from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
 from .models import ComputedFieldsAdminModel, ContributingModelsModel
-from .resolver import active_resolver
+from .resolver import active_resolver, COMPUTEDFIELDS_ADMIN
 from .graph import ComputedModelsGraph
 try:
     import pygments
@@ -230,6 +230,6 @@ class ContributingModelsAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', _url, name)
 
 
-if getattr(settings, 'COMPUTEDFIELDS_ADMIN', False):
+if getattr(settings, 'COMPUTEDFIELDS_ADMIN', COMPUTEDFIELDS_ADMIN):
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
     admin.site.register(ContributingModelsModel, ContributingModelsAdmin)
