@@ -25,8 +25,6 @@ except ImportError:
     tqdm = _Tqdm
 
 
-# TODO: skip progress for 0 records
-
 class Command(BaseCommand):
     help = 'Update computed fields.'
 
@@ -91,10 +89,12 @@ class Command(BaseCommand):
         for model in models:
             qs = model.objects.all()
             amount = qs.count()
-            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
-            print(f'  Fields: {", ".join(active_resolver.computed_models[model].keys())}')
-            print(f'  Records: {amount}')
             fields = set(active_resolver.computed_models[model].keys())
+            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
+            print(f'  Fields: {", ".join(fields)}')
+            print(f'  Records: {amount}')
+            if not amount:
+                continue
             # FIXME: use slice interface from bulk_updater, once we have it
             pos = 0
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
@@ -130,10 +130,19 @@ class Command(BaseCommand):
         for model in models:
             qs = model.objects.all()
             amount = qs.count()
-            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
-            print(f'  Fields: {", ".join(active_resolver.computed_models[model].keys())}')
-            print(f'  Records: {amount}')
             fields = list(active_resolver.computed_models[model].keys())
+            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
+            print(f'  Fields: {", ".join(fields)}')
+            print(f'  Records: {amount}')
+            if not amount:
+                continue
+            # also apply select/prefetch rules
+            select = active_resolver.get_select_related(model, fields)
+            prefetch = active_resolver.get_prefetch_related(model, fields)
+            if select:
+                qs = qs.select_related(*select)
+            if prefetch:
+                qs = qs.prefetch_related(*prefetch)
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
                 for obj in qs.iterator(size):
                     obj.save(update_fields=fields)

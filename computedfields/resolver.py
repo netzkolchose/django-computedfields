@@ -658,19 +658,14 @@ class Resolver:
         if update_fields:
             update_fields.update(fields)
 
-        # TODO: precalc and check prefetch/select related entries during map creation somehow?
-        # TODO: move select/prefetch extraction to own methods to disable/enable them on purpose
-        #       also needed in updatedata to pull them for loop mode
-        select: Set[str] = set()
-        prefetch: List[Any] = []
-        for field in fields:
-            select.update(self._computed_models[model][field]._computed['select_related'])
-            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
+        select = self.get_select_related(model, fields)
+        prefetch = self.get_prefetch_related(model, fields)
         if select:
             queryset = queryset.select_related(*select)
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
+        # lazy eval of fast_update mode
         if self.use_fastupdate is None:
             self.use_fastupdate = getattr(
                 settings, 'COMPUTEDFIELDS_FASTUPDATE', COMPUTEDFIELDS_FASTUPDATE) and check_support()
@@ -759,6 +754,36 @@ class Resolver:
                 # calc and set new value for field, if the requested one depends on it
                 stack.append((field, getattr(instance, field)))
                 setattr(instance, field, self._compute(instance, model, field))
+
+    def get_select_related(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None
+    ) -> Set[str]:
+        """
+        Get defined select_related rules for `fields` (all if none given).
+        """
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        select: Set[str] = set()
+        for field in fields:
+            select.update(self._computed_models[model][field]._computed['select_related'])
+        return select
+
+    def get_prefetch_related(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None
+    ) -> List:
+        """
+        Get defined prefetch_related rules for `fields` (all if none given).
+        """
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        prefetch: List[Any] = []
+        for field in fields:
+            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
+        return prefetch
 
     def get_contributing_fks(self) -> IFkMap:
         """
