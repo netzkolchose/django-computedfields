@@ -53,11 +53,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *app_labels, **options):
-        # FIXME: remove once tests are fixed
-        #for model in active_resolver.computed_models:
-        #    for obj in model.objects.all():
-        #        obj.save()
-        #return
         start_time = time()
         progress = options['progress']
         mode = options['mode']
@@ -83,7 +78,7 @@ class Command(BaseCommand):
                     mode = 'fast'
             print(f'Update mode: settings.py --> {mode or "bulk"}')
 
-        print(f'Global querysize: {size}')
+        print(f'Default querysize: {size}')
         print('Models:')
         for model in models:
             qs = model.objects.all()
@@ -95,17 +90,17 @@ class Command(BaseCommand):
             print(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
             if not amount:
                 continue
-            # FIXME: use slice interface from bulk_updater, once we have it
-            pos = 0
-            with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
+            if show_progress:
+                with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
+                    # FIXME: slices for now (penalizes high batches!), use update signals once we have those
+                    pos = 0
+                    while pos < amount:
+                        active_resolver.update_dependent(qs.order_by('pk')[pos:pos+size], querysize=size)
+                        progress = min(pos+size, amount) - pos
+                        bar.update(progress)
+                        pos += size
+            else:
                 active_resolver.update_dependent(qs, querysize=size)
-
-                #while pos < amount:
-                #    active_resolver.update_dependent(
-                #        qs.order_by('pk')[pos:pos+size], querysize=size)
-                #    progress = min(pos+size, amount) - pos
-                #    bar.update(progress)
-                #    pos += size
 
     def action_bulk(self, models, size, show_progress):
         active_resolver.use_fastupdate = False
@@ -123,7 +118,6 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def action_loop(self, models, size, show_progress):
-        # TODO: load select/prefetch from cfs?
         print('Update mode: loop')
         print(f'Global querysize: {size}')
         print('Models:')
@@ -150,10 +144,14 @@ class Command(BaseCommand):
                 qs = qs.select_related(*select)
             if prefetch:
                 qs = qs.prefetch_related(*prefetch)
-            with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
+            if show_progress:
+                with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
+                    for obj in slice_iterator(qs, qsize):
+                        obj.save()
+                        bar.update(1)
+            else:
                 for obj in slice_iterator(qs, qsize):
                     obj.save()
-                    bar.update(1)
 
 
 def retrieve_computed_models(app_labels):
