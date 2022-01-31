@@ -2,6 +2,7 @@ import sys
 from django.apps import AppConfig
 from django.db.models.signals import class_prepared
 from .resolver import BOOT_RESOLVER
+from .settings import settings
 
 
 class ComputedfieldsConfig(AppConfig):
@@ -10,6 +11,7 @@ class ComputedfieldsConfig(AppConfig):
     def __init__(self, *args, **kwargs):
         super(ComputedfieldsConfig, self).__init__(*args, **kwargs)
         class_prepared.connect(BOOT_RESOLVER.add_model)
+        self.settings = settings
 
 
     def ready(self):

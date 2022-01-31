@@ -1,7 +1,6 @@
 from itertools import tee, zip_longest
 from django.db.models import Model, QuerySet
-from typing import Any, Iterable, Iterator, List, Sequence, Type, TypeVar, Tuple
-from django.db.backends.base.base import BaseDatabaseWrapper
+from typing import Any, Generator, Iterable, Iterator, List, Sequence, Type, TypeVar, Tuple
 
 T = TypeVar('T', covariant=True)
 
@@ -67,5 +66,28 @@ def skip_equal_segments(ps: Sequence[str], rs: Sequence[str]) -> List[str]:
 def subquery_pk(qs: QuerySet, using: str = 'default') -> Iterable[Any]:
     from django.db import connections
     if connections[using].vendor == 'mysql':
-        return set(qs.values_list('pk', flat=True))
-    return qs.values('pk')
+        return list(qs.values_list('pk', flat=True).iterator())
+    return qs.values('pk').iterator()
+
+
+def slice_iterator(qs: 'QuerySet[Model]', size: int) ->  Generator[Model, None, None]:
+    """
+    Generator for either sliced or iterated querysets.
+    This greatly lowers the needed memory for big querysets,
+    that easily would grow to GBs of RAM by normal iteration.
+    Uses either .iterator(size) or slicing, depending on prefetch settings.
+    (favors prefetch with higher memory needs over blunt iterator optimization)
+    """
+    if not qs._prefetch_related_lookups:
+        for obj in qs.iterator(size):
+            yield obj
+    else:
+        pos = 0
+        while True:
+            c = 0
+            for obj in qs.order_by('pk')[pos:pos+size]:
+                yield obj
+                c += 1
+            if c < size:
+                break
+            pos += size

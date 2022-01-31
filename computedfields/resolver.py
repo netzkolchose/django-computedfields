@@ -13,8 +13,9 @@ from django.db.models import QuerySet
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
+from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException
-from .helper import modelname, subquery_pk
+from .helper import modelname, slice_iterator, subquery_pk
 from .fast_update import fast_update, check_support
 from . import __version__
 
@@ -43,14 +44,6 @@ class IMaps(TypedDict, total=False):
 
 
 logger = logging.getLogger(__name__)
-
-# global defaults for optional settings.py settings
-COMPUTEDFIELDS_BATCHSIZE = 100
-COMPUTEDFIELDS_MAP = False
-COMPUTEDFIELDS_ALLOW_RECURSION = False
-COMPUTEDFIELDS_FASTUPDATE = False
-COMPUTEDFIELDS_BATCHSIZE_FAST = 1000
-COMPUTEDFIELDS_ADMIN = False
 
 
 MALFORMED_DEPENDS = """
@@ -123,8 +116,7 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
-        self._batchsize: int = getattr(
-            settings, 'COMPUTEDFIELDS_BATCHSIZE', COMPUTEDFIELDS_BATCHSIZE)
+        self._batchsize: int = settings.COMPUTEDFIELDS_BATCHSIZE
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
@@ -307,7 +299,7 @@ class Resolver:
                 return
 
             maps: Optional[IMaps] = None
-            if getattr(settings, 'COMPUTEDFIELDS_MAP', COMPUTEDFIELDS_MAP) and not _force_recreation:
+            if settings.COMPUTEDFIELDS_MAP and not _force_recreation:
                 maps = self._load_pickled_data()
                 if maps:
                     logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
@@ -327,7 +319,7 @@ class Resolver:
         Creates resolver maps from full graph reduction.
         """
         graph = ComputedModelsGraph(self.computed_models)
-        if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', COMPUTEDFIELDS_ALLOW_RECURSION):
+        if not settings.COMPUTEDFIELDS_ALLOW_RECURSION:
             graph.remove_redundant()
             graph.get_uniongraph().get_edgepaths()
         maps: IMaps = {
@@ -466,11 +458,11 @@ class Resolver:
         # fix #100
         # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
         # thus we extract pks explicitly instead
-        # TODO: cleanup type the mess here including this workaround
+        # TODO: cleanup type mess here including this workaround
         if isinstance(instance, QuerySet):
             from django.db import connections
-            if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
-                instance = set(instance.values_list('pk', flat=True))
+            if not instance.query.can_filter(): # and connections[instance.db].vendor == 'mysql':
+                instance = set(instance.values_list('pk', flat=True).iterator())
 
         model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
         for update in updates:
@@ -491,7 +483,7 @@ class Resolver:
                 # after deleting the instance in question
                 # since we need to interact with the db anyways
                 # we can already drop empty results here
-                queryset = set(queryset.values_list('pk', flat=True))
+                queryset = set(queryset.values_list('pk', flat=True).iterator())
                 if not queryset:
                     continue
             # FIXME: change to tuple or dict for narrower type
@@ -523,7 +515,8 @@ class Resolver:
         model: Optional[Type[Model]] = None,
         update_fields: Optional[Iterable[str]] = None,
         old: Optional[Dict[Type[Model], List[Any]]] = None,
-        update_local: bool = True
+        update_local: bool = True,
+        querysize: Optional[int] = None
     ) -> None:
         """
         Updates all dependent computed fields on related models traversing
@@ -596,28 +589,29 @@ class Resolver:
             # as local cf updates are not guarded either.
             queryset = instance if isinstance(instance, QuerySet) \
                 else _model.objects.filter(pk__in=[instance.pk])
-            self.bulk_updater(queryset, _update_fields, local_only=True)
+            self.bulk_updater(queryset, _update_fields, local_only=True, querysize=querysize)
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
             with transaction.atomic():  # FIXME: place transaction only once in tree descent
                 pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
-                    _pks = self.bulk_updater(queryset, fields, True)
+                    _pks = self.bulk_updater(queryset, fields, return_pks=True, querysize=querysize)
                     if _pks:
                         pks_updated[queryset.model] = _pks
                 if old:
                     for model2, data in old.items():
                         pks, fields = data
                         queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
-                        self.bulk_updater(queryset, fields)
+                        self.bulk_updater(queryset, fields, querysize=querysize)
 
     def bulk_updater(
         self,
         queryset: QuerySet,
         update_fields: Optional[Set[str]] = None,
         return_pks: bool = False,
-        local_only: bool = False
+        local_only: bool = False,
+        querysize: Optional[int] = None
     ) -> Optional[Set[Any]]:
         """
         Update local computed fields and descent in the dependency tree by calling
@@ -667,19 +661,23 @@ class Resolver:
 
         # lazy eval of fast_update mode
         if self.use_fastupdate is None:
-            self.use_fastupdate = getattr(
-                settings, 'COMPUTEDFIELDS_FASTUPDATE', COMPUTEDFIELDS_FASTUPDATE) and check_support()
+            self.use_fastupdate = settings.COMPUTEDFIELDS_FASTUPDATE and check_support()
             if self.use_fastupdate:
-                self._batchsize = getattr(
-                    settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', COMPUTEDFIELDS_BATCHSIZE_FAST)
+                self._batchsize = settings.COMPUTEDFIELDS_BATCHSIZE_FAST
 
         # TODO: investigate, whether we should descend only for real field value changes
         # (not working yet with our current transitive reduction on intermodel graph)
         # TODO: pre/post update signal hooks would in the loop below...
+
+        # track pks
+        pks = list()
+
         #true_change = set()
         if fields:
+            size = self.get_querysize(model, fields, querysize)
             change: List[Model] = []
-            for elem in queryset:
+            for elem in slice_iterator(queryset, size):
+                pks.append(elem.pk)
                 has_changed = False
                 for comp_field in mro:
                     new_value = self._compute(elem, model, comp_field)
@@ -697,10 +695,10 @@ class Resolver:
 
         # trigger dependent comp field updates on all records
         # skip recursive call if queryset is empty
-        if not local_only and queryset:
-            self.update_dependent(queryset, model, fields, update_local=False)
+        if not local_only and pks:
+            self.update_dependent(queryset, model, fields, update_local=False, querysize=querysize)
             #self.update_dependent(model.objects.filter(pk__in=true_change), model, fields, update_local=False)
-        return set(el.pk for el in queryset) if return_pks else None
+        return set(pks) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
         if self.use_fastupdate:
@@ -755,6 +753,9 @@ class Resolver:
                 stack.append((field, getattr(instance, field)))
                 setattr(instance, field, self._compute(instance, model, field))
 
+    # TODO: the following 3 lookups are very expensive at runtime adding ~2s for 1M calls
+    #       --> all need pregenerated lookup maps
+    # Note: the same goes for get_local_mro and _queryset_for_update...
     def get_select_related(
         self,
         model: Type[Model],
@@ -785,6 +786,17 @@ class Resolver:
             prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
         return prefetch
 
+    def get_querysize(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None,
+        override: Optional[int] = None
+    ) -> int:
+        base = settings.COMPUTEDFIELDS_QUERYSIZE if override is None else override
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        return min(self._computed_models[model][f]._computed['querysize'] or base for f in fields)
+
     def get_contributing_fks(self) -> IFkMap:
         """
         Get a mapping of models and their local foreign key fields,
@@ -807,7 +819,8 @@ class Resolver:
         field: 'Field[_ST, _GT]',
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
-        prefetch_related: Optional[Sequence[Any]] = None
+        prefetch_related: Optional[Sequence[Any]] = None,
+        querysize: Optional[int] = None
     ) -> Callable[[Callable[..., _ST]], 'Field[_ST, _GT]']:
         """
         Decorator to create computed fields.
@@ -910,7 +923,8 @@ class Resolver:
                 'func': func,
                 'depends': depends or [],
                 'select_related': select_related or [],
-                'prefetch_related': prefetch_related or []
+                'prefetch_related': prefetch_related or [],
+                'querysize': querysize
             }
             cf.editable = False
             self.add_field(cf)

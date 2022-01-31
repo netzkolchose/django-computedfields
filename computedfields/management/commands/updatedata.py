@@ -2,8 +2,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.apps import apps
 from django.db import transaction
 from computedfields.models import active_resolver
-from computedfields.helper import modelname
-from computedfields.resolver import COMPUTEDFIELDS_FASTUPDATE, COMPUTEDFIELDS_BATCHSIZE_FAST
+from computedfields.helper import modelname, slice_iterator
+from computedfields.settings import settings
 from time import time
 from datetime import timedelta
 
@@ -47,9 +47,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '-q', '--querysize',
-            default=1000,
+            default=settings.COMPUTEDFIELDS_QUERYSIZE,
             type=int,
-            help='queryset size, default: 1000'
+            help='queryset size, default: 2000 or value from settings.py'
         )
 
     def handle(self, *app_labels, **options):
@@ -77,14 +77,13 @@ class Command(BaseCommand):
         """
         # TODO: move this outside of transaction?
         if not mode:
-            from django.conf import settings
-            if getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', COMPUTEDFIELDS_FASTUPDATE):
+            if settings.COMPUTEDFIELDS_FASTUPDATE:
                 from computedfields.fast_update import check_support
                 if check_support():
                     mode = 'fast'
             print(f'Update mode: settings.py --> {mode or "bulk"}')
 
-        print(f'QuerySet size: {size}')
+        print(f'Global querysize: {size}')
         print('Models:')
         for model in models:
             qs = model.objects.all()
@@ -93,17 +92,19 @@ class Command(BaseCommand):
             print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             print(f'  Fields: {", ".join(fields)}')
             print(f'  Records: {amount}')
+            print(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
             if not amount:
                 continue
             # FIXME: use slice interface from bulk_updater, once we have it
             pos = 0
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
-                while pos < amount:
-                    active_resolver.update_dependent(
-                        qs.order_by('pk')[pos:pos+size+1], update_fields=fields)
-                    progress = min(pos+size, amount) - pos
-                    bar.update(progress)
-                    pos += size
+                active_resolver.update_dependent(qs, update_fields=fields, querysize=size)
+                #while pos < amount:
+                #    active_resolver.update_dependent(
+                #        qs.order_by('pk')[pos:pos+size], update_fields=fields)
+                #    progress = min(pos+size, amount) - pos
+                #    bar.update(progress)
+                #    pos += size
 
     def action_bulk(self, models, size, show_progress):
         active_resolver.use_fastupdate = False
@@ -115,9 +116,7 @@ class Command(BaseCommand):
         if not check_support():
             raise CommandError('Current db backend does not support fast_update.')
         active_resolver.use_fastupdate = True
-        from django.conf import settings
-        active_resolver._batchsize = getattr(
-            settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', COMPUTEDFIELDS_BATCHSIZE_FAST)
+        active_resolver._batchsize = settings.COMPUTEDFIELDS_BATCHSIZE_FAST
         print('Update mode: fast')
         self.action_default(models, size, show_progress, 'fast')
 
@@ -125,15 +124,19 @@ class Command(BaseCommand):
     def action_loop(self, models, size, show_progress):
         # TODO: load select/prefetch from cfs?
         print('Update mode: loop')
-        print(f'QuerySet size: {size}')
+        print(f'Global querysize: {size}')
         print('Models:')
+        from django.conf import settings as ds
+        ds.COMPUTEDFIELDS_QUERYSIZE = size
         for model in models:
             qs = model.objects.all()
             amount = qs.count()
             fields = list(active_resolver.computed_models[model].keys())
+            qsize = active_resolver.get_querysize(model, fields, size)
             print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             print(f'  Fields: {", ".join(fields)}')
             print(f'  Records: {amount}')
+            print(f'  Querysize: {qsize}')
             if not amount:
                 continue
             # also apply select/prefetch rules
@@ -144,7 +147,19 @@ class Command(BaseCommand):
             if prefetch:
                 qs = qs.prefetch_related(*prefetch)
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
-                for obj in qs.iterator(size):
+                mro = active_resolver.get_local_mro(model, fields)
+                for obj in slice_iterator(qs, qsize):
+
+                    # TODO: allow to use update_fields, even with diff calc?
+                    #has_changed = False
+                    #for comp_field in mro:
+                    #    new_value = active_resolver._compute(obj, model, comp_field)
+                    #    if new_value != getattr(obj, comp_field):
+                    #        has_changed = True
+                    #        setattr(obj, comp_field, new_value)
+                    #if has_changed:
+                    #    obj.save(update_fields=fields)
+
                     obj.save(update_fields=fields)
                     bar.update(1)
 

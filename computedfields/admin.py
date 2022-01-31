@@ -8,8 +8,9 @@ from django.urls import reverse, NoReverseMatch, path
 from django.shortcuts import render
 from django.core.exceptions import ObjectDoesNotExist
 from .models import ComputedFieldsAdminModel, ContributingModelsModel
-from .resolver import active_resolver, COMPUTEDFIELDS_ADMIN
+from .resolver import active_resolver
 from .graph import ComputedModelsGraph
+from .settings import settings
 try:
     import pygments
     from pygments.lexers import JsonLexer
@@ -230,6 +231,6 @@ class ContributingModelsAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', _url, name)
 
 
-if getattr(settings, 'COMPUTEDFIELDS_ADMIN', COMPUTEDFIELDS_ADMIN):
+if settings.COMPUTEDFIELDS_ADMIN:
     admin.site.register(ComputedFieldsAdminModel, ComputedModelsAdmin)
     admin.site.register(ContributingModelsModel, ContributingModelsAdmin)
