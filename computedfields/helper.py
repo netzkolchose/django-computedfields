@@ -67,7 +67,7 @@ def subquery_pk(qs: QuerySet, using: str = 'default') -> Iterable[Any]:
     from django.db import connections
     if connections[using].vendor == 'mysql':
         return list(qs.values_list('pk', flat=True).iterator())
-    return qs.values('pk').iterator()
+    return qs.values('pk')
 
 
 def slice_iterator(qs: 'QuerySet[Model]', size: int) ->  Generator[Model, None, None]:

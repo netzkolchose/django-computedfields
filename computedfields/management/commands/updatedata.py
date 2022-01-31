@@ -98,10 +98,11 @@ class Command(BaseCommand):
             # FIXME: use slice interface from bulk_updater, once we have it
             pos = 0
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
-                active_resolver.update_dependent(qs, update_fields=fields, querysize=size)
+                active_resolver.update_dependent(qs, querysize=size)
+
                 #while pos < amount:
                 #    active_resolver.update_dependent(
-                #        qs.order_by('pk')[pos:pos+size], update_fields=fields)
+                #        qs.order_by('pk')[pos:pos+size], querysize=size)
                 #    progress = min(pos+size, amount) - pos
                 #    bar.update(progress)
                 #    pos += size
@@ -126,8 +127,11 @@ class Command(BaseCommand):
         print('Update mode: loop')
         print(f'Global querysize: {size}')
         print('Models:')
-        from django.conf import settings as ds
-        ds.COMPUTEDFIELDS_QUERYSIZE = size
+        if size != settings.COMPUTEDFIELDS_QUERYSIZE:
+            # patch django settings in case querysize was explicitly given
+            # needed here, as we have no other API to announce the changed value
+            from django.conf import settings as ds
+            ds.COMPUTEDFIELDS_QUERYSIZE = size
         for model in models:
             qs = model.objects.all()
             amount = qs.count()
@@ -147,20 +151,8 @@ class Command(BaseCommand):
             if prefetch:
                 qs = qs.prefetch_related(*prefetch)
             with tqdm(total=amount, desc='  Progress', unit=' rec', disable=not show_progress) as bar:
-                mro = active_resolver.get_local_mro(model, fields)
                 for obj in slice_iterator(qs, qsize):
-
-                    # TODO: allow to use update_fields, even with diff calc?
-                    #has_changed = False
-                    #for comp_field in mro:
-                    #    new_value = active_resolver._compute(obj, model, comp_field)
-                    #    if new_value != getattr(obj, comp_field):
-                    #        has_changed = True
-                    #        setattr(obj, comp_field, new_value)
-                    #if has_changed:
-                    #    obj.save(update_fields=fields)
-
-                    obj.save(update_fields=fields)
+                    obj.save()
                     bar.update(1)
 
 
