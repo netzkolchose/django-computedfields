@@ -1,28 +1,11 @@
 from django.core.management.base import BaseCommand, CommandError
-from django.apps import apps
 from django.db import transaction
 from computedfields.models import active_resolver
 from computedfields.helper import modelname, slice_iterator
 from computedfields.settings import settings
+from ._helpers import retrieve_computed_models, HAS_TQDM, tqdm
 from time import time
 from datetime import timedelta
-
-
-class _Tqdm:
-    def __init__(self, *args, **kwargs):
-        pass
-    def __enter__(self):
-        return self
-    def __exit__(self, type, value, traceback):
-        pass
-    def update(self, *args):
-        pass
-
-
-try:
-    from tqdm import tqdm
-except ImportError:
-    tqdm = _Tqdm
 
 
 class Command(BaseCommand):
@@ -57,7 +40,7 @@ class Command(BaseCommand):
         progress = options['progress']
         mode = options['mode']
         size = options['querysize']
-        if progress and tqdm == _Tqdm:
+        if progress and not HAS_TQDM:
             raise CommandError("Package 'tqdm' needed for the progressbar.")
         models = retrieve_computed_models(app_labels)
         getattr(self, 'action_' + mode, self.action_default)(models, size, progress)
@@ -152,26 +135,3 @@ class Command(BaseCommand):
             else:
                 for obj in slice_iterator(qs, qsize):
                     obj.save()
-
-
-def retrieve_computed_models(app_labels):
-    computed_models = set(active_resolver.computed_models.keys())
-    if not app_labels:
-        return computed_models
-    update_models = set()
-    for label in app_labels:
-        app_model = label.split('.')
-        try:
-            app_config = apps.get_app_config(app_model[0])
-        except LookupError as e:
-            raise CommandError(str(e))
-        if len(app_model) == 1:
-            update_models |= set(app_config.get_models()) & computed_models
-        elif len(app_model) == 2:
-            try:
-                update_models |= set([app_config.get_model(app_model[1])]) & computed_models
-            except LookupError:
-                raise CommandError(f'Unknown model: {label}')
-        else:
-            raise CommandError(f'Unsupported app_label.ModelName specification: {label}')
-    return update_models

@@ -1,0 +1,143 @@
+import sys
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from computedfields.helper import modelname, slice_iterator
+from computedfields.settings import settings
+from computedfields.models import active_resolver
+from time import time
+from datetime import timedelta
+from ._helpers import tqdm, HAS_TQDM, retrieve_computed_models
+
+
+class Command(BaseCommand):
+    help = 'Check computed field values.'
+    silent = False
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            'args', metavar='app_label[.ModelName]', nargs='*',
+            help='Check computed field values on specified app_label or app_label.ModelName.',
+        )
+        parser.add_argument(
+            '-p', '--progress',
+            action='store_true',
+            help='show check progress',
+        )
+        parser.add_argument(
+            '-q', '--querysize',
+            default=settings.COMPUTEDFIELDS_QUERYSIZE,
+            type=int,
+            help='queryset size, default: 2000 or value from settings.py'
+        )
+        parser.add_argument(
+            '--json',
+            action='store_true',
+            help='returns desync pks as JSONL',
+        )
+        parser.add_argument(
+            '--silent',
+            action='store_true',
+            help='silence progress output',
+        )
+    
+    def eprint(self, *args, **kwargs):
+        if not self.silent:
+            print(*args, file=sys.stderr, **kwargs)
+
+    def handle(self, *app_labels, **options):
+        start_time = time()
+        progress = options['progress']
+        size = options['querysize']
+        json = options['json']
+        self.silent = options['silent']
+        if progress and not HAS_TQDM:
+            raise CommandError("Package 'tqdm' needed for the progressbar.")
+        has_desync = self.action_check(retrieve_computed_models(app_labels), progress, size, json)
+        end_time = time()
+        duration = int(end_time - start_time)
+        self.eprint(f'\nTotal time: {timedelta(seconds=duration)}')
+        sys.exit(1 if has_desync else 0)
+    
+    @transaction.atomic
+    def action_check(self, models, progress, size, json):
+        has_desync = False
+        for model in models:
+            qs = model.objects.all()
+            amount = qs.count()
+            fields = set(active_resolver.computed_models[model].keys())
+            qsize = active_resolver.get_querysize(model, fields, size)
+            self.eprint(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
+            self.eprint(f'  Fields: {", ".join(fields)}')
+            self.eprint(f'  Records: {amount}')
+            if not amount:
+                continue
+
+            # apply select/prefetch rules
+            select = active_resolver.get_select_related(model, fields)
+            prefetch = active_resolver.get_prefetch_related(model, fields)
+            if select:
+                qs = qs.select_related(*select)
+            if prefetch:
+                qs = qs.prefetch_related(*prefetch)
+
+            # check sync state
+            desync = []
+            if progress:
+                with tqdm(total=amount, desc='  Progress', unit=' rec', disable=self.silent) as bar:
+                    for obj in slice_iterator(qs, qsize):
+                        if not check_instance(model, fields, obj):
+                            desync.append(obj.pk)
+                        bar.update(1)
+            else:
+                for obj in slice_iterator(qs, qsize):
+                    if not check_instance(model, fields, obj):
+                        desync.append(obj.pk)
+
+            if not desync:
+                self.eprint(self.style.SUCCESS (f'  Desync: 0 records'))
+            else:
+                has_desync = True
+                # if we found desyncs, also reveal tainted ones
+                self.eprint(self.style.WARNING(f'  Desync: {len(set(desync))} records'))
+                if not self.silent:
+                    tainted = reveal_tainted(qs.filter(pk__in=desync))
+                    if tainted:
+                        self.eprint(self.style.NOTICE(f'  Tainted:'))
+                        for level, model, fields, count in tainted:
+                            self.eprint(self.style.NOTICE(
+                                '    ' * level + 
+                                f'└─ {count} records on {modelname(model)}, '
+                                f'fields affected: {", ".join(fields)}'
+                            ))
+                if json:
+                    import json
+                    print(json.dumps({'model': modelname(model), 'desync': desync}))
+        return has_desync
+
+
+
+def check_instance(model, fields, obj):
+    for comp_field in fields:
+        new_value = active_resolver._compute(obj, model, comp_field)
+        if new_value != getattr(obj, comp_field):
+            return False
+    return True
+
+
+def reveal_tainted(qs):
+    tainted = []
+    updates = active_resolver._querysets_for_update(qs.model, qs).values()
+    if updates:
+        for queryset, fields in updates:
+            bulk_checker(queryset, fields, level=1, store=tainted)
+    return tainted
+
+
+def bulk_checker(qs, f, level, store):
+    count = qs.count()
+    if count:
+        pks = set(qs.values_list('pk', flat=True).iterator())
+        store.append((level, qs.model, f, len(pks)))
+        updates = active_resolver._querysets_for_update(qs.model, qs.values('pk'), f).values()
+        for queryset, fields in updates:
+            bulk_checker(queryset, fields, level=level+1, store=store)
