@@ -1,6 +1,6 @@
 import sys
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import transaction, DatabaseError
 from computedfields.helper import modelname, slice_iterator
 from computedfields.settings import settings
 from computedfields.models import active_resolver
@@ -9,9 +9,14 @@ from datetime import timedelta
 from ._helpers import tqdm, HAS_TQDM, retrieve_computed_models
 
 
+# abort search for tainted
+TAINTED_MAXLENGTH = 10
+
+
 class Command(BaseCommand):
     help = 'Check computed field values.'
     silent = False
+    skip_tainted = False
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -39,6 +44,11 @@ class Command(BaseCommand):
             action='store_true',
             help='silence progress output',
         )
+        parser.add_argument(
+            '--skip-tainted',
+            action='store_true',
+            help='skip tainted search',
+        )
     
     def eprint(self, *args, **kwargs):
         if not self.silent:
@@ -50,6 +60,7 @@ class Command(BaseCommand):
         size = options['querysize']
         json = options['json']
         self.silent = options['silent']
+        self.skip_tainted = options['skip_tainted']
         if progress and not HAS_TQDM:
             raise CommandError("Package 'tqdm' needed for the progressbar.")
         has_desync = self.action_check(retrieve_computed_models(app_labels), progress, size, json)
@@ -98,22 +109,32 @@ class Command(BaseCommand):
             else:
                 has_desync = True
                 # if we found desyncs, also reveal tainted ones
-                self.eprint(self.style.WARNING(f'  Desync: {len(set(desync))} records'))
-                if not self.silent:
-                    tainted = reveal_tainted(qs.filter(pk__in=desync))
+                self.eprint(self.style.WARNING(f'  Desync: {len(desync)} records ({percent(len(desync), amount)})'))
+                if not self.silent and not self.skip_tainted:
+                    mode, tainted = try_tainted(qs, desync, amount)
                     if tainted:
-                        self.eprint(self.style.NOTICE(f'  Tainted:'))
+                        self.eprint(self.style.NOTICE(f'  Tainted dependants:'))
                         for level, model, fields, count in tainted:
+                            records = ''
+                            if mode == 'concrete':
+                                records = '~'
+                            elif mode == 'approx':
+                                records = '>>'
+                            records += f'{count} records' if count != -1 else 'records unknown'
                             self.eprint(self.style.NOTICE(
-                                '    ' * level + 
-                                f'└─ {count} records on {modelname(model)}, '
-                                f'fields affected: {", ".join(fields)}'
+                                '    ' * level +
+                                f'└─ {modelname(model)}: {", ".join(fields)} ({records})'
                             ))
+                        if len(tainted) >= TAINTED_MAXLENGTH:
+                            self.eprint(self.style.NOTICE('  (listing shortened...)'))
                 if json:
                     import json
                     print(json.dumps({'model': modelname(model), 'desync': desync}))
         return has_desync
 
+
+def percent(part, total):
+    return f'{round(100.0 * part / total, 2)}%'
 
 
 def check_instance(model, fields, obj):
@@ -124,20 +145,60 @@ def check_instance(model, fields, obj):
     return True
 
 
+def try_tainted(qs, desync, amount):
+    mode = 'concrete'
+    if len(desync) == amount:
+        _qs = qs
+    else:
+        if len(desync) > 1000:
+            mode = 'approx'
+            desync = desync[:1000]
+        _qs = qs.filter(pk__in=desync)
+    tainted = []
+    try:
+        with transaction.atomic():
+            tainted = reveal_tainted(_qs)
+    except DatabaseError:
+        tainted = reveal_modeldeps(qs)
+        mode = 'deps'
+    return mode, tainted
+
+
 def reveal_tainted(qs):
     tainted = []
     updates = active_resolver._querysets_for_update(qs.model, qs).values()
-    if updates:
-        for queryset, fields in updates:
-            bulk_checker(queryset, fields, level=1, store=tainted)
+    for queryset, fields in updates:
+        bulk_counter(queryset, fields, level=1, store=tainted)
+        if len(tainted) >= TAINTED_MAXLENGTH:
+            break
     return tainted
 
 
-def bulk_checker(qs, f, level, store):
-    count = qs.count()
-    if count:
+def bulk_counter(qs, f, level, store):
+    if len(store) >= TAINTED_MAXLENGTH:
+        return
+    if qs.exists():
         pks = set(qs.values_list('pk', flat=True).iterator())
         store.append((level, qs.model, f, len(pks)))
         updates = active_resolver._querysets_for_update(qs.model, qs.values('pk'), f).values()
         for queryset, fields in updates:
-            bulk_checker(queryset, fields, level=level+1, store=store)
+            bulk_counter(queryset, fields, level=level+1, store=store)
+
+
+def reveal_modeldeps(qs):
+    tainted = []
+    updates = active_resolver._querysets_for_update(qs.model, qs).values()
+    for queryset, fields in updates:
+        bulk_deps(queryset, fields, level=1, store=tainted)
+        if len(tainted) >= TAINTED_MAXLENGTH:
+            break
+    return tainted
+
+
+def bulk_deps(qs, f, level, store):
+    if len(store) >= TAINTED_MAXLENGTH:
+        return
+    store.append((level, qs.model, f, -1))
+    updates = active_resolver._querysets_for_update(qs.model, qs, f).values()
+    for queryset, fields in updates:
+        bulk_deps(queryset, fields, level=level+1, store=store)
