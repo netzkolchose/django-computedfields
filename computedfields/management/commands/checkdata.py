@@ -1,11 +1,15 @@
 import sys
+from time import time
+from argparse import FileType
+from json import dumps
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction, DatabaseError
+
 from computedfields.helper import modelname, slice_iterator
 from computedfields.settings import settings
 from computedfields.models import active_resolver
-from time import time
-from datetime import timedelta
 from ._helpers import tqdm, HAS_TQDM, retrieve_computed_models
 
 
@@ -26,28 +30,29 @@ class Command(BaseCommand):
         parser.add_argument(
             '-p', '--progress',
             action='store_true',
-            help='show check progress',
+            help='Show check progress.',
         )
         parser.add_argument(
             '-q', '--querysize',
             default=settings.COMPUTEDFIELDS_QUERYSIZE,
             type=int,
-            help='queryset size, default: 2000 or value from settings.py'
+            help='Set queryset size, default: 2000 or value from settings.py.'
         )
         parser.add_argument(
             '--json',
-            action='store_true',
-            help='returns desync pks as JSONL',
+            type=FileType('w'),
+            default=None,
+            help='Write desync data as JSONL.',
         )
         parser.add_argument(
             '--silent',
             action='store_true',
-            help='silence progress output',
+            help='Silence normal command output.',
         )
         parser.add_argument(
             '--skip-tainted',
             action='store_true',
-            help='skip tainted search',
+            help='Skip tainted deep search.',
         )
     
     def eprint(self, *args, **kwargs):
@@ -58,19 +63,19 @@ class Command(BaseCommand):
         start_time = time()
         progress = options['progress']
         size = options['querysize']
-        json = options['json']
+        json_out = options['json']
         self.silent = options['silent']
         self.skip_tainted = options['skip_tainted']
         if progress and not HAS_TQDM:
-            raise CommandError("Package 'tqdm' needed for the progressbar.")
-        has_desync = self.action_check(retrieve_computed_models(app_labels), progress, size, json)
+            raise CommandError('Package "tqdm" needed for the progressbar.')
+        has_desync = self.action_check(retrieve_computed_models(app_labels), progress, size, json_out)
         end_time = time()
         duration = int(end_time - start_time)
-        self.eprint(f'\nTotal time: {timedelta(seconds=duration)}')
+        self.eprint(f'\nTotal check time: {timedelta(seconds=duration)}')
         sys.exit(1 if has_desync else 0)
     
     @transaction.atomic
-    def action_check(self, models, progress, size, json):
+    def action_check(self, models, progress, size, json_out):
         has_desync = False
         for model in models:
             qs = model.objects.all()
@@ -94,7 +99,7 @@ class Command(BaseCommand):
             # check sync state
             desync = []
             if progress:
-                with tqdm(total=amount, desc='  Progress', unit=' rec', disable=self.silent) as bar:
+                with tqdm(total=amount, desc='  Check', unit=' rec', disable=self.silent) as bar:
                     for obj in slice_iterator(qs, qsize):
                         if not check_instance(model, fields, obj):
                             desync.append(obj.pk)
@@ -114,7 +119,7 @@ class Command(BaseCommand):
                     mode, tainted = try_tainted(qs, desync, amount)
                     if tainted:
                         self.eprint(self.style.NOTICE(f'  Tainted dependants:'))
-                        for level, model, fields, count in tainted:
+                        for level, submodel, fields, count in tainted:
                             records = ''
                             if mode == 'concrete':
                                 records = '~'
@@ -123,13 +128,12 @@ class Command(BaseCommand):
                             records += f'{count} records' if count != -1 else 'records unknown'
                             self.eprint(self.style.NOTICE(
                                 '    ' * level +
-                                f'└─ {modelname(model)}: {", ".join(fields)} ({records})'
+                                f'└─ {modelname(submodel)}: {", ".join(fields)} ({records})'
                             ))
                         if len(tainted) >= TAINTED_MAXLENGTH:
                             self.eprint(self.style.NOTICE('  (listing shortened...)'))
-                if json:
-                    import json
-                    print(json.dumps({'model': modelname(model), 'desync': desync}))
+                if json_out:
+                    json_out.write(dumps({'model': modelname(model), 'desync': desync}))
         return has_desync
 
 
