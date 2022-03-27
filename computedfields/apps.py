@@ -6,6 +6,7 @@ from .resolver import BOOT_RESOLVER
 
 class ComputedfieldsConfig(AppConfig):
     name = 'computedfields'
+    default_auto_field = 'django.db.models.AutoField'
 
     def __init__(self, *args, **kwargs):
         super(ComputedfieldsConfig, self).__init__(*args, **kwargs)
