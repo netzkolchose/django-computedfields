@@ -2,8 +2,21 @@ from typing import Iterable, Optional
 from django.db import models
 from django.contrib.contenttypes.models import ContentType, ContentTypeManager
 from django.utils.translation import gettext_lazy as _
+from django.db.models.manager import BaseManager
+from django.db.models.query import QuerySet
+
 from .resolver import active_resolver, _ComputedFieldsModelBase
 
+class ComputedModelQuerySet(QuerySet):
+
+    # this function is to update computed field when running update()
+    def update(self, **kwargs):
+        rows = super(ComputedModelQuerySet, self).update(**kwargs)
+        update_dependent(self)
+        return rows
+
+class ComputedModelManager(BaseManager.from_queryset(ComputedModelQuerySet)):
+    pass
 
 class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     """
@@ -12,6 +25,9 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
 
     All models containing a computed field must be derived from this class.
     """
+
+    objects = ComputedModelManager()
+
     class Meta:
         abstract = True
 
