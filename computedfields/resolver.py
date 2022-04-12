@@ -13,7 +13,7 @@ from django.db.models import QuerySet
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
-from .graph import ComputedModelsGraph, ComputedFieldsException
+from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
 from .helper import modelname, proxy_to_base_model
 from . import __version__
 
@@ -953,6 +953,18 @@ class Resolver:
         Indicate whether `fieldname` on `model` is a computed field.
         """
         return fieldname in self.get_computedfields(model)
+
+    def get_graphs(self) -> Tuple[Graph, Dict[Type[Model], ModelGraph], Graph]:
+        """
+        Return a tuple of all graphs as
+        ``(intermodel_graph, {model: modelgraph, ...}, union_graph)``.
+        """
+        graph = self._graph
+        if not graph:
+            graph = ComputedModelsGraph(active_resolver.computed_models)
+            graph.remove_redundant()
+            graph.get_uniongraph()
+        return (graph, graph.modelgraphs, graph.get_uniongraph())
 
 
 # active_resolver is currently treated as global singleton (used in imports)
