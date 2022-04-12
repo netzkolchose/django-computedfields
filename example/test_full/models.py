@@ -1050,3 +1050,53 @@ class FieldUpdate(ComputedFieldsModel):
     @computed(models.UUIDField(null=True), depends=[('self', ['uuid_field'])])
     def uuid_comp(self):
         return self.uuid_field
+
+
+# proxy model tests - see test_proxymodels.py
+class ProxyParent(Parent):
+    class Meta:
+        proxy = True
+class ProxyChild(Child):
+    class Meta:
+        proxy = True
+class ProxySubchild(Subchild):
+    class Meta:
+        proxy = True
+class ProxyXParent(XParent):
+    class Meta:
+        proxy = True
+class ProxyXChild(XChild):
+    class Meta:
+        proxy = True
+# proy m2m
+class ProxyMGroup(MGroup):
+    class Meta:
+        proxy = True
+class ProxyMItem(MItem):
+    class Meta:
+        proxy = True
+class ProxyMUser(MUser):
+    class Meta:
+        proxy = True
+class ProxyMAgent(MAgent):
+    class Meta:
+        proxy = True
+# local mro
+class AllLocal(ComputedFieldsModel):
+    f1 = models.CharField(max_length=32)
+    inject = models.CharField(max_length=32, default='F4')
+    @computed(models.CharField(max_length=32), depends=[('self', ['f1'])])
+    def f2(self):
+        return self.f1.upper()
+    @computed(models.CharField(max_length=32), depends=[('self', ['f2'])])
+    def f3(self):
+        return self.f2 + 'F3'
+    @computed(models.CharField(max_length=32), depends=[('self', ['f2', 'inject'])])
+    def f4(self):
+        return self.f2 + self.inject
+    @computed(models.CharField(max_length=32), depends=[('self', ['f4'])])
+    def f5(self):
+        return self.f4 + 'F5'
+class ProxyAllLocal(AllLocal):
+    class Meta:
+        proxy = True

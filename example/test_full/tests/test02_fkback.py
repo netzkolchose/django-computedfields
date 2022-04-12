@@ -175,7 +175,6 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
         p2.refresh_from_db()
         self.assertEqual(p1.subchildren_count, 4)
         self.assertEqual(p2.subchildren_count, 0)
-        return
 
         # move child back
         c2.parent = p2

@@ -1,6 +1,6 @@
 from itertools import tee, zip_longest
 from django.db.models import Model
-from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple
+from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple, Union
 
 T = TypeVar('T', covariant=True)
 
@@ -61,3 +61,10 @@ def skip_equal_segments(ps: Sequence[str], rs: Sequence[str]) -> List[str]:
         if add:
             ret.append(left)
     return ret
+
+def proxy_to_base_model(proxymodel: Type[Model]) -> Union[Type[Model], None]:
+    """Get real base model from proxy model."""
+    for m in proxymodel.__mro__:
+        if hasattr(m, '_meta') and not m._meta.proxy and not m._meta.abstract:
+            return m
+    return None
