@@ -15,8 +15,9 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
 from .helper import modelname, proxy_to_base_model
-from .fast_update import fast_update, check_support
 from . import __version__
+
+from fast_update.fast import fast_update
 
 import django
 django_lesser_3_2 = django.VERSION < (3, 2)
@@ -123,7 +124,7 @@ class Resolver:
         self._map_loaded: bool = False    # final stage with fully loaded maps
 
         # whether to use fastupdate (lazy eval'ed during first bulk_updater run)
-        self.use_fastupdate: Optional[bool] = None
+        self.use_fastupdate: bool = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False)
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -645,11 +646,6 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
-        if self.use_fastupdate is None:
-            self.use_fastupdate = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False) and check_support()
-            if self.use_fastupdate:
-                self._batchsize = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE_FAST', self._batchsize * 10)
-
         if fields:
             change: List[Model] = []
             for elem in queryset:
@@ -675,8 +671,8 @@ class Resolver:
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
         if self.use_fastupdate:
-            return fast_update(queryset, change, fields, self._batchsize)
-        return queryset.model.objects.bulk_update(change, fields)
+            return fast_update(queryset, change, fields, None)
+        return queryset.model.objects.bulk_update(change, fields, self._batchsize)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """

@@ -8,3 +8,4 @@ typing_extensions==4.0.1
 
 mysqlclient==2.1.0
 psycopg2-binary==2.9.3
+django-fast-update
