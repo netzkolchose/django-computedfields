@@ -9,6 +9,15 @@ from django.conf import settings
 import os
 
 
+def strip_proxy_models(map_data):
+    cleaned = {}
+    for k, v in map_data.items():
+        if k._meta.proxy:
+            continue
+        cleaned[k] = v
+    return cleaned
+
+
 class CommandTests(GenericModelTestBase):
     """
     Tests the management commands.
@@ -88,9 +97,10 @@ class CommandTests(GenericModelTestBase):
             fk_map = pickled_data['fk_map']
             local_mro = pickled_data['local_mro']
             hash = pickled_data['hash']
-            self.assertDictEqual(map, active_resolver._map)
-            self.assertDictEqual(fk_map, active_resolver._fk_map)
-            self.assertDictEqual(local_mro, active_resolver._local_mro)
+            # NOTE: live maps are patched with proxy data, so strip them to compare
+            self.assertDictEqual(map, strip_proxy_models(active_resolver._map))
+            self.assertDictEqual(fk_map, strip_proxy_models(active_resolver._fk_map))
+            self.assertDictEqual(local_mro, strip_proxy_models(active_resolver._local_mro))
             self.assertEqual(hash, active_resolver._calc_modelhash())
         os.remove(os.path.join(settings.BASE_DIR, 'map.test'))
 

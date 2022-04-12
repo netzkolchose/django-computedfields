@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException
-from .helper import modelname
+from .helper import modelname, proxy_to_base_model
 from .fast_update import fast_update, check_support
 from . import __version__
 
@@ -234,22 +234,12 @@ class Resolver:
         found in collector phase.
         """
         computed_models: Dict[Type[Model], Dict[str, IComputedField]] = {}
-
-        if django_lesser_3_2:
-            # keep logic for older versions for now
-            for model, computedfields in self.models_with_computedfields:
-                if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
-                computed_models[model] = {}
-                for field in computedfields:
-                    computed_models[model][field.attname] = field
-        else:
-            for model, computedfields in self.models_with_computedfields:
-                if not issubclass(model, _ComputedFieldsModelBase):
-                    raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
-                computed_models[model] = {}
-                for field in computedfields:
-                    computed_models[model][field.attname] = field
+        for model, computedfields in self.models_with_computedfields:
+            if not issubclass(model, _ComputedFieldsModelBase):
+                raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
+            computed_models[model] = {}
+            for field in computedfields:
+                computed_models[model][field.attname] = field
 
         return computed_models
 
@@ -311,6 +301,7 @@ class Resolver:
             self._fk_map = maps['fk_map']
             self._local_mro = maps['local_mro']
             self._extract_m2m_through()
+            self._patch_proxy_models()
             self._map_loaded = True
 
     def _graph_reduction(self) -> Tuple[ComputedModelsGraph, IMaps]:
@@ -355,6 +346,22 @@ class Resolver:
                             descriptor = getattr(cls, symbol)
                             rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
                         cls = rel.related_model
+
+    def _patch_proxy_models(self) -> None:
+        """
+        Patch proxy models into the resolver maps.
+        """
+        for model in self.models:
+            if model._meta.proxy:
+                basemodel = proxy_to_base_model(model)
+                if basemodel in self._map:
+                    self._map[model] = self._map[basemodel]
+                if basemodel in self._fk_map:
+                    self._fk_map[model] = self._fk_map[basemodel]
+                if basemodel in self._local_mro:
+                    self._local_mro[model] = self._local_mro[basemodel]
+                if basemodel in self._m2m:
+                    self._m2m[model] = self._m2m[basemodel]
 
     def _calc_modelhash(self) -> str:
         """

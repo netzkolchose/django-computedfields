@@ -539,6 +539,10 @@ class ComputedModelsGraph(Graph):
         global_deps: IGlobalDeps = OrderedDict()
         local_deps: ILocalDeps = {}
         for model, fields in computed_models.items():
+            # skip proxy models for graph handling,
+            # deps get patched at runtime from resolved real models
+            if model._meta.proxy:
+                continue
             local_deps.setdefault(model, {})  # always add to local to get a result for MRO
             for field, real_field in fields.items():
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
