@@ -13,14 +13,11 @@ from django.db.models import QuerySet
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
-from .graph import ComputedModelsGraph, ComputedFieldsException
+from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
 from .helper import modelname, proxy_to_base_model
 from . import __version__
 
 from fast_update.fast import fast_update
-
-import django
-django_lesser_3_2 = django.VERSION < (3, 2)
 
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
@@ -164,25 +161,16 @@ class Resolver:
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
 
-        if django_lesser_3_2:
-            for model in self.models:
-                fields: Set[IComputedField] = set()
-                for field in model._meta.fields:
-                    if field in self.computedfields:
-                        fields.add(field)
-                if fields:
-                    yield (model, fields)
-        else:
-            field_ids: List[int] = [f.creation_counter for f in self.computedfields]
-            for model in self.models:
-                fields = set()
-                for field in model._meta.fields:
-                    # for some reason the in ... check does not work for Django >= 3.2 anymore
-                    # workaround: check for _computed and the field creation_counter
-                    if hasattr(field, '_computed') and field.creation_counter in field_ids:
-                        fields.add(field)
-                if fields:
-                    yield (model, fields)
+        field_ids: List[int] = [f.creation_counter for f in self.computedfields]
+        for model in self.models:
+            fields = set()
+            for field in model._meta.fields:
+                # for some reason the in ... check does not work for Django >= 3.2 anymore
+                # workaround: check for _computed and the field creation_counter
+                if hasattr(field, '_computed') and field.creation_counter in field_ids:
+                    fields.add(field)
+            if fields:
+                yield (model, fields)
 
     @property
     def computedfields_with_models(self) -> Generator[Tuple[IComputedField, Set[Type[Model]]], None, None]:
@@ -194,21 +182,13 @@ class Resolver:
         if not self._sealed:
             raise ResolverException('resolver must be sealed before accessing models or fields')
 
-        if django_lesser_3_2:
-            for field in self.computedfields:
-                models: Set[Type[Model]] = set()
-                for model in self.models:
-                    if field in model._meta.fields:
+        for field in self.computedfields:
+            models = set()
+            for model in self.models:
+                for f in model._meta.fields:
+                    if hasattr(field, '_computed') and f.creation_counter == field.creation_counter:
                         models.add(model)
-                yield (field, models)
-        else:
-            for field in self.computedfields:
-                models = set()
-                for model in self.models:
-                    for f in model._meta.fields:
-                        if hasattr(field, '_computed') and f.creation_counter == field.creation_counter:
-                            models.add(model)
-                yield (field, models)
+            yield (field, models)
 
     @property
     def computed_models(self) -> Dict[Type[Model], Dict[str, IComputedField]]:
@@ -953,6 +933,18 @@ class Resolver:
         Indicate whether `fieldname` on `model` is a computed field.
         """
         return fieldname in self.get_computedfields(model)
+
+    def get_graphs(self) -> Tuple[Graph, Dict[Type[Model], ModelGraph], Graph]:
+        """
+        Return a tuple of all graphs as
+        ``(intermodel_graph, {model: modelgraph, ...}, union_graph)``.
+        """
+        graph = self._graph
+        if not graph:
+            graph = ComputedModelsGraph(active_resolver.computed_models)
+            graph.remove_redundant()
+            graph.get_uniongraph()
+        return (graph, graph.modelgraphs, graph.get_uniongraph())
 
 
 # active_resolver is currently treated as global singleton (used in imports)
