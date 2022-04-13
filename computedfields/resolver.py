@@ -113,15 +113,17 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
-        self._batchsize: int = getattr(settings, 'COMPUTEDFIELDS_BATCHSIZE', 100)
+        self.use_fastupdate: bool = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False)
+        self._batchsize: int = getattr(
+            settings,
+            'COMPUTEDFIELDS_BATCHSIZE',
+            10000 if self.use_fastupdate else 100
+        )
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
-
-        # whether to use fastupdate (lazy eval'ed during first bulk_updater run)
-        self.use_fastupdate: bool = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False)
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """

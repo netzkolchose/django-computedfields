@@ -47,15 +47,25 @@ The module respects optional settings in `settings.py`:
     linearize and optimize the update paths anymore.
 
 - ``COMPUTEDFIELDS_BATCHSIZE``
-    Set the batch size used for computed field updates by the auto resolver (default 100).
-    Internally the updates are done by a `bulk_update` on a computed fields model for all
-    affected rows and computed fields. Note that taking a rather high value here might
-    penalize update performance due high memory usage on Python side to hold the row instances
-    and construct the final SQL command. This is further restricted by certain database adapters.
+    Set the batch size used for computed field updates by the auto resolver.
+    Internally the resolver updates computed fields either by `bulk_update` or `fast_update`,
+    which might penalize update performance for very big updates due high memory usage or
+    expensive SQL evaluation, if done in a single update statement. Here batch size will split
+    the update into smaller batches of the given size. For `bulk_update` reasonable batch sizes
+    are typically between 100 to 1000 (going much higher will degrade performance a lot with
+    `bulk_update`), for `fast_update` higher values in 10000 to 100k are still reasonable,
+    if RAM usage is no concern. If not explicitly set in `settings.py` the default value will be
+    set to 100 for `bulk_update` and 10000 for `fast_update`.
+    This setting might be further restricted by certain database adapters.
 
 - ``COMPUTEDFIELDS_FASTUPDATE`` (Beta)
-    Set this to ``True`` to use the `fast_update` from  :mod:`django-fast-update` instead of
-    `bulk_update`.
+    Set this to ``True`` to use `fast_update` from  :mod:`django-fast-update` instead of
+    `bulk_update`. This is recommended if you face serious update pressure from computed fields,
+    and will speed up writing to the database by multitudes. While :mod:`django-computedfields`
+    depends on the package by default (gets installed automatically), it does not enable it yet.
+    This is likely to change once :mod:`django-fast-update` has seen more in-the-wild testing and fixes.
+    Note that `fast_update` relies on recent database versions (see `package description
+    <https://github.com/netzkolchose/django-fast-update>`_).
 
 
 Basic usage
@@ -340,7 +350,8 @@ While f-expressions are a nice way to offload some work to the database, they ar
 with computed fields. In particular this means, that computed fields should not depend on
 fields with expression values and should not return expression values itself. This gets not
 explicitly tested by the library, so mixing computed field calculations with expressions will
-probably lead to weird errors.
+probably lead to weird errors, or even might just work for some edge cases (like strictly sticking
+to expression algebra, not using `fast_update` etc).
 
 Note that :mod:`django-computedfields` tries to calculate as much as possible
 on python side before invoking the database, which makes f-expressions somewhat to an antithesis
