@@ -329,8 +329,22 @@ Proxy Models
 ^^^^^^^^^^^^
 
 Computed fields cannot be placed on proxy models, as it would involve a change to the table,
-which is not allowed. Computed fields placed on the original model the proxy links to,
-can be used as any other concrete field.
+which is not allowed. Computed fields inherited from the parent model keep working on proxy models
+(treated as alias). Constructing depends rules from proxy models is not supported (untested).
+
+
+f-expressions
+-------------
+
+While f-expressions are a nice way to offload some work to the database, they are not supported
+with computed fields. In particular this means, that computed fields should not depend on
+fields with expression values and should not return expression values itself. This gets not
+explicitly tested by the library, so mixing computed field calculations with expressions will
+probably lead to weird errors.
+
+Note that :mod:`django-computedfields` tries to calculate as much as possible
+on python side before invoking the database, which makes f-expressions somewhat to an antithesis
+of :mod:`django-computedfields`.
 
 
 Type Hints
