@@ -68,20 +68,7 @@ class Resolver:
           model registrations and computed field decorations (collector phase).
         - On `app.ready` the computed fields are associated with their models to build
           a resolver-wide map of models with computed fields (``computed_models``).
-        - After that the resolver maps get loaded, either by building from scratch or
-          by loading them from a pickled map file.
-
-    .. NOTE::
-
-        To avoid the rather expensive map creation from scratch in production mode later on
-        the map data should be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
-        in `settings.py` to a writable file path and calling the management
-        command ``createmap``.
-
-        Currently the map file does not support automatic recreation, therefore it must be
-        recreated manually by calling ``createmap`` after model code changes. The resolver
-        tracks changes to dependency rules and might warn you about an outdated map file.
-        An outdated map file will not be used, instead a full graph reduction will be done.
+        - After that the resolver maps are created (see `graph.ComputedModelsGraph`).
     """
 
     def __init__(self):
@@ -247,8 +234,7 @@ class Resolver:
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
             self._graph.get_edgepaths()
             self._graph.get_uniongraph().get_edgepaths()
-        self._map = self._graph.generate_lookup_map()
-        self._fk_map = self._graph._fk_map
+        self._map, self._fk_map = self._graph.generate_maps()
         self._local_mro = self._graph.generate_local_mro_map()
         self._extract_m2m_through()
         self._patch_proxy_models()
