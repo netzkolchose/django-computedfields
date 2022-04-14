@@ -468,12 +468,6 @@ Specific Usage Hints
   Also see optimization examples documentation.
 - Try to reduce the "update pressure" by grouping update paths by dimensions like update frequency or update penalty
   (isolate the slowpokes). Mix in fast turning entities late.
-- Avoid recursive models. The graph optimization relies on cycle-free model-field path linearization
-  during model construction time, which cannot account record level by design. It is still possible to
-  use :mod:`django-computedfields` with recursive models (as needed for tree like structures) by setting
-  ``COMPUTEDFIELDS_ALLOW_RECURSION = True`` in `settings.py`. Note that this currently disables
-  all graph optimizations project-wide for computed fields updates and roughly doubles the update query needs.
-  (A future version might allow to explicit mark intended recursions while other update paths still get optimized.)
 
 
 Fixtures

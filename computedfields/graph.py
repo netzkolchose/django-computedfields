@@ -640,9 +640,9 @@ class ComputedModelsGraph(Graph):
 
         Schematically the lookup map is a reversed adjacency list of every source model
         with its fields mapping to the target models with computed fields it would
-        update through a cretain filter string::
+        update through a certain filter string::
 
-        src_model:[src_field, ...] --> target_model:[(cf_field, filter_string), ...]
+            src_model:[src_field, ...] --> target_model:[(cf_field, filter_string), ...]
 
         During runtime ``update_dependent`` will use the the information to create
         select querysets on the target_models (roughly):
