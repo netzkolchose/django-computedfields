@@ -1,12 +1,7 @@
 from contextlib import contextmanager
 from django.test import TestCase, override_settings
-from django.db import models
-from django.conf import settings
-from django.db.models.signals import class_prepared
-from django.core.management import call_command
-from computedfields.resolver import Resolver, _ComputedFieldsModelBase, active_resolver
-from computedfields.graph import CycleNodeException
-from computedfields.models import ComputedFieldsModel
+from computedfields.resolver import active_resolver
+from computedfields.graph import CycleEdgeException
 
 from ..models import Tree
 
@@ -32,7 +27,7 @@ class TestTree(TestCase):
     def test_patchsetup(self):
         with patch_tree(False):
             self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name']), ('parent', ['path'])])
-            with self.assertRaises(CycleNodeException):
+            with self.assertRaises(CycleEdgeException):
                 active_resolver.load_maps(_force_recreation=True)
         self.assertEqual(Tree._meta.get_field('path')._computed['depends'], [('self', ['name'])])
         active_resolver.load_maps(_force_recreation=True)

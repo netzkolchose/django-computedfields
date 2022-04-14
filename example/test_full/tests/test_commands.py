@@ -1,6 +1,6 @@
 from .base import GenericModelTestBase
 from computedfields.models import active_resolver
-from computedfields.graph import CycleNodeException
+from computedfields.graph import CycleEdgeException
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from io import StringIO
@@ -54,7 +54,7 @@ class CommandTests(GenericModelTestBase):
 
         # normally raises due to get_nodepaths() in _resolve_dependencies()
         self.assertRaises(
-            CycleNodeException,
+            CycleEdgeException,
             lambda: self.setDeps({
                     'A': {'depends': [('f_ag', ['comp'])]},
                     'G': {'depends': [('f_ga', ['comp'])]},

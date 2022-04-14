@@ -293,7 +293,7 @@ class Resolver:
         """
         graph = ComputedModelsGraph(self.computed_models)
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
-            graph.remove_redundant()
+            graph.get_edgepaths()
             graph.get_uniongraph().get_edgepaths()
         maps: IMaps = {
             'lookup_map': graph.generate_lookup_map(),
@@ -628,9 +628,12 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
+        pks = []
         if fields:
             change: List[Model] = []
             for elem in queryset:
+                # note on the loop: while it is technically not needed to batch things here,
+                # we still prebatch to not cause memory issues for very big querysets
                 has_changed = False
                 for comp_field in mro:
                     new_value = self._compute(elem, model, comp_field)
@@ -639,22 +642,25 @@ class Resolver:
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
+                    pks.append(elem.pk)
                 if len(change) >= self._batchsize:
                     self._update(queryset, change, fields)
                     change = []
             if change:
                 self._update(queryset, change, fields)
 
-        # trigger dependent comp field updates on all records
-        # skip recursive call if queryset is empty
-        if not local_only and queryset:
-            self.update_dependent(queryset, model, fields, update_local=False)
-        return set(el.pk for el in queryset) if return_pks else None
+        # trigger dependent comp field updates from changed records
+        # other than before we exit the update tree early, if we have no changes at all
+        # also cuts the update tree for recursive deps (tree-like)
+        if not local_only and pks:
+            self.update_dependent(model.objects.filter(pk__in=pks), model, fields, update_local=False)
+        return set(pks) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
+        # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
-            return fast_update(queryset, change, fields, self._batchsize)
-        return queryset.model.objects.bulk_update(change, fields, self._batchsize)
+            return fast_update(queryset, change, fields, None)
+        return queryset.model.objects.bulk_update(change, fields)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
@@ -944,7 +950,7 @@ class Resolver:
         graph = self._graph
         if not graph:
             graph = ComputedModelsGraph(active_resolver.computed_models)
-            graph.remove_redundant()
+            graph.get_edgepaths()
             graph.get_uniongraph()
         return (graph, graph.modelgraphs, graph.get_uniongraph())
 

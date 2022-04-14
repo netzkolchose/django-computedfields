@@ -11,7 +11,7 @@ from collections import OrderedDict
 from os import PathLike
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
+from computedfields.helper import pairwise, modelname, parent_to_inherited_path, skip_equal_segments
 
 # typing imports
 from typing import (Callable, Dict, FrozenSet, Generic, Hashable, Any, List, Optional, Sequence,
@@ -428,51 +428,6 @@ class Graph:
             return True
         except CycleEdgeException:
             return False
-
-    @staticmethod
-    def _can_replace_nodepath(needle, haystack) -> bool:
-        if not set(haystack).issuperset(needle):
-            return False
-        if is_sublist(needle, haystack):
-            return False
-        return True
-
-    @staticmethod
-    def _compare_startend_nodepaths(new_paths, base_paths):
-        base_points = set((path[0], path[-1]) for path in base_paths)
-        new_points = set((path[0], path[-1]) for path in new_paths)
-        return base_points == new_points
-
-    def remove_redundant(self) -> Set[Edge]:
-        """
-        Find and remove redundant edges. An edge is redundant
-        if there there are multiple possibilities to reach an end node
-        from a start node. Since the longer path triggers more needed
-        database updates the shorter path gets discarded.
-        Might raise a ``CycleNodeException``.
-
-        Returns the removed edges.
-        """
-        paths = self.get_nodepaths()
-        possible_replaces: List[Tuple[List[Node], List[Node]]] = []
-        for p_path in paths:
-            for q_path in paths:
-                if self._can_replace_nodepath(q_path, p_path):
-                    possible_replaces.append((q_path, p_path))
-        removed: Set[Edge] = set()
-        for candidate, _ in possible_replaces:
-            edges = [Edge(*nodes) for nodes in pairwise(candidate)]
-            for edge in edges:
-                if edge in removed:
-                    continue
-                self.remove_edge(edge)
-                removed.add(edge)
-                # make sure all startpoints will still update all endpoints
-                if not self._compare_startend_nodepaths(self.get_nodepaths(), paths):
-                    self.add_edge(edge)
-                    removed.remove(edge)
-        self._removed.update(removed)
-        return removed
 
 
 class ComputedModelsGraph(Graph):

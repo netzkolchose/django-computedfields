@@ -15,23 +15,6 @@ def modelname(model: Type[Model]) -> str:
     return f'{model._meta.app_label}.{model._meta.model_name}'
 
 
-def is_sublist(needle: Sequence[Any], haystack: Sequence[Any]) -> bool:
-    if not needle:
-        return True
-    if not haystack:
-        return False
-    max_k = len(needle) - 1
-    k = 0
-    for elem in haystack:
-        if elem != needle[k]:
-            k = 0
-            continue
-        if k == max_k:
-            return True
-        k += 1
-    return False
-
-
 def parent_to_inherited_path(parent: Type[Model], inherited: Type[Model]) -> List[str]:
     """
     Pull relation path segments from `parent` to `inherited` model
