@@ -136,30 +136,6 @@ class TestResolverInstance(TestCase):
         with self.assertRaises(ResolverException):
             self.resolver.initialize()
 
-    def test_pickled_load(self):
-        # write pickled map file
-        class_prepared.connect(self.resolver.add_model)
-        rt_field, rt_model = generate_computedmodel(self.resolver, 'RuntimeGeneratedG', lambda self: self.name.upper())
-        class_prepared.disconnect(self.resolver.add_model)
-        self.resolver.initialize()
-
-        # patch test_full.models (otherwise pickle doesnt work)
-        models.RuntimeGeneratedG = rt_model
-
-        settings.COMPUTEDFIELDS_MAP = 'mapfile.test_generated'
-        self.resolver._write_pickled_data()
-
-        # load back pickled file
-        data = self.resolver._load_pickled_data()
-        settings.COMPUTEDFIELDS_MAP = None
-        os.remove('mapfile.test_generated')
-        
-        # compare pickle data
-        self.assertEqual(data['hash'], self.resolver._calc_modelhash())
-        self.assertEqual(data['lookup_map'], self.resolver._map)
-        self.assertEqual(data['fk_map'], self.resolver._fk_map)
-        self.assertEqual(data['local_mro'], self.resolver._local_mro)
-
     def test_runtime_coverage(self):
         class_prepared.connect(self.resolver.add_model)
         rt_field, rt_model = generate_computedmodel(self.resolver, 'RuntimeGeneratedH', lambda self: self.name.upper())
