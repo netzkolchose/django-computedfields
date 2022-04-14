@@ -653,7 +653,7 @@ class Resolver:
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
         if self.use_fastupdate:
-            return fast_update(queryset, change, fields, None)
+            return fast_update(queryset, change, fields, self._batchsize)
         return queryset.model.objects.bulk_update(change, fields, self._batchsize)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
