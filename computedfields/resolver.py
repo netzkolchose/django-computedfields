@@ -3,10 +3,6 @@ Contains the resolver logic for automated computed field updates.
 """
 
 from collections import OrderedDict
-from threading import RLock
-from hashlib import sha256
-import logging
-import pickle
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -14,7 +10,7 @@ from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
-from .helper import modelname, proxy_to_base_model
+from .helper import proxy_to_base_model
 from . import __version__
 
 from fast_update.fast import fast_update
@@ -31,16 +27,6 @@ class IM2mData(TypedDict):
     left: str
     right: str
 IM2mMap = Dict[Type[Model], IM2mData]
-
-
-class IMaps(TypedDict, total=False):
-    lookup_map: ILookupMap
-    fk_map: IFkMap
-    local_mro: ILocalMroMap
-    hash: str
-
-
-logger = logging.getLogger(__name__)
 
 
 MALFORMED_DEPENDS = """
@@ -82,22 +68,8 @@ class Resolver:
           model registrations and computed field decorations (collector phase).
         - On `app.ready` the computed fields are associated with their models to build
           a resolver-wide map of models with computed fields (``computed_models``).
-        - After that the resolver maps get loaded, either by building from scratch or
-          by loading them from a pickled map file.
-
-    .. NOTE::
-
-        To avoid the rather expensive map creation from scratch in production mode later on
-        the map data should be pickled into a map file by setting ``COMPUTEDFIELDS_MAP``
-        in `settings.py` to a writable file path and calling the management
-        command ``createmap``.
-
-        Currently the map file does not support automatic recreation, therefore it must be
-        recreated manually by calling ``createmap`` after model code changes. The resolver
-        tracks changes to dependency rules and might warn you about an outdated map file.
-        An outdated map file will not be used, instead a full graph reduction will be done.
+        - After that the resolver maps are created (see `graph.ComputedModelsGraph`).
     """
-    _lock = RLock()
 
     def __init__(self):
         # collector phase data
@@ -246,10 +218,7 @@ class Resolver:
 
     def load_maps(self, _force_recreation: bool = False) -> None:
         """
-        Load all needed resolver maps.
-
-        Without providing a pickled map file the calculations are done
-        once per process by ``app.ready``. The steps are:
+        Load all needed resolver maps. The steps are:
 
             - create intermodel graph of the dependencies
             - remove redundant paths with cycling check
@@ -260,47 +229,16 @@ class Resolver:
                 - `lookup_map`: intermodel dependencies as queryset access strings
                 - `fk_map`: models with their contributing fk fields
                 - `local_mro`: MRO of local computed fields per model
-
-        These initial graph reduction calculations can get expensive for complicated
-        computed field usage in a project. Therefore you should consider setting
-        ``COMPUTEDFIELDS_MAP`` in `settings.py` and create a pickled map file with
-        the management command ``createmap`` in multi process environments.
         """
-        with self._lock:
-            if self._map_loaded and not _force_recreation:  # pragma: no cover
-                return
-
-            maps: Optional[IMaps] = None
-            if getattr(settings, 'COMPUTEDFIELDS_MAP', False) and not _force_recreation:
-                maps = self._load_pickled_data()
-                if maps:
-                    logger.info('COMPUTEDFIELDS_MAP successfully loaded.')
-                else:
-                    logger.warning('COMPUTEDFIELDS_MAP is outdated, doing a full bootstrap.')
-
-            if not maps:
-                self._graph, maps = self._graph_reduction()
-            self._map = maps['lookup_map']
-            self._fk_map = maps['fk_map']
-            self._local_mro = maps['local_mro']
-            self._extract_m2m_through()
-            self._patch_proxy_models()
-            self._map_loaded = True
-
-    def _graph_reduction(self) -> Tuple[ComputedModelsGraph, IMaps]:
-        """
-        Creates resolver maps from full graph reduction.
-        """
-        graph = ComputedModelsGraph(self.computed_models)
+        self._graph = ComputedModelsGraph(self.computed_models)
         if not getattr(settings, 'COMPUTEDFIELDS_ALLOW_RECURSION', False):
-            graph.remove_redundant()
-            graph.get_uniongraph().get_edgepaths()
-        maps: IMaps = {
-            'lookup_map': graph.generate_lookup_map(),
-            'fk_map': graph._fk_map,
-            'local_mro': graph.generate_local_mro_map()
-        }
-        return (graph, maps)
+            self._graph.get_edgepaths()
+            self._graph.get_uniongraph().get_edgepaths()
+        self._map, self._fk_map = self._graph.generate_maps()
+        self._local_mro = self._graph.generate_local_mro_map()
+        self._extract_m2m_through()
+        self._patch_proxy_models()
+        self._map_loaded = True
 
     def _extract_m2m_through(self) -> None:
         """
@@ -345,54 +283,6 @@ class Resolver:
                     self._local_mro[model] = self._local_mro[basemodel]
                 if basemodel in self._m2m:
                     self._m2m[model] = self._m2m[basemodel]
-
-    def _calc_modelhash(self) -> str:
-        """
-        Create a hash from computed models data. This is used to determine,
-        whether a pickled map is outdated.
-
-        To create a reliable hash, this method must account the exact same
-        input data the graphs use for the map creation. Currently used:
-        - computed model identification (modelname)
-        - computed fields name and raw type
-        - depends rules
-        - __version__ to spot lib updates (should always invalidate)
-        """
-        data = [__version__]
-        for models, fields in self.computed_models.items():
-            field_data = []
-            for fieldname, field in fields.items():
-                rel_data = []
-                for rel, concretes in field._computed['depends']:
-                    rel_data.append(rel + ''.join(sorted(list(concretes))))
-                field_data.append(fieldname + field.get_internal_type() + ''.join(sorted(rel_data)))
-            data.append(modelname(models) + ''.join(sorted(field_data)))
-        return sha256(''.join(sorted(data)).encode('utf-8')).hexdigest()
-
-    def _load_pickled_data(self) -> Optional[IMaps]:
-        """
-        Load pickled resolver maps from path in ``COMPUTEDFIELDS_MAP``.
-
-        Discards loaded data if the computed model hashs are not equal.
-        """
-        with open(settings.COMPUTEDFIELDS_MAP, 'rb') as mapfile:
-            data: IMaps = pickle.load(mapfile)
-            if self._calc_modelhash() == data.get('hash'):
-                return data
-        return None
-
-    def _write_pickled_data(self) -> None:
-        """
-        Pickle resolver maps to path in ``COMPUTEDFIELDS_MAP``.
-        Called by the management command ``createmap``.
-
-        Always does a full graph reduction.
-        Adds computed models hash to pickled data.
-        """
-        _, maps = self._graph_reduction()
-        maps['hash'] = self._calc_modelhash()
-        with open(settings.COMPUTEDFIELDS_MAP, 'wb') as mapfile:
-            pickle.dump(maps, mapfile, pickle.HIGHEST_PROTOCOL)
 
     def get_local_mro(
         self,
@@ -628,9 +518,12 @@ class Resolver:
         if prefetch:
             queryset = queryset.prefetch_related(*prefetch)
 
+        pks = []
         if fields:
             change: List[Model] = []
             for elem in queryset:
+                # note on the loop: while it is technically not needed to batch things here,
+                # we still prebatch to not cause memory issues for very big querysets
                 has_changed = False
                 for comp_field in mro:
                     new_value = self._compute(elem, model, comp_field)
@@ -639,22 +532,25 @@ class Resolver:
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
+                    pks.append(elem.pk)
                 if len(change) >= self._batchsize:
                     self._update(queryset, change, fields)
                     change = []
             if change:
                 self._update(queryset, change, fields)
 
-        # trigger dependent comp field updates on all records
-        # skip recursive call if queryset is empty
-        if not local_only and queryset:
-            self.update_dependent(queryset, model, fields, update_local=False)
-        return set(el.pk for el in queryset) if return_pks else None
+        # trigger dependent comp field updates from changed records
+        # other than before we exit the update tree early, if we have no changes at all
+        # also cuts the update tree for recursive deps (tree-like)
+        if not local_only and pks:
+            self.update_dependent(model.objects.filter(pk__in=pks), model, fields, update_local=False)
+        return set(pks) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
+        # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, None)
-        return queryset.model.objects.bulk_update(change, fields, self._batchsize)
+        return queryset.model.objects.bulk_update(change, fields)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
@@ -944,7 +840,7 @@ class Resolver:
         graph = self._graph
         if not graph:
             graph = ComputedModelsGraph(active_resolver.computed_models)
-            graph.remove_redundant()
+            graph.get_edgepaths()
             graph.get_uniongraph()
         return (graph, graph.modelgraphs, graph.get_uniongraph())
 

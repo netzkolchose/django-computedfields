@@ -28,13 +28,6 @@ Settings
 
 The module respects optional settings in `settings.py`:
 
-- ``COMPUTEDFIELDS_MAP``
-    Used to set a file path for the pickled resolver map. To create the pickled resolver map
-    point this setting to a writeable path and call the management command ``createmap``.
-    This should always be used in production mode in multi process environments
-    to avoid the expensive map creation on every process launch. If set, the file must
-    be recreated after model changes to get used by the resolver.
-
 - ``COMPUTEDFIELDS_ADMIN``
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
     dependencies in admin. Useful during development.
@@ -235,9 +228,7 @@ into a directed graph (inter-model dependency graph). The graph does a cycle che
 removes redundant subpaths. The remaining edges are converted into a reverse lookup map containing source models
 and computed fields to be updated with their queryset access string. For model local field dependencies a similar
 graph reduction per model takes place, returning an MRO for local computed fields methods. Finally a union graph of
-inter-model and local dependencies is build and does a last cycle check. The whole expensive graph sanitizing process
-can be skipped in production by using a precalculated lookup map by setting ``COMPUTEDFIELDS_MAP`` in `settings.py`
-(see above).
+inter-model and local dependencies is build and does a last cycle check.
 
 During runtime certain signal handlers in `handlers.py` hook into model instance actions and trigger
 the needed additional changes on associated computed fields given by the resolver maps.
@@ -417,9 +408,6 @@ type warnings, e.g.:
 Management Commands
 -------------------
 
-- ``createmap``
-    recreates the pickled resolver map file. Set the path with ``COMPUTEDFIELDS_MAP`` in `settings.py`.
-
 - ``rendergraph <filename>``
     renders the inter-model dependency graph to `filename`. Note that this command currently only handles
     the inter-model graph, not the individual model graphs and final union graph (PRs are welcome).
@@ -480,12 +468,6 @@ Specific Usage Hints
   Also see optimization examples documentation.
 - Try to reduce the "update pressure" by grouping update paths by dimensions like update frequency or update penalty
   (isolate the slowpokes). Mix in fast turning entities late.
-- Avoid recursive models. The graph optimization relies on cycle-free model-field path linearization
-  during model construction time, which cannot account record level by design. It is still possible to
-  use :mod:`django-computedfields` with recursive models (as needed for tree like structures) by setting
-  ``COMPUTEDFIELDS_ALLOW_RECURSION = True`` in `settings.py`. Note that this currently disables
-  all graph optimizations project-wide for computed fields updates and roughly doubles the update query needs.
-  (A future version might allow to explicit mark intended recursions while other update paths still get optimized.)
 
 
 Fixtures
