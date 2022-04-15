@@ -106,9 +106,7 @@ class Command(BaseCommand):
         # TODO: move this outside of transaction?
         if not mode:
             if settings.COMPUTEDFIELDS_FASTUPDATE:
-                from computedfields.fast_update import check_support
-                if check_support():
-                    mode = 'fast'
+                mode = 'fast'
             print(f'Update mode: settings.py --> {mode or "bulk"}')
 
         print(f'Default querysize: {size}')
@@ -153,9 +151,6 @@ class Command(BaseCommand):
         self.action_default(models, size, show_progress, 'bulk')
 
     def action_fast(self, models, size, show_progress):
-        from computedfields.fast_update import check_support
-        if not check_support():
-            raise CommandError('Current db backend does not support fast_update.')
         active_resolver.use_fastupdate = True
         active_resolver._batchsize = settings.COMPUTEDFIELDS_BATCHSIZE_FAST
         print('Update mode: fast')
