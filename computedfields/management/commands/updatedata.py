@@ -121,11 +121,23 @@ class Command(BaseCommand):
             print(f'  Fields: {", ".join(fields)}')
             print(f'  Records: {amount}')
             print(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
+
+            ##qs = qs.filter(pk__in=range(1, 1001))
+            #counted = count_dependent(qs)
+            #explained = explain_dependent(qs, query_pks=False)
+            #print('records to check:', counted)
+            #for ex in explained:
+            #    print(ex)
+            #timer(lambda: explain_dependent(qs), 1)
+            #timer(lambda: count_dependent(qs), 1)
+            #return
+
             if not amount:
                 continue
             if show_progress:
                 with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
                     # FIXME: slices for now (penalizes high batches!), use update signals once we have those
+                    # interim solution - slice amount only up to 1/100th (percent)?
                     pos = 0
                     while pos < amount:
                         active_resolver.update_dependent(qs.order_by('pk')[pos:pos+size], querysize=size)
@@ -185,3 +197,33 @@ class Command(BaseCommand):
             else:
                 for obj in slice_iterator(qs, qsize):
                     obj.save()
+
+
+# get some explaining on update_dependent
+#def count_dependent(queryset, fields=None):
+#    #counted = queryset.count()
+#    counted = len(set(queryset.values_list('pk', flat=True).iterator()))
+#    if counted:
+#        updates = active_resolver._querysets_for_update(queryset.model, queryset, fields).values()
+#        for qs, f in updates:
+#            counted += count_dependent(qs, f)
+#    return counted
+#
+#def explain_dependent(queryset, fields=None, level=0, query_pks=False):
+#    s = time()
+#    #counted = queryset.count()
+#    counted = len(set(queryset.values_list('pk', flat=True).iterator()))
+#    d = time() - s
+#    res = [(level, queryset.model, fields, counted, d, queryset.distinct().values_list('pk', flat=True) if query_pks else [])]
+#    if counted:
+#        updates = active_resolver._querysets_for_update(queryset.model, queryset, fields).values()
+#        for qs, f in updates:
+#            res += explain_dependent(qs, f, level+1, query_pks)
+#    return res
+#
+#
+#def timer(f, n):
+#    start = time()
+#    for _ in range(n):
+#        f()
+#    print(time()-start)
