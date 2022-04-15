@@ -11,8 +11,15 @@ class Foo(ComputedFieldsModel):
         depends=[('bar_set.baz_set', ['name'])]
     )
     def bazzes(self) -> str:
+        # note - the slice here is needed to get proper compare between
+        # loop and bulk/fast mode in updatedata
+        # background: bulk_update and fast_update do not raise on values not
+        # fitting into columns of smaller size, which makes checkdata always fail
+        # (db value always != python calculated value)
+        # TODO: investigate, whether thats an intended/expected inconsistency to .save
+        # --> django ticket: https://code.djangoproject.com/ticket/33647
         return ', '.join(Baz.objects.filter(
-            bar__foo=self).values_list('name', flat=True))
+            bar__foo=self).values_list('name', flat=True))[:32]
 
     def __str__(self) -> str:
         return self.name
