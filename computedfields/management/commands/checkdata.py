@@ -181,6 +181,7 @@ def reveal_tainted(qs):
 def bulk_counter(qs, f, level, store):
     if len(store) >= TAINTED_MAXLENGTH:
         return
+    # FIXME: use count here, instead of exists & pk extraction (we are not interested in pk resolution)
     if qs.exists():
         pks = set(qs.values_list('pk', flat=True).iterator())
         store.append((level, qs.model, f, len(pks)))

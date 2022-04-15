@@ -635,6 +635,9 @@ class Resolver:
 
         # distinct issue workaround
         # the workaround is needed for already sliced/distinct querysets coming from outside
+        # TODO: distinct is a major query perf smell, and is in fact only needed on back relations
+        #       may need some rework in _querysets_for_update
+        #       ideally we find a way to avoid it for forward relations
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
             queryset = queryset.distinct()
         else:
@@ -648,10 +651,11 @@ class Resolver:
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)
-        fields: Any = set(mro)  # FIXME: narrow type once issue in djgno-stubs is resolved
+        fields: Any = set(mro)  # FIXME: narrow type once issue in django-stubs is resolved
         if update_fields:
             update_fields.update(fields)
 
+        # TODO: how select/prefetch locally only?
         select = self.get_select_related(model, fields)
         prefetch = self.get_prefetch_related(model, fields)
         if select:
