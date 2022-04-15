@@ -514,16 +514,12 @@ class Resolver:
         # TODO: distinct is a major query perf smell, and is in fact only needed on back relations
         #       may need some rework in _querysets_for_update
         #       ideally we find a way to avoid it for forward relations
+        #       also see #101
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
             queryset = queryset.distinct()
         else:
             queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
-
-        # FIXME: if we have select/prefetch related, we might need to slice to keep mem usage down
-        # FIXME: slice over qs below, also expose interface (to be used in updatedata)
-        #        this is needed to avoid really bad mem usage with select/prefetch on big qs
-        #        prolly needs a new setting COMPUTEDFIELDS_QUERYSIZE
-        # TODO: allow (model, pks) as arguments beside queryset?
+        #queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)
@@ -531,7 +527,6 @@ class Resolver:
         if update_fields:
             update_fields.update(fields)
 
-        # TODO: how select/prefetch locally only?
         select = self.get_select_related(model, fields)
         prefetch = self.get_prefetch_related(model, fields)
         if select:
@@ -541,9 +536,9 @@ class Resolver:
 
         pks = []
         if fields:
-            size = self.get_querysize(model, fields, querysize)
+            q_size = self.get_querysize(model, fields, querysize)
             change: List[Model] = []
-            for elem in slice_iterator(queryset, size):
+            for elem in slice_iterator(queryset, q_size):
                 # note on the loop: while it is technically not needed to batch things here,
                 # we still prebatch to not cause memory issues for very big querysets
                 has_changed = False
@@ -551,7 +546,6 @@ class Resolver:
                     new_value = self._compute(elem, model, comp_field)
                     if new_value != getattr(elem, comp_field):
                         has_changed = True
-                        #true_change.add(elem.pk)
                         setattr(elem, comp_field, new_value)
                 if has_changed:
                     change.append(elem)
