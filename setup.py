@@ -17,7 +17,8 @@ setup(
     include_package_data=True,
     install_requires=[
         'Django>=2.2,<4.1',
-        'typing_extensions>=4.0.1'
+        'typing_extensions>=4.0.1',
+        'django-fast-update'
     ],
     version=get_version('computedfields/__init__.py'),
     license='MIT',

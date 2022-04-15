@@ -39,7 +39,8 @@ class TestModelClassesForAdmin(TestCase):
         self.site = AdminSite()
         self.adminobj = ComputedModelsAdmin(ComputedFieldsAdminModel, self.site)
         self.adminobj_contributing = ContributingModelsAdmin(ContributingModelsModel, self.site)
-        self.models = set(active_resolver._computed_models.keys())
+        # NOTE: we have to filter proxy models here
+        self.models = set(m for m in active_resolver._computed_models.keys() if not m._meta.proxy)
 
     def test_models_listed(self):
         models = [obj.model_class() for obj in ComputedFieldsAdminModel.objects.all()]

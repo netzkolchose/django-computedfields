@@ -41,7 +41,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         graph = ComputedModelsGraph(active_resolver.computed_models)
         try:
-            graph.remove_redundant()
+            graph.get_edgepaths()
             graph.render(filename=options['filename'][0])
         except CycleException:
             # graph is not cycle free, get all cycles

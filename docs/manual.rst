@@ -28,13 +28,6 @@ Settings
 
 The module respects optional settings in `settings.py`:
 
-- ``COMPUTEDFIELDS_MAP``
-    Used to set a file path for the pickled resolver map. To create the pickled resolver map
-    point this setting to a writeable path and call the management command ``createmap``.
-    This should always be used in production mode in multi process environments
-    to avoid the expensive map creation on every process launch. If set, the file must
-    be recreated after model changes to get used by the resolver.
-
 - ``COMPUTEDFIELDS_ADMIN``
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
     dependencies in admin. Useful during development.
@@ -47,18 +40,25 @@ The module respects optional settings in `settings.py`:
     linearize and optimize the update paths anymore.
 
 - ``COMPUTEDFIELDS_BATCHSIZE``
-    Set the batch size used for computed field updates by the auto resolver (default 100).
-    Internally the updates are done by a `bulk_update` on a computed fields model for all
-    affected rows and computed fields. Note that taking a rather high value here might
-    penalize update performance due high memory usage on Python side to hold the row instances
-    and construct the final SQL command. This is further restricted by certain database adapters.
+    Set the batch size used for computed field updates by the auto resolver.
+    Internally the resolver updates computed fields either by `bulk_update` or `fast_update`,
+    which might penalize update performance for very big updates due high memory usage or
+    expensive SQL evaluation, if done in a single update statement. Here batch size will split
+    the update into smaller batches of the given size. For `bulk_update` reasonable batch sizes
+    are typically between 100 to 1000 (going much higher will degrade performance a lot with
+    `bulk_update`), for `fast_update` higher values in 10000 to 100k are still reasonable,
+    if RAM usage is no concern. If not explicitly set in `settings.py` the default value will be
+    set to 100 for `bulk_update` and 10000 for `fast_update`.
+    This setting might be further restricted by certain database adapters.
 
-- ``COMPUTEDFIELDS_FASTUPDATE`` (Alpha)
-    Set this to ``True`` to use the new `fast_update` feature. See :ref:`Fast Update` for more information.
-
-- ``COMPUTEDFIELDS_BATCHSIZE_FAST``
-    Batch size for `fast_update`, which scales much better with bigger batches than `bulk_update`.
-    Typically this can be be set to a value >1000, default is 1000.
+- ``COMPUTEDFIELDS_FASTUPDATE`` (Beta)
+    Set this to ``True`` to use `fast_update` from  :mod:`django-fast-update` instead of
+    `bulk_update`. This is recommended if you face serious update pressure from computed fields,
+    and will speed up writing to the database by multitudes. While :mod:`django-computedfields`
+    depends on the package by default (gets installed automatically), it does not enable it yet.
+    This is likely to change once :mod:`django-fast-update` has seen more in-the-wild testing and fixes.
+    Note that `fast_update` relies on recent database versions (see `package description
+    <https://github.com/netzkolchose/django-fast-update>`_).
 
 
 Basic usage
@@ -228,9 +228,7 @@ into a directed graph (inter-model dependency graph). The graph does a cycle che
 removes redundant subpaths. The remaining edges are converted into a reverse lookup map containing source models
 and computed fields to be updated with their queryset access string. For model local field dependencies a similar
 graph reduction per model takes place, returning an MRO for local computed fields methods. Finally a union graph of
-inter-model and local dependencies is build and does a last cycle check. The whole expensive graph sanitizing process
-can be skipped in production by using a precalculated lookup map by setting ``COMPUTEDFIELDS_MAP`` in `settings.py`
-(see above).
+inter-model and local dependencies is build and does a last cycle check.
 
 During runtime certain signal handlers in `handlers.py` hook into model instance actions and trigger
 the needed additional changes on associated computed fields given by the resolver maps.
@@ -332,8 +330,23 @@ Proxy Models
 ^^^^^^^^^^^^
 
 Computed fields cannot be placed on proxy models, as it would involve a change to the table,
-which is not allowed. Computed fields placed on the original model the proxy links to,
-can be used as any other concrete field.
+which is not allowed. Computed fields inherited from the parent model keep working on proxy models
+(treated as alias). Constructing depends rules from proxy models is not supported (untested).
+
+
+f-expressions
+-------------
+
+While f-expressions are a nice way to offload some work to the database, they are not supported
+with computed fields. In particular this means, that computed fields should not depend on
+fields with expression values and should not return expression values itself. This gets not
+explicitly tested by the library, so mixing computed field calculations with expressions will
+probably lead to weird errors, or even might just work for some edge cases (like strictly sticking
+to expression algebra, not using `fast_update` etc).
+
+Note that :mod:`django-computedfields` tries to calculate as much as possible
+on python side before invoking the database, which makes f-expressions somewhat to an antithesis
+of :mod:`django-computedfields`.
 
 
 Type Hints
@@ -392,39 +405,8 @@ type warnings, e.g.:
     def ...
 
 
-Fast Update
------------
-
-`fast_update` acts as a drop-in replacement for Django's `bulk_update` method.
-It is based on a custom update SQL statement using variants of `UPDATE FROM VALUES`,
-which updates data 10 - 25 times faster compared to `bulk_update`.
-
-Note that the faster update statement is not supported by all database versions supported by Django.
-Therefore :mod:`django-computedfields` tries to detect support upfront and will fall back to `bulk_update`,
-if the `UPDATE FROM VALUES` pattern is not available for the current database backend.
-
-Supported database backend versions:
-
-- sqlite 3.33+
-- Postgresql 9.1+
-- MariaDB 10.3+
-- Mysql 8
-
-`fast_update` was tested to work with all Django standard fields including `ArrayField` and `HStoreField` for Postgres.
-If you use third-party or your very own field type for a computed field, make sure to test the proper updating yourself.
-This is especially important for fields, that do nasty column tricks on database level.
-Please file a bug, if you find a field type not properly updating with `fast_update`.
-
-This feature is currently labelled as `Alpha` and disabled by default. To enable it,
-place ``COMPUTEDFIELDS_FASTUPDATE = True`` in your `settings.py`. Additionally with ``COMPUTEDFIELDS_BATCHSIZE_FAST``
-the batch size can be tweaked.
-
-
 Management Commands
 -------------------
-
-- ``createmap``
-    recreates the pickled resolver map file. Set the path with ``COMPUTEDFIELDS_MAP`` in `settings.py`.
 
 - ``rendergraph <filename>``
     renders the inter-model dependency graph to `filename`. Note that this command currently only handles
@@ -486,12 +468,6 @@ Specific Usage Hints
   Also see optimization examples documentation.
 - Try to reduce the "update pressure" by grouping update paths by dimensions like update frequency or update penalty
   (isolate the slowpokes). Mix in fast turning entities late.
-- Avoid recursive models. The graph optimization relies on cycle-free model-field path linearization
-  during model construction time, which cannot account record level by design. It is still possible to
-  use :mod:`django-computedfields` with recursive models (as needed for tree like structures) by setting
-  ``COMPUTEDFIELDS_ALLOW_RECURSION = True`` in `settings.py`. Note that this currently disables
-  all graph optimizations project-wide for computed fields updates and roughly doubles the update query needs.
-  (A future version might allow to explicit mark intended recursions while other update paths still get optimized.)
 
 
 Fixtures

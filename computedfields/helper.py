@@ -1,6 +1,6 @@
 from itertools import tee, zip_longest
 from django.db.models import Model, QuerySet
-from typing import Any, Generator, Iterable, Iterator, List, Sequence, Type, TypeVar, Tuple
+from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple, Union, Generator, Iterable
 
 T = TypeVar('T', covariant=True)
 
@@ -13,23 +13,6 @@ def pairwise(iterable: Sequence[T]) -> Iterator[Tuple[T, T]]:
 
 def modelname(model: Type[Model]) -> str:
     return f'{model._meta.app_label}.{model._meta.model_name}'
-
-
-def is_sublist(needle: Sequence[Any], haystack: Sequence[Any]) -> bool:
-    if not needle:
-        return True
-    if not haystack:
-        return False
-    max_k = len(needle) - 1
-    k = 0
-    for elem in haystack:
-        if elem != needle[k]:
-            k = 0
-            continue
-        if k == max_k:
-            return True
-        k += 1
-    return False
 
 
 def parent_to_inherited_path(parent: Type[Model], inherited: Type[Model]) -> List[str]:
@@ -91,3 +74,11 @@ def slice_iterator(qs: 'QuerySet[Model]', size: int) ->  Generator[Model, None, 
             if c < size:
                 break
             pos += size
+
+
+def proxy_to_base_model(proxymodel: Type[Model]) -> Union[Type[Model], None]:
+    """Get real base model from proxy model."""
+    for m in proxymodel.__mro__:
+        if hasattr(m, '_meta') and not m._meta.proxy and not m._meta.abstract:
+            return m
+    return None

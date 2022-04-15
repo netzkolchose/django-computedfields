@@ -4,6 +4,21 @@ from django.contrib.contenttypes.models import ContentType, ContentTypeManager
 from django.utils.translation import gettext_lazy as _
 from .resolver import active_resolver, _ComputedFieldsModelBase
 
+__all__ = [
+    'ComputedFieldsModel',
+    'computed',
+    'precomputed',
+    'compute',
+    'update_computedfields',
+    'update_dependent',
+    'preupdate_dependent',
+    'has_computedfields',
+    'get_computedfields',
+    'is_computedfield',
+    'get_contributing_fks',
+    'ComputedFieldsAdminModel',
+    'ContributingModelsModel'
+]
 
 class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
     """

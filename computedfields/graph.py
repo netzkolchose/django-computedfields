@@ -11,7 +11,7 @@ from collections import OrderedDict
 from os import PathLike
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, is_sublist, modelname, parent_to_inherited_path, skip_equal_segments
+from computedfields.helper import pairwise, modelname, parent_to_inherited_path, skip_equal_segments
 
 # typing imports
 from typing import (Callable, Dict, FrozenSet, Generic, Hashable, Any, List, Optional, Sequence,
@@ -430,51 +430,6 @@ class Graph:
         except CycleEdgeException:
             return False
 
-    @staticmethod
-    def _can_replace_nodepath(needle, haystack) -> bool:
-        if not set(haystack).issuperset(needle):
-            return False
-        if is_sublist(needle, haystack):
-            return False
-        return True
-
-    @staticmethod
-    def _compare_startend_nodepaths(new_paths, base_paths):
-        base_points = set((path[0], path[-1]) for path in base_paths)
-        new_points = set((path[0], path[-1]) for path in new_paths)
-        return base_points == new_points
-
-    def remove_redundant(self) -> Set[Edge]:
-        """
-        Find and remove redundant edges. An edge is redundant
-        if there there are multiple possibilities to reach an end node
-        from a start node. Since the longer path triggers more needed
-        database updates the shorter path gets discarded.
-        Might raise a ``CycleNodeException``.
-
-        Returns the removed edges.
-        """
-        paths = self.get_nodepaths()
-        possible_replaces: List[Tuple[List[Node], List[Node]]] = []
-        for p_path in paths:
-            for q_path in paths:
-                if self._can_replace_nodepath(q_path, p_path):
-                    possible_replaces.append((q_path, p_path))
-        removed: Set[Edge] = set()
-        for candidate, _ in possible_replaces:
-            edges = [Edge(*nodes) for nodes in pairwise(candidate)]
-            for edge in edges:
-                if edge in removed:
-                    continue
-                self.remove_edge(edge)
-                removed.add(edge)
-                # make sure all startpoints will still update all endpoints
-                if not self._compare_startend_nodepaths(self.get_nodepaths(), paths):
-                    self.add_edge(edge)
-                    removed.remove(edge)
-        self._removed.update(removed)
-        return removed
-
 
 class ComputedModelsGraph(Graph):
     """
@@ -503,7 +458,6 @@ class ComputedModelsGraph(Graph):
         self.resolved: IResolvedDeps = self.resolve_dependencies(computed_models)
         self.cleaned_data: IGlobalDepsCleaned = self._clean_data(self.resolved['globalDeps'])
         self._insert_data(self.cleaned_data)
-        self._fk_map: Dict[Type[Model], Set[str]] = self._generate_fk_map()
         self.modelgraphs: Dict[Type[Model], ModelGraph] = {}
         self.union: Optional[Graph] = None
 
@@ -540,6 +494,10 @@ class ComputedModelsGraph(Graph):
         global_deps: IGlobalDeps = OrderedDict()
         local_deps: ILocalDeps = {}
         for model, fields in computed_models.items():
+            # skip proxy models for graph handling,
+            # deps get patched at runtime from resolved real models
+            if model._meta.proxy:
+                continue
             local_deps.setdefault(model, {})  # always add to local to get a result for MRO
             for field, real_field in fields.items():
                 fieldentry = global_deps.setdefault(model, {}).setdefault(field, {})
@@ -665,46 +623,6 @@ class ComputedModelsGraph(Graph):
                 result.add(field.name)
         return result
 
-    def _generate_fk_map(self) -> IFkMap:
-        """
-        Generate a map of local dependent fk field.
-        This must be done before any graph path reduction to avoid losing track
-        of fk fields, that are removed by the reduction.
-        The fk map is later on needed to do cf updates of old relations
-        after relation changes, that would otherwise turn dirty.
-        Note: An update of old relations must always trigger the '#' action on the model instances.
-        """
-        # build full node information from edges
-        table: IInterimTable = {}
-        for edge in self.edges:
-            lmodel, lfield = edge.left.data
-            lmodel = self.models[lmodel]
-            rmodel, rfield = edge.right.data
-            rmodel = self.models[rmodel]
-            table.setdefault(lmodel, {}) \
-                .setdefault(lfield, {}) \
-                .setdefault(rmodel, {}) \
-                .setdefault(rfield, []) \
-                .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
-
-        # extract all field paths for model dependencies
-        path_map: Dict[Type[Model], Set[str]] = {}
-        for lmodel, data in table.items():
-            path_map[lmodel] = set()
-            for lfield, ldata in data.items():
-                for rmodel, rdata in ldata.items():
-                    for rfield, deps in rdata.items():
-                        for dep in deps:
-                            path_map[lmodel].add(dep['path'])
-
-        # translate paths to model local fields and filter for fk fields
-        final: IFkMap = {}
-        for model, paths in path_map.items():
-            value = self._get_fk_fields(model, paths)
-            if value:
-                final[model] = value
-        return final
-
     def _resolve(self, data: Dict[str, List[IDependsData]]) -> Tuple[Set[str], Set[str]]:
         """
         Helper to merge querystring paths for lookup map.
@@ -717,73 +635,29 @@ class ComputedModelsGraph(Graph):
                 strings.add(dep['path'])
         return fields, strings
 
-    def generate_lookup_map(self) -> ILookupMap:
+    def generate_maps(self) -> Tuple[ILookupMap, IFkMap]:
         """
-        Generates the final lookup map for queryset generation.
+        Generates the final lookup map and the fk map.
 
-        Structure of the map is:
+        Schematically the lookup map is a reversed adjacency list of every source model
+        with its fields mapping to the target models with computed fields it would
+        update through a certain filter string::
 
-        .. code:: python
+            src_model:[src_field, ...] --> target_model:[(cf_field, filter_string), ...]
 
-            {model: {
-                '#'      :  dependencies
-                'fieldA' :  dependencies
-                }
-            }
-
-        ``model`` denotes the source model of a given instance. ``'fieldA'`` points to
-        a field that was changed. The right side contains the dependencies
-        in the form
+        During runtime ``update_dependent`` will use the the information to create
+        select querysets on the target_models (roughly):
 
         .. code:: python
 
-            {dependent_model: (fields, filter_strings)}
+            qs = target_model.objects.filter(filter_string=src_model.instance)
+            qs |= target_model.objects.filter(filter_string2=src_model.instance)
+            ...
+            bulk_updater(qs, cf_fields)
 
-        In ``update_dependent`` the information will be used to create a queryset
-        and save their elements (roughly):
+        The fk map list all models with fk fieldnames, that contribute to computed fields.
 
-        .. code:: python
-
-            queryset = dependent_model.objects.filter(string1=instance)
-            queryset |= dependent_model.objects.filter(string2=instance)
-            for obj in queryset:
-                obj.save(update_fields=fields)
-
-        The ``'#'`` is a special placeholder to indicate, that a model object
-        was saved normally. It contains the plain and non computed field dependencies.
-
-        The separation of dependencies to computed fields and to other fields makes it
-        possible to create complex computed field dependencies, even multiple times
-        between the same objects without running into circular dependencies:
-
-        .. CODE:: python
-
-            class A(ComputedFieldsModel):
-                @computed(..., depends=[('b_set', ['comp_b'])])
-                def comp_a(self):
-                     ...
-
-            class B(ComputedFieldsModel):
-                a = ForeignKey(B)
-                @computed(..., depends=[('a', [...])])
-                def comp_b(self):
-                    ...
-
-        Here ``A.comp_a`` depends on ``b.com_b`` which itself somehow depends on ``A``.
-        If an instance of ``A`` gets saved, the corresponding objects in ``B``
-        will be updated, which triggers a final update of ``comp_a`` fields
-        on associated ``A`` objects.
-
-        .. CAUTION::
-
-            If there are only computed fields in ``update_fields`` always use
-            those dependencies, never ``'#'``. This is important to ensure
-            cycle free database updates. For computed fields the corresponding
-            dependencies should always be used to get properly updated.
-
-        .. NOTE::
-            The created map is also used for the pickle file to circumvent
-            the computationally expensive graph and map creation in production mode.
+        Returns a tuple of (lookup_map, fk_map).
         """
         # apply full node information to graph edges
         table: IInterimTable = {}
@@ -798,14 +672,25 @@ class ComputedModelsGraph(Graph):
                 .setdefault(rfield, []) \
                 .extend(self.resolved['globalDeps'][rmodel][rfield][lmodel])
 
-        # finally build map for the signal handler
+        # build lookup and path map
         lookup_map: ILookupMap = {}
+        path_map: Dict[Type[Model], Set[str]] = {}
         for lmodel, data in table.items():
             for lfield, ldata in data.items():
                 for rmodel, rdata in ldata.items():
+                    fields, strings = self._resolve(rdata)
                     lookup_map.setdefault(lmodel, {}) \
-                        .setdefault(lfield, {})[rmodel] = self._resolve(rdata)
-        return lookup_map
+                        .setdefault(lfield, {})[rmodel] = (fields, strings)
+                    path_map.setdefault(lmodel, set()).update(strings)
+
+        # translate paths to model local fields and filter for fk fields
+        fk_map: IFkMap = {}
+        for model, paths in path_map.items():
+            value = self._get_fk_fields(model, paths)
+            if value:
+                fk_map[model] = value
+
+        return lookup_map, fk_map
 
     def prepare_modelgraphs(self) -> None:
         """

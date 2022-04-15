@@ -962,94 +962,55 @@ class MultiC(MultiB):
     f_on_c = models.CharField(max_length=32, default='sub-c')
 
 
-# test proper field updates for django standard fields
-class FieldUpdate(ComputedFieldsModel):
-    binary_field = models.BinaryField(null=True)
-    boolean_field = models.BooleanField(null=True)
-    char_field = models.CharField(max_length=32, null=True)
-    date_field = models.DateField(null=True)
-    datetime_field = models.DateTimeField(null=True)
-    decimal_field = models.DecimalField(max_digits=10, decimal_places=2, null=True)
-    duration_field = models.DurationField(null=True)
-    email_field = models.EmailField(null=True)
-    float_field = models.FloatField(null=True)
-    integer_field = models.IntegerField(null=True)
-    ip_field = models.GenericIPAddressField(null=True)
-    # uncomment when Django 2.2 removed
-    # json_field = models.JSONField(null=True)
-    slug_field = models.SlugField(null=True)
-    text_field = models.TextField(null=True)
-    time_field = models.TimeField(null=True)
-    url_field = models.URLField(null=True)
-    uuid_field = models.UUIDField(null=True)
 
-    @computed(models.BinaryField(null=True), depends=[('self', ['binary_field'])])
-    def binary_comp(self):
-        return self.binary_field
-
-    @computed(models.BooleanField(null=True), depends=[('self', ['boolean_field'])])
-    def boolean_comp(self):
-        return self.boolean_field
-
-    @computed(models.CharField(max_length=32, null=True), depends=[('self', ['char_field'])])
-    def char_comp(self):
-        return self.char_field
-
-    @computed(models.DateField(null=True), depends=[('self', ['date_field'])])
-    def date_comp(self):
-        return self.date_field
-
-    @computed(models.DateTimeField(null=True), depends=[('self', ['datetime_field'])])
-    def datetime_comp(self):
-        return self.datetime_field
-
-    @computed(models.DecimalField(max_digits=10, decimal_places=2, null=True), depends=[('self', ['decimal_field'])])
-    def decimal_comp(self):
-        return self.decimal_field
-
-    @computed(models.DurationField(null=True), depends=[('self', ['duration_field'])])
-    def duration_comp(self):
-        return self.duration_field
-
-    @computed(models.EmailField(null=True), depends=[('self', ['email_field'])])
-    def email_comp(self):
-        return self.email_field
-
-    @computed(models.FloatField(null=True), depends=[('self', ['float_field'])])
-    def float_comp(self):
-        return self.float_field
-
-    @computed(models.IntegerField(null=True), depends=[('self', ['integer_field'])])
-    def integer_comp(self):
-        return self.integer_field
-
-    @computed(models.GenericIPAddressField(null=True), depends=[('self', ['ip_field'])])
-    def ip_comp(self):
-        return self.ip_field
-
-    # @computed(models.JSONField(null=True), depends=[('self', ['json_field'])])
-    # def json_comp(self):
-    #     return self.json_field
-
-    @computed(models.SlugField(null=True), depends=[('self', ['slug_field'])])
-    def slug_comp(self):
-        return self.slug_field
-
-    @computed(models.TextField(null=True), depends=[('self', ['text_field'])])
-    def text_comp(self):
-        return self.text_field
-
-    @computed(models.TimeField(null=True), depends=[('self', ['time_field'])])
-    def time_comp(self):
-        return self.time_field
-
-    @computed(models.URLField(null=True), depends=[('self', ['url_field'])])
-    def url_comp(self):
-        return self.url_field
-
-    @computed(models.UUIDField(null=True), depends=[('self', ['uuid_field'])])
-    def uuid_comp(self):
-        return self.uuid_field
+# proxy model tests - see test_proxymodels.py
+class ProxyParent(Parent):
+    class Meta:
+        proxy = True
+class ProxyChild(Child):
+    class Meta:
+        proxy = True
+class ProxySubchild(Subchild):
+    class Meta:
+        proxy = True
+class ProxyXParent(XParent):
+    class Meta:
+        proxy = True
+class ProxyXChild(XChild):
+    class Meta:
+        proxy = True
+# proy m2m
+class ProxyMGroup(MGroup):
+    class Meta:
+        proxy = True
+class ProxyMItem(MItem):
+    class Meta:
+        proxy = True
+class ProxyMUser(MUser):
+    class Meta:
+        proxy = True
+class ProxyMAgent(MAgent):
+    class Meta:
+        proxy = True
+# local mro
+class AllLocal(ComputedFieldsModel):
+    f1 = models.CharField(max_length=32)
+    inject = models.CharField(max_length=32, default='F4')
+    @computed(models.CharField(max_length=32), depends=[('self', ['f1'])])
+    def f2(self):
+        return self.f1.upper()
+    @computed(models.CharField(max_length=32), depends=[('self', ['f2'])])
+    def f3(self):
+        return self.f2 + 'F3'
+    @computed(models.CharField(max_length=32), depends=[('self', ['f2', 'inject'])])
+    def f4(self):
+        return self.f2 + self.inject
+    @computed(models.CharField(max_length=32), depends=[('self', ['f4'])])
+    def f5(self):
+        return self.f4 + 'F5'
+class ProxyAllLocal(AllLocal):
+    class Meta:
+        proxy = True
 
 
 # test different querysizes
