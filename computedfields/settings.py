@@ -10,19 +10,16 @@ DEFAULTS = {
     'COMPUTEDFIELDS_ALLOW_RECURSION': False,
 
     # batchsize for bulk_update
-    'COMPUTEDFIELDS_BATCHSIZE': 100,
+    'COMPUTEDFIELDS_BATCHSIZE_BULK': 100,
 
     # batchsize for fast_update
-    'COMPUTEDFIELDS_BATCHSIZE_FAST': 1000,
+    'COMPUTEDFIELDS_BATCHSIZE_FAST': 10000,
 
     # whether to use fast_update
     'COMPUTEDFIELDS_FASTUPDATE': False,
 
-    # path to pickled map file
-    'COMPUTEDFIELDS_MAP': None,
-
     # batchsize of select queries done by resolver
-    'COMPUTEDFIELDS_QUERYSIZE': 2000
+    'COMPUTEDFIELDS_QUERYSIZE': 10000
 }
 
 

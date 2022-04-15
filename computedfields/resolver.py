@@ -6,9 +6,9 @@ from collections import OrderedDict
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
+from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
 from .helper import proxy_to_base_model, slice_iterator, subquery_pk
 from . import __version__
@@ -85,13 +85,9 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
-        #self._batchsize: int = settings.COMPUTEDFIELDS_BATCHSIZE
-        self.use_fastupdate: bool = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False)
-        self._batchsize: int = getattr(
-            settings,
-            'COMPUTEDFIELDS_BATCHSIZE',
-            10000 if self.use_fastupdate else 100
-        )
+        self.use_fastupdate: bool = settings.COMPUTEDFIELDS_FASTUPDATE
+        self._batchsize: int = (settings.COMPUTEDFIELDS_BATCHSIZE_FAST
+            if self.use_fastupdate else settings.COMPUTEDFIELDS_BATCHSIZE_BULK)
 
         # some internal states
         self._sealed: bool = False        # initial boot phase

@@ -39,7 +39,7 @@ The module respects optional settings in `settings.py`:
     recursion check. This comes with the drawback, that the underlying graph cannot
     linearize and optimize the update paths anymore.
 
-- ``COMPUTEDFIELDS_BATCHSIZE``
+- ``COMPUTEDFIELDS_BATCHSIZE_BULK`` and ``COMPUTEDFIELDS_BATCHSIZE_FAST``
     Set the batch size used for computed field updates by the auto resolver.
     Internally the resolver updates computed fields either by `bulk_update` or `fast_update`,
     which might penalize update performance for very big updates due high memory usage or
@@ -49,7 +49,7 @@ The module respects optional settings in `settings.py`:
     `bulk_update`), for `fast_update` higher values in 10000 to 100k are still reasonable,
     if RAM usage is no concern. If not explicitly set in `settings.py` the default value will be
     set to 100 for `bulk_update` and 10000 for `fast_update`.
-    This setting might be further restricted by certain database adapters.
+    The batch size might be further restricted by certain database adapters.
 
 - ``COMPUTEDFIELDS_FASTUPDATE`` (Beta)
     Set this to ``True`` to use `fast_update` from  :mod:`django-fast-update` instead of
