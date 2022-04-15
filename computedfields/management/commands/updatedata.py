@@ -133,6 +133,9 @@ class Command(BaseCommand):
             if not amount:
                 continue
             if show_progress:
+                # adjust stepping for small amounts, so we still get a progressbar running
+                if size > amount/100:
+                    size = amount // 100 or 1
                 with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
                     # FIXME: slices for now (penalizes high batches!), use update signals once we have those
                     # interim solution - slice amount only up to 1/100th (percent)?
