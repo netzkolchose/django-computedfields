@@ -15,6 +15,7 @@ from ._helpers import retrieve_computed_models, HAS_TQDM, tqdm
 from typing import Type, cast
 from django.db.models import Model
 
+
 # TODO:
 # - use eprint like in checkdata
 # - silent switch
@@ -53,7 +54,7 @@ class Command(BaseCommand):
             '-q', '--querysize',
             default=settings.COMPUTEDFIELDS_QUERYSIZE,
             type=int,
-            help='Set queryset size, default: 2000 or value from settings.py.'
+            help='Set queryset size, default: 10000 or value from settings.py.'
         )
 
     def handle(self, *app_labels, **options):
@@ -90,24 +91,28 @@ class Command(BaseCommand):
             print(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
             if not amount:
                 continue
-            pos = 0
-            with tqdm(total=amount, desc='  Update', unit=' rec', disable=not progress) as bar:
-                while pos < amount:
-                    active_resolver.update_dependent(model.objects.filter(pk__in=desync[pos:pos+size]))
-                    progressed = min(pos+size, amount) - pos
-                    bar.update(progressed)
-                    pos += size
+            if progress:
+                qsize = size
+                if qsize > amount/100:
+                    qsize = amount // 100 or 1
+                with tqdm(total=amount, desc='  Update', unit=' rec') as bar:
+                    pos = 0
+                    while pos < amount:
+                        active_resolver.update_dependent(model.objects.filter(pk__in=desync[pos:pos+qsize]))
+                        progressed = min(pos+qsize, amount) - pos
+                        bar.update(progressed)
+                        pos += qsize
+            else:
+                active_resolver.update_dependent(model.objects.filter(pk__in=desync))
 
     @transaction.atomic
     def action_default(self, models, size, show_progress, mode=''):
         """
         Runs either in fast or bulk mode, whatever was set in settings.
         """
-        # TODO: move this outside of transaction?
         if not mode:
-            if settings.COMPUTEDFIELDS_FASTUPDATE:
-                mode = 'fast'
-            print(f'Update mode: settings.py --> {mode or "bulk"}')
+            mode = 'fast' if settings.COMPUTEDFIELDS_FASTUPDATE else 'bulk'
+            print(f'Update mode: settings.py --> {mode}')
 
         print(f'Default querysize: {size}')
         print('Models:')
