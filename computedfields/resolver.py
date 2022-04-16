@@ -337,7 +337,7 @@ class Resolver:
         # TODO: cleanup type mess here including this workaround
         if isinstance(instance, QuerySet):
             from django.db import connections
-            if not instance.query.can_filter(): # and connections[instance.db].vendor == 'mysql':
+            if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
                 instance = set(instance.values_list('pk', flat=True).iterator())
 
         model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
@@ -519,7 +519,6 @@ class Resolver:
             queryset = queryset.distinct()
         else:
             queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
-        #queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)

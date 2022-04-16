@@ -14,10 +14,11 @@ class Foo(ComputedFieldsModel):
         # note - the slice here is needed to get proper compare between
         # loop and bulk/fast mode in updatedata
         # background: bulk_update and fast_update do not raise on values not
-        # fitting into columns of smaller size, which makes checkdata always fail
+        # fitting into columns of smaller size, instead silently truncating values,
+        # thus a later checkdata run always reports desync values
         # (db value always != python calculated value)
-        # TODO: investigate, whether thats an intended/expected inconsistency to .save
-        # --> django ticket: https://code.djangoproject.com/ticket/33647
+        # --> created django ticket: https://code.djangoproject.com/ticket/33647
+        # TODO: Do we need a warning about the silent truncation in the docs?
         return ', '.join(Baz.objects.filter(
             bar__foo=self).values_list('name', flat=True))[:32]
 

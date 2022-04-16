@@ -120,6 +120,8 @@ class Command(BaseCommand):
             print(f'  Records: {amount}')
             print(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
 
+            # TODO: dummy test code to get some idea about long taking tasks in the update tree
+            # this is linked to bad perf from slicing and distinct() calls in bulk_updater (#101)
             ##qs = qs.filter(pk__in=range(1, 1001))
             #counted = count_dependent(qs)
             #explained = explain_dependent(qs, query_pks=False)
@@ -133,18 +135,19 @@ class Command(BaseCommand):
             if not amount:
                 continue
             if show_progress:
-                # adjust stepping for small amounts, so we still get a progressbar running
-                if size > amount/100:
-                    size = amount // 100 or 1
+                # to show progress we use slices for now, which penalizes big batches alot
+                # TODO: use update signals once we have those
+                # adjust stepping for small amounts, so we still get a meaningful progressbar
+                qsize = size
+                if qsize > amount/100:
+                    qsize = amount // 100 or 1
                 with tqdm(total=amount, desc='  Progress', unit=' rec') as bar:
-                    # FIXME: slices for now (penalizes high batches!), use update signals once we have those
-                    # interim solution - slice amount only up to 1/100th (percent)?
                     pos = 0
                     while pos < amount:
-                        active_resolver.update_dependent(qs.order_by('pk')[pos:pos+size], querysize=size)
-                        progress = min(pos+size, amount) - pos
+                        active_resolver.update_dependent(qs.order_by('pk')[pos:pos+qsize], querysize=qsize)
+                        progress = min(pos+qsize, amount) - pos
                         bar.update(progress)
-                        pos += size
+                        pos += qsize
             else:
                 active_resolver.update_dependent(qs, querysize=size)
 
