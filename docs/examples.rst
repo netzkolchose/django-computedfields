@@ -618,6 +618,15 @@ that have dependency intersections, example:
 
 This deviation from Django's default behavior favours data integrity over strict field listing.
 
+.. NOTE::
+
+    The `update_fields` expansion currently works only in the normal field --> computed fields direction,
+    not the opposite way. This means, that you can craft a desync value by accident, if you placed
+    the computed field's name manually in `update_fields`, but forgot to list the original source field.
+    For the example above calling ``my_model.save(update_fields=['uppername'])`` after a change to
+    `my_model.name` will create such a desync value. You can easily avoid that by never placing any
+    computed field names into `update_fields` yourself (just let the resolver do its job).
+
 
 Using `select_related`
 ^^^^^^^^^^^^^^^^^^^^^^
