@@ -113,7 +113,6 @@ class Command(BaseCommand):
                 self.eprint(self.style.SUCCESS (f'  Desync: 0 records'))
             else:
                 has_desync = True
-                # if we found desyncs, also reveal tainted ones
                 self.eprint(self.style.WARNING(f'  Desync: {len(desync)} records ({percent(len(desync), amount)})'))
                 if not self.silent and not self.skip_tainted:
                     mode, tainted = try_tainted(qs, desync, amount)
@@ -150,6 +149,19 @@ def check_instance(model, fields, obj):
 
 
 def try_tainted(qs, desync, amount):
+    """
+    Try to reveal tainted follow-up cf records opportunistically.
+    Since this is only to give an idea of maybe wrong records in the database,
+    we are not interested in exact numbers. We only do an exact calculation
+    with DFS on the first 1000 desync records. For bigger desyncs the numbers
+    get later marked with '>>' to indicate, that the tainted records are much higher.
+    If we encounter a database error from the descent, we only return
+    the tainted follow-up field dependencies.
+
+    The tainted listing gets shortened to TAINTED_MAXLENGTH in any case to not
+    make the output unreadable. It also ensures, that we dont spam tons of records
+    for recursive models.
+    """
     mode = 'concrete'
     if len(desync) == amount:
         _qs = qs
@@ -169,6 +181,9 @@ def try_tainted(qs, desync, amount):
 
 
 def reveal_tainted(qs):
+    """
+    Full DFS taint counter used up to 1000 records.
+    """
     tainted = []
     updates = active_resolver._querysets_for_update(qs.model, qs).values()
     for queryset, fields in updates:
@@ -181,7 +196,6 @@ def reveal_tainted(qs):
 def bulk_counter(qs, f, level, store):
     if len(store) >= TAINTED_MAXLENGTH:
         return
-    # FIXME: use count here, instead of exists & pk extraction (we are not interested in pk resolution)
     if qs.exists():
         pks = set(qs.values_list('pk', flat=True).iterator())
         store.append((level, qs.model, f, len(pks)))
@@ -191,6 +205,9 @@ def bulk_counter(qs, f, level, store):
 
 
 def reveal_modeldeps(qs):
+    """
+    DFS model deps aggregator without record count.
+    """
     tainted = []
     updates = active_resolver._querysets_for_update(qs.model, qs).values()
     for queryset, fields in updates:

@@ -412,10 +412,82 @@ Management Commands
     renders the inter-model dependency graph to `filename`. Note that this command currently only handles
     the inter-model graph, not the individual model graphs and final union graph (PRs are welcome).
 
+- ``checkdata``
+    checks values for all computed fields of the given models / apps. Unlike `updatedata`, which also does
+    an implicit value check during DFS, this is an explicit flat value check without tree descent. Therefore
+    it runs much faster in most cases.
+
+    If desync values were found, the command will try to get an idea of tainted follow-up computed fields.
+    Note that the tainted information is only a rough indicator of the real desync state in the database,
+    as it has no means to do a deep value check of all dependants.
+
+    Supported arguments:
+
+    - ``applabel[.modelname]``
+      Check only for models in `applabel`, or model `applabel.modelname`. Leave this empty to check for all
+      known computed field models project-wide.
+    - ``--progress``
+      Show a progressbar during the run (needs :mod:`tqdm` to be installed).
+    - ``--querysize NUMBER``
+      See ``COMPUTEDFIELDS_QUERYSIZE``.
+    - ``--json FILENAME``
+      Output desync field data to `FILENAME` as JSONL. Can be used to speedup a later `updatedata` call.
+    - ``--silent``
+      Silence normal output.
+    - ``--skip-tainted``
+      Skip scanning for tainted follow-ups.
+
 - ``updatedata``
-    does a full update on all project-wide computed fields. Useful if you ran into serious out of sync issues,
-    did multiple bulk changes or after applying fixtures. Note that this command is currently not runtime
-    optimized (PRs are welcome).
+    does a full update on computed fields and their follow-up dependants of the given models / apps.
+    After bigger project manipulations like applying fixtures, heavy migrations or even after a bunch
+    of bulk changes without calling `update_dependent`, you might face serious desync issues of
+    computed fields (can be checked with `checkdata` command). In such a case use `updatedata` to get
+    field values back in sync.
+
+    Supported arguments:
+
+    - ``applabel[.modelname]``
+      Update only fields on models in `applabel`, or on model `applabel.modelname`. Leave this empty to update
+      all computed fields on all models project-wide.
+    - ``--from-json FILENAME``
+      Read desync field data from `FILENAME`. The desync data can be created with the ``--json`` argument
+      of `checkdata`. Using this mode will greatly lower the needed runtime, as `updatedata` will only
+      walk desync'ed fields and its dependants. For CI scripts the commands can be combined similar to this::
+
+        # run updatedata conditionally
+        ./manage.py checkdata --json filename || ./manage.py updatedata --from-json filename
+        # pipe desync data through
+        ./manage.py checkdata --silent --json - | ./manage.py updatedata --from-json -
+
+      Note that this command mode ignores any given applabels or modelnames (models/fields listed in desync data
+      take precedence).
+
+    - ``--progress``
+      Show a progressbar during the run (needs :mod:`tqdm` to be installed).
+    - ``--mode {loop,bulk,fast}``
+      Set the update operation mode explicitly. By default either `bulk` or `fast` will be used, depending on
+      ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py`. The mode `loop` resembles the old command behavior
+      and will update all computed fields instances by loop-saving. Its usage is strongly discouraged,
+      as it shows very bad update performance (can easily take hours to update bigger tables). This argument
+      has no effect in conjunction with ``--from-json`` (always uses mode from `settings.py`).
+    - ``--querysize NUMBER``
+      See ``COMPUTEDFIELDS_QUERYSIZE``.
+
+- ``showdependencies``
+    lists all models and fields on which a computed field depends. While the `depends` rules in the code are
+    defined as backward dependencies (`"this computed field shall get updated from ..."`), this listing shows
+    the forward dependencies as seen by the resolver after the graph reduction
+    (`"a change to this field shall update computed field ..."`). The forward direction makes it a lot easier
+    to comprehend, when the resolver kicks in or when you have to call `update_dependent` explicitly after
+    bulk actions. The output marks contributing fk fields yellow to emphasize their special need for
+    `preupdate_dependent`. The output reads as follows::
+
+        - source_model:
+            source_field -> target_model [target_field]
+
+    where a change of `source_model.source_field` should create a recalculation of `target_model.target_field`.
+    Note that this listing only contains inter-model and no local field dependencies (`self` rules), thus the
+    full inverse cannot be constructed from it.
 
 
 General Usage Notes

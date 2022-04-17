@@ -18,8 +18,9 @@ from django.db.models import Model
 
 # TODO:
 # - use eprint like in checkdata
-# - silent switch
+# - silent switch?
 # - better progress update story in bulk/fast (signals?)
+# - better distinct handling
 
 
 class Command(BaseCommand):

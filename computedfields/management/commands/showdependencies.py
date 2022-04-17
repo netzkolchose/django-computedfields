@@ -10,12 +10,10 @@ from ._helpers import retrieve_models
 #   - src_model:
 #       src_field: cf_model - cf_field
 # - yellow field names are contributing fks
-# - make a reverse listing option?
-# - option to list self deps (-all)?
 
 
 class Command(BaseCommand):
-    help = 'Show computed field dependencies to foreign models.'
+    help = 'Show computed field dependencies to related models.'
 
     def add_arguments(self, parser):
         parser.add_argument(
