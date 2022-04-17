@@ -46,9 +46,9 @@ The module respects optional settings in `settings.py`:
     expensive SQL evaluation, if done in a single update statement. Here batch size will split
     the update into smaller batches of the given size. For `bulk_update` reasonable batch sizes
     are typically between 100 to 1000 (going much higher will degrade performance a lot with
-    `bulk_update`), for `fast_update` higher values in 10000 to 100k are still reasonable,
+    `bulk_update`), for `fast_update` higher values in 10k to 100k are still reasonable,
     if RAM usage is no concern. If not explicitly set in `settings.py` the default value will be
-    set to 100 for `bulk_update` and 10000 for `fast_update`.
+    set to 100 for `bulk_update` and 10k for `fast_update`.
     The batch size might be further restricted by certain database adapters.
 
 - ``COMPUTEDFIELDS_FASTUPDATE`` (Beta)
@@ -59,6 +59,18 @@ The module respects optional settings in `settings.py`:
     This is likely to change once :mod:`django-fast-update` has seen more in-the-wild testing and fixes.
     Note that `fast_update` relies on recent database versions (see `package description
     <https://github.com/netzkolchose/django-fast-update>`_).
+
+- ``COMPUTEDFIELDS_QUERYSIZE``
+    Limits the query size used by the resolver to slices of the given value (global default is 10k).
+    This setting is mainly to avoid excessive memory usage from big querysets, where a direct
+    evaluation would preload everything into RAM. The global setting acts as a "damper" on all
+    querysets invoked by the resolver, thus will be the stronger limit than batch size above.
+
+    The querysize can be further adjusted for individual computed fields as optional argument on the
+    ``computed`` decorator. This is especially useful, if a certain update path creates a very big
+    interim querysets again running into memory issues.
+
+    Also see :ref:`memory-issues` in examples.
 
 
 Basic usage
@@ -424,18 +436,18 @@ Management Commands
     Supported arguments:
 
     - ``applabel[.modelname]``
-      Check only for models in `applabel`, or model `applabel.modelname`. Leave this empty to check for all
-      known computed field models project-wide.
+        Check only for models in `applabel`, or model `applabel.modelname`. Leave this empty to check for all
+        known computed field models project-wide.
     - ``--progress``
-      Show a progressbar during the run (needs :mod:`tqdm` to be installed).
+        Show a progressbar during the run (needs :mod:`tqdm` to be installed).
     - ``--querysize NUMBER``
-      See ``COMPUTEDFIELDS_QUERYSIZE``.
+        See ``COMPUTEDFIELDS_QUERYSIZE`` setting.
     - ``--json FILENAME``
-      Output desync field data to `FILENAME` as JSONL. Can be used to speedup a later `updatedata` call.
+        Output desync field data to `FILENAME` as JSONL. Can be used to speedup a later `updatedata` call.
     - ``--silent``
-      Silence normal output.
+        Silence normal output.
     - ``--skip-tainted``
-      Skip scanning for tainted follow-ups.
+        Skip scanning for tainted follow-ups.
 
 - ``updatedata``
     does a full update on computed fields and their follow-up dependants of the given models / apps.
@@ -447,31 +459,31 @@ Management Commands
     Supported arguments:
 
     - ``applabel[.modelname]``
-      Update only fields on models in `applabel`, or on model `applabel.modelname`. Leave this empty to update
-      all computed fields on all models project-wide.
+        Update only fields on models in `applabel`, or on model `applabel.modelname`. Leave this empty to update
+        all computed fields on all models project-wide.
     - ``--from-json FILENAME``
-      Read desync field data from `FILENAME`. The desync data can be created with the ``--json`` argument
-      of `checkdata`. Using this mode will greatly lower the needed runtime, as `updatedata` will only
-      walk desync'ed fields and its dependants. For CI scripts the commands can be combined similar to this::
+        Read desync field data from `FILENAME`. The desync data can be created with the ``--json`` argument
+        of `checkdata`. Using this mode will greatly lower the needed runtime, as `updatedata` will only
+        walk desync'ed fields and its dependants. For CI scripts the commands can be combined similar to this::
 
-        # run updatedata conditionally
-        ./manage.py checkdata --json filename || ./manage.py updatedata --from-json filename
-        # pipe desync data through
-        ./manage.py checkdata --silent --json - | ./manage.py updatedata --from-json -
+            # run updatedata conditionally
+            ./manage.py checkdata --json file || ./manage.py updatedata --from-json file
+            # pipe desync data through
+            ./manage.py checkdata --silent --json - | ./manage.py updatedata --from-json -
 
-      Note that this command mode ignores any given applabels or modelnames (models/fields listed in desync data
-      take precedence).
+        Note that this command mode ignores any given applabels or modelnames (models/fields listed in desync data
+        take precedence).
 
     - ``--progress``
-      Show a progressbar during the run (needs :mod:`tqdm` to be installed).
+        Show a progressbar during the run (needs :mod:`tqdm` to be installed).
     - ``--mode {loop,bulk,fast}``
-      Set the update operation mode explicitly. By default either `bulk` or `fast` will be used, depending on
-      ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py`. The mode `loop` resembles the old command behavior
-      and will update all computed fields instances by loop-saving. Its usage is strongly discouraged,
-      as it shows very bad update performance (can easily take hours to update bigger tables). This argument
-      has no effect in conjunction with ``--from-json`` (always uses mode from `settings.py`).
+        Set the update operation mode explicitly. By default either `bulk` or `fast` will be used, depending on
+        ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py`. The mode `loop` resembles the old command behavior
+        and will update all computed fields instances by loop-saving. Its usage is strongly discouraged,
+        as it shows very bad update performance (can easily take hours to update bigger tables). This argument
+        has no effect in conjunction with ``--from-json`` (always uses mode from `settings.py`).
     - ``--querysize NUMBER``
-      See ``COMPUTEDFIELDS_QUERYSIZE``.
+        See ``COMPUTEDFIELDS_QUERYSIZE`` setting.
 
 - ``showdependencies``
     lists all models and fields on which a computed field depends. While the `depends` rules in the code are

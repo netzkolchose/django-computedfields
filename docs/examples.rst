@@ -1051,3 +1051,57 @@ To make it short - yes that is possible as long as things are cycle-free. Should
 
 :mod:`django-computedfields` might look like a hammer, but it should not turn all your database needs
 into a nail. Maybe look for some better suited tools crafted for reporting needs.
+
+
+.. _memory-issues:
+
+Avoiding memory issues
+----------------------
+
+Once your tables reach a reasonable size, the memory needs of the update resolver might get out of hand
+without further precautions. The high memory usage mainly comes from the fact, that the ORM will try to
+preallocate model instances, when evaluated directly. For computed fields there are several factors,
+that make high memory usage more likely:
+
+- big record count addressed by a single `update_dependent` call
+- expensive `select_related` and `prefetch_related` rules on computed fields
+- deep nested dependencies or recursions
+
+While the first two simply take more space for having more instances to process or to preload,
+the last point might multiply those needs during DFS tree update (higher levels in the tree have to be held in memory).
+For recursions this will grow exponentially based on recursion depth and branching factor.
+
+With version 0.2.0 :mod:`django-computedfields` introduced a new global setting ``COMPUTEDFIELDS_QUERYSIZE``
+and a new argument `querysize` on the ``computed`` decorator to mitigate those memory issues globally or
+at individual field level.
+
+Note that the memory usage is hard to estimate upfront. If you operate under strict memory conditions with big tables,
+you probably should try to measure memory peaking of your business actions in a development system beforehand,
+while adjusting the querysize parameters.
+
+Some basic rules regarding querysize:
+
+- If your logic only operates on single model instances, you are good to go by ignoring the querysize settings.
+  (There are some exceptions like deep nested recursive dependencies spanning their own big trees, see below.)
+- Huge bulk operations, like calling the `updatedata` command, will suffer first. This can be used to get an idea
+  of the current memory situation for your declared computed fields. Furthermore `updatedata` and `checkdata`
+  support an explicit querysize parameter, which might come handy to find a more appropriate setting for
+  ``COMPUTEDFIELDS_QUERYSIZE`` in your project.
+- If you have almost equally expensive computed fields in terms of memory usage, adjust the global value
+  ``COMPUTEDFIELDS_QUERYSIZE`` to your needs.
+- If there are a few naughty computed fields pulling tons of dependencies, their querysize can be lowered
+  individually on the computed field:
+
+  .. code-block:: python
+
+      # field still exceeds memory limit of global setting, thus limit it further
+      @computed(..., depends=[...], querysize=100)
+      def naughty_deps(self):
+          ...
+
+- Recursive dependencies are the worst and their memory needs will grow exponentially from the recursion depth
+  and branching factor. They typically qualify for very low individual querysize, where you have to pay
+  limited memory with a much higher runtime. Once you reached `querysize=1`, you have tamed the memory beast
+  into linear growing from recursion depth, but might want to take a day off, before the update returns.
+  (Seriously, get more RAM or rework your fields to be less "explosive". While the runtime-for-space-deal
+  works in both directions, more space is typically the cheaper and better scaling one in long term.)
