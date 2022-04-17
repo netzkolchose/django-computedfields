@@ -11,8 +11,16 @@ class Foo(ComputedFieldsModel):
         depends=[('bar_set.baz_set', ['name'])]
     )
     def bazzes(self) -> str:
+        # note - the slice here is needed to get proper compare between
+        # loop and bulk/fast mode in updatedata
+        # background: bulk_update and fast_update do not raise on values not
+        # fitting into columns of smaller size, instead silently truncating values,
+        # thus a later checkdata run always reports desync values
+        # (db value always != python calculated value)
+        # --> created django ticket: https://code.djangoproject.com/ticket/33647
+        # TODO: Do we need a warning about the silent truncation in the docs?
         return ', '.join(Baz.objects.filter(
-            bar__foo=self).values_list('name', flat=True))
+            bar__foo=self).values_list('name', flat=True))[:32]
 
     def __str__(self) -> str:
         return self.name
@@ -27,7 +35,8 @@ class Bar(ComputedFieldsModel):
         depends=[
             ('self', ['name']),
             ('foo', ['name'])
-        ]
+        ],
+        select_related = ['foo']
     )
     def foo_bar(self) -> str:
         return self.foo.name + self.name
@@ -45,7 +54,8 @@ class Baz(ComputedFieldsModel):
         depends=[
             ('self', ['name']),
             ('bar', ['foo_bar'])
-        ]
+        ],
+        select_related = ['bar']
     )
     def foo_bar_baz(self) -> str:
         return self.bar.foo_bar + self.name

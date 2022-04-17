@@ -962,6 +962,7 @@ class MultiC(MultiB):
     f_on_c = models.CharField(max_length=32, default='sub-c')
 
 
+
 # proxy model tests - see test_proxymodels.py
 class ProxyParent(Parent):
     class Meta:
@@ -1010,3 +1011,32 @@ class AllLocal(ComputedFieldsModel):
 class ProxyAllLocal(AllLocal):
     class Meta:
         proxy = True
+
+
+# test different querysizes
+class Querysize(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name'])], querysize=10)
+    def q10(self):
+        return self.name
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name'])], querysize=100)
+    def q100(self):
+        return self.name
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name'])], querysize=1000)
+    def q1000(self):
+        return self.name
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name', 'q10'])], querysize=100)
+    def c_10_100(self):
+        return self.name
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name', 'q10'])], querysize=1)
+    def c_10_1(self):
+        return self.name
+
+    @computed(models.CharField(max_length=32), depends=[('self', ['name'])])
+    def default(self):
+        return self.name

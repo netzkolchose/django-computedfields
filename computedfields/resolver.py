@@ -6,11 +6,11 @@ from collections import OrderedDict
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist
 
+from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
-from .helper import proxy_to_base_model
+from .helper import proxy_to_base_model, slice_iterator, subquery_pk
 from . import __version__
 
 from fast_update.fast import fast_update
@@ -85,12 +85,9 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
-        self.use_fastupdate: bool = getattr(settings, 'COMPUTEDFIELDS_FASTUPDATE', False)
-        self._batchsize: int = getattr(
-            settings,
-            'COMPUTEDFIELDS_BATCHSIZE',
-            10000 if self.use_fastupdate else 100
-        )
+        self.use_fastupdate: bool = settings.COMPUTEDFIELDS_FASTUPDATE
+        self._batchsize: int = (settings.COMPUTEDFIELDS_BATCHSIZE_FAST
+            if self.use_fastupdate else settings.COMPUTEDFIELDS_BATCHSIZE_BULK)
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
@@ -333,6 +330,16 @@ class Resolver:
                 if fieldname in modeldata:
                     updates.add(fieldname)
         subquery = '__in' if isinstance(instance, QuerySet) else ''
+
+        # fix #100
+        # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
+        # thus we extract pks explicitly instead
+        # TODO: cleanup type mess here including this workaround
+        if isinstance(instance, QuerySet):
+            from django.db import connections
+            if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
+                instance = set(instance.values_list('pk', flat=True).iterator())
+
         model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
         for update in updates:
             # first aggregate fields and paths to cover
@@ -352,7 +359,7 @@ class Resolver:
                 # after deleting the instance in question
                 # since we need to interact with the db anyways
                 # we can already drop empty results here
-                queryset = set(queryset.distinct().values_list('pk', flat=True))
+                queryset = set(queryset.values_list('pk', flat=True).iterator())
                 if not queryset:
                     continue
             # FIXME: change to tuple or dict for narrower type
@@ -384,7 +391,8 @@ class Resolver:
         model: Optional[Type[Model]] = None,
         update_fields: Optional[Iterable[str]] = None,
         old: Optional[Dict[Type[Model], List[Any]]] = None,
-        update_local: bool = True
+        update_local: bool = True,
+        querysize: Optional[int] = None
     ) -> None:
         """
         Updates all dependent computed fields on related models traversing
@@ -457,28 +465,29 @@ class Resolver:
             # as local cf updates are not guarded either.
             queryset = instance if isinstance(instance, QuerySet) \
                 else _model.objects.filter(pk__in=[instance.pk])
-            self.bulk_updater(queryset, _update_fields, local_only=True)
+            self.bulk_updater(queryset, _update_fields, local_only=True, querysize=querysize)
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
             with transaction.atomic():  # FIXME: place transaction only once in tree descent
                 pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
-                    _pks = self.bulk_updater(queryset, fields, True)
+                    _pks = self.bulk_updater(queryset, fields, return_pks=True, querysize=querysize)
                     if _pks:
                         pks_updated[queryset.model] = _pks
                 if old:
                     for model2, data in old.items():
                         pks, fields = data
                         queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
-                        self.bulk_updater(queryset, fields)
+                        self.bulk_updater(queryset, fields, querysize=querysize)
 
     def bulk_updater(
         self,
         queryset: QuerySet,
         update_fields: Optional[Set[str]] = None,
         return_pks: bool = False,
-        local_only: bool = False
+        local_only: bool = False,
+        querysize: Optional[int] = None
     ) -> Optional[Set[Any]]:
         """
         Update local computed fields and descent in the dependency tree by calling
@@ -498,21 +507,27 @@ class Resolver:
 
         If `return_pks` is set, the method returns a set of altered pks of `queryset`.
         """
-        queryset = queryset.distinct()
         model: Type[Model] = queryset.model
+
+        # distinct issue workaround
+        # the workaround is needed for already sliced/distinct querysets coming from outside
+        # TODO: distinct is a major query perf smell, and is in fact only needed on back relations
+        #       may need some rework in _querysets_for_update
+        #       ideally we find a way to avoid it for forward relations
+        #       also see #101
+        if queryset.query.can_filter() and not queryset.query.distinct_fields:
+            queryset = queryset.distinct()
+        else:
+            queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)
-        fields: Any = set(mro)  # FIXME: narrow type once issue in djgno-stubs is resolved
+        fields: Any = set(mro)  # FIXME: narrow type once issue in django-stubs is resolved
         if update_fields:
             update_fields.update(fields)
 
-        # TODO: precalc and check prefetch/select related entries during map creation somehow?
-        select: Set[str] = set()
-        prefetch: List[Any] = []
-        for field in fields:
-            select.update(self._computed_models[model][field]._computed['select_related'])
-            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
+        select = self.get_select_related(model, fields)
+        prefetch = self.get_prefetch_related(model, fields)
         if select:
             queryset = queryset.select_related(*select)
         if prefetch:
@@ -520,8 +535,9 @@ class Resolver:
 
         pks = []
         if fields:
+            q_size = self.get_querysize(model, fields, querysize)
             change: List[Model] = []
-            for elem in queryset:
+            for elem in slice_iterator(queryset, q_size):
                 # note on the loop: while it is technically not needed to batch things here,
                 # we still prebatch to not cause memory issues for very big querysets
                 has_changed = False
@@ -546,7 +562,7 @@ class Resolver:
             self.update_dependent(model.objects.filter(pk__in=pks), model, fields, update_local=False)
         return set(pks) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change: Iterable[Any], fields: Sequence[str]) -> None:
+    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Sequence[str]) -> Union[int, None]:
         # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, None)
@@ -600,6 +616,50 @@ class Resolver:
                 stack.append((field, getattr(instance, field)))
                 setattr(instance, field, self._compute(instance, model, field))
 
+    # TODO: the following 3 lookups are very expensive at runtime adding ~2s for 1M calls
+    #       --> all need pregenerated lookup maps
+    # Note: the same goes for get_local_mro and _queryset_for_update...
+    def get_select_related(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None
+    ) -> Set[str]:
+        """
+        Get defined select_related rules for `fields` (all if none given).
+        """
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        select: Set[str] = set()
+        for field in fields:
+            select.update(self._computed_models[model][field]._computed['select_related'])
+        return select
+
+    def get_prefetch_related(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None
+    ) -> List:
+        """
+        Get defined prefetch_related rules for `fields` (all if none given).
+        """
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        prefetch: List[Any] = []
+        for field in fields:
+            prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
+        return prefetch
+
+    def get_querysize(
+        self,
+        model: Type[Model],
+        fields: Optional[Iterable[str]] = None,
+        override: Optional[int] = None
+    ) -> int:
+        base = settings.COMPUTEDFIELDS_QUERYSIZE if override is None else override
+        if fields is None:
+            fields = self._computed_models[model].keys()
+        return min(self._computed_models[model][f]._computed['querysize'] or base for f in fields)
+
     def get_contributing_fks(self) -> IFkMap:
         """
         Get a mapping of models and their local foreign key fields,
@@ -622,7 +682,8 @@ class Resolver:
         field: 'Field[_ST, _GT]',
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
-        prefetch_related: Optional[Sequence[Any]] = None
+        prefetch_related: Optional[Sequence[Any]] = None,
+        querysize: Optional[int] = None
     ) -> Callable[[Callable[..., _ST]], 'Field[_ST, _GT]']:
         """
         Decorator to create computed fields.
@@ -725,7 +786,8 @@ class Resolver:
                 'func': func,
                 'depends': depends or [],
                 'select_related': select_related or [],
-                'prefetch_related': prefetch_related or []
+                'prefetch_related': prefetch_related or [],
+                'querysize': querysize
             }
             cf.editable = False
             self.add_field(cf)

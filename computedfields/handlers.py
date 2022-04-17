@@ -12,6 +12,7 @@ in ``apps.ready``.
 from threading import local
 from django.db import transaction
 from .resolver import active_resolver
+from .settings import settings
 
 # typing imports
 from typing import Any, Dict, Iterable, List, Set, Type, cast
@@ -81,7 +82,9 @@ def postsave_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     if not kwargs.get('raw'):
         active_resolver.update_dependent(
             instance, sender, kwargs.get('update_fields'),
-            old=UPDATE_OLD.pop(instance, None), update_local=False
+            old=UPDATE_OLD.pop(instance, None),
+            update_local=False,
+            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
         )
 
 
@@ -111,7 +114,11 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     if updates:
         with transaction.atomic():
             for model, [pks, fields] in updates.items():
-                active_resolver.bulk_updater(model.objects.filter(pk__in=pks), fields)
+                active_resolver.bulk_updater(
+                    model.objects.filter(pk__in=pks),
+                    fields,
+                    querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                )
 
 
 def merge_pk_maps(
@@ -180,7 +187,11 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         if data_add:
             with transaction.atomic():
                 for queryset, update_fields in data_add.values():
-                    active_resolver.bulk_updater(queryset, update_fields)
+                    active_resolver.bulk_updater(
+                        queryset,
+                        update_fields,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
 
     elif action == 'pre_remove':
         pks_remove: Set[Any] = kwargs['pk_set']
@@ -198,7 +209,11 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         if updates_remove:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_remove.items():
-                    active_resolver.bulk_updater(_model.objects.filter(pk__in=pks), update_fields)
+                    active_resolver.bulk_updater(
+                        _model.objects.filter(pk__in=pks),
+                        update_fields,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
 
     elif action == 'pre_clear':
         data: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
@@ -215,4 +230,8 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         if updates_clear:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_clear.items():
-                    active_resolver.bulk_updater(_model.objects.filter(pk__in=pks), update_fields)
+                    active_resolver.bulk_updater(
+                        _model.objects.filter(pk__in=pks),
+                        update_fields,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )

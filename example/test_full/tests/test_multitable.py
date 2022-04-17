@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import MtBase, MtDerived, MtRelated, MtDerived2, MtSubDerived, MultiBase, MultiA, MultiB, MultiC
+from ..models import MtDerived, MtRelated, MtDerived2, MtSubDerived, MultiBase, MultiA, MultiB, MultiC
 from ..models import ChildModel, ChildModel2, ParentModel, DependsOnParent, DependsOnParentComputed
 from ..models import MtPtrBase, MtPtrDerived
 from computedfields.models import update_dependent
