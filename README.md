@@ -81,9 +81,33 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog ####
+- 0.2.0 - next beta release
+    - new features:
+        - better memory control for the update resolver via
+          ``COMPUTEDFIELDS_QUERYSIZE`` or as argument on ``@computed``
+        - update optimization - early update-tree exit
+        - faster updates with ``COMPUTEDFIELDS_FASTUPDATE``
+        - `checkdata` command
+        - `showdependencies` command
+        - typing support for computed fields
+
+    - enhancements:
+        - better `updatedata` command
+
+    - removed features:
+        - transitive reduction on intermodel graph (due to negative impact)
+        - pickled resolver map (due to showing low benefit)
+        - `update_dependent_multi` and `preupdate_dependent_multi`
+          (due to showing low benefit and being a code nuisance)
+        - Django 2.2 shims removed
+
+    - bug fixes:
+        - regression on proxy models fixed
+        - sliced querset support for mysql fixed
 
 - 0.1.7
     - add list type support for `update_fields` in signal handlers
+
 - 0.1.6
     - maintenace version with CI test dependencies changes:
         - removed Python 3.6
