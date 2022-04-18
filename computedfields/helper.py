@@ -65,6 +65,8 @@ def slice_iterator(qs: 'QuerySet[Model]', size: int) ->  Generator[Model, None, 
         for obj in qs.iterator(size):
             yield obj
     else:
+        # TODO: change to keyset pagination?
+        # see https://use-the-index-luke.com/no-offset
         pos = 0
         while True:
             c = 0

@@ -596,6 +596,82 @@ update performance:
             `ProfileServer` it is easy to find bottlenecks in your project.
 
 
+Measuring with `updatedata`
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The revamped `updatedata` command since version 0.2.0 may help you to get a first impression,
+which computed models perform really bad. The ``-p`` switch will give you a nice progressbar with
+averaged `records/s`.
+
+*Note: The model definitions of the example below can be found in the exampleapp of the source repo.*
+
+**Example** - 1M records in `exampleapp.baz` model, all in sync::
+
+    $> ./manage.py updatedata exampleapp.baz -p
+    Update mode: settings.py --> fast
+    Default querysize: 10000
+    Models:
+    - exampleapp.baz
+      Fields: foo_bar_baz
+      Records: 1000000
+      Querysize: 10000
+      Progress: 100%|████████████████████████████| 1000000/1000000 [00:24<00:00, 41090.11 rec/s]
+
+    Total update time: 0:00:24
+
+Here we measured the select & eval time of `Baz.foo_bar_baz` (which happens to be the only computed
+field on that model), for 1M records. Note that we did not measure any update time yet,
+since the values are already in sync, as the update resolver skips updates of unchanged fields.
+
+Now lets forcefully desync all 1M records (in the mangement shell)::
+
+    >>> from exampleapp.models import Baz
+    >>> Baz.objects.all().update(foo_bar_baz='')
+    1000000
+
+and double check things with `checkdata`::
+
+    $> ./manage.py checkdata exampleapp.baz -p
+    - exampleapp.baz
+      Fields: foo_bar_baz
+      Records: 1000000
+      Check: 100%|███████████████████████████████| 1000000/1000000 [00:21<00:00, 47082.86 rec/s]
+      Desync: 1000000 records (100.0%)
+      Tainted dependants:
+        └─ exampleapp.foo: bazzes (~1000 records)
+
+    Total check time: 0:00:21
+
+100% desync - ok we are good to go and can test the the full select & eval & update costs::
+
+    $> ./manage.py updatedata exampleapp.baz -p
+    Update mode: settings.py --> fast
+    Default querysize: 10000
+    Models:
+    - exampleapp.baz
+      Fields: foo_bar_baz
+      Records: 1000000
+      Querysize: 10000
+      Progress: 100%|████████████████████████████| 1000000/1000000 [00:37<00:00, 26634.51 rec/s]
+
+    Total update time: 0:00:37
+
+As expected this runs a lot slower, almost at only half the speed (yes, updates in relational databases
+are very expensive). But there is also a catch here - `Baz.foo_bar_baz` is actually a source field
+for another computed field `Foo.bazzes`, as indicated by the `checkdata` output. Thus we added
+more work than only updates on `Baz.foo_bar_baz`, also adding select & eval on `Foo.bazzes`.
+(And since `Foo.bazzes` did not really change from the initial sync state, the resolver would see
+them unchanged and not update them).
+
+The update speed is still quite high, which is possible due to using the `fast` update mode.
+With `bulk` it already drops to 4600 rec/s (3:30 min), with `loop` we are at 240 rec/s(1h 10 min).
+Therefore it might be a good idea to activate ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py` for
+update intensive projects.
+
+The example already contains another optimization discussed below - a `select_related` entry for
+`Baz.foo_bar_baz`. Without it, the record throughput drops to 1500 - 2000 rec/s for `fast` or `bulk`.
+
+
 Using `update_fields`
 ^^^^^^^^^^^^^^^^^^^^^
 
@@ -1069,7 +1145,7 @@ Avoiding memory issues
 
 Once your tables reach a reasonable size, the memory needs of the update resolver might get out of hand
 without further precautions. The high memory usage mainly comes from the fact, that the ORM will try to
-preallocate model instances, when evaluated directly. For computed fields there are several factors,
+cache model instances, when evaluated directly. For computed fields there are several factors,
 that make high memory usage more likely:
 
 - big record count addressed by a single `update_dependent` call
@@ -1103,7 +1179,9 @@ Some basic rules regarding querysize:
 
   .. code-block:: python
 
-      # field still exceeds memory limit of global setting, thus limit it further
+      # field selects overly much data for the update,
+      # so limit from COMPUTEDFIELDS_QUERYSIZE is still too high
+      # --> limit it further individually
       @computed(..., depends=[...], querysize=100)
       def naughty_deps(self):
           ...
@@ -1114,3 +1192,11 @@ Some basic rules regarding querysize:
   into linear growing from recursion depth, but might want to take a day off, before the update returns.
   (Seriously, get more RAM or rework your fields to be less "explosive". While the runtime-for-space-deal
   works in both directions, more space is typically the cheaper and better scaling one in long term.)
+
+.. NOTE::
+
+    The resolver determines the real querysize for a certain `ComputedFieldsModel` by pulling the lowest
+    querysize of all to be updated computed fields. Thus it is technically possible to increase the querysize
+    for a model above ``COMPUTEDFIELDS_QUERYSIZE`` by applying higher `querysize` values to all its computed fields.
+    Such a sophisticated fine-tuning might help, if you have identified a big bulk update on one model as the
+    main bottleneck in your business actions, while keeping other uncritical updates at lower throughput and memory.

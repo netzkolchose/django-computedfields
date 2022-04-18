@@ -63,14 +63,12 @@ The module respects optional settings in `settings.py`:
 - ``COMPUTEDFIELDS_QUERYSIZE``
     Limits the query size used by the resolver to slices of the given value (global default is 10k).
     This setting is mainly to avoid excessive memory usage from big querysets, where a direct
-    evaluation would preload everything into RAM. The global setting acts as a "damper" on all
-    querysets invoked by the resolver, thus will be the stronger limit than batch size above.
+    evaluation would try to cache everything into RAM. The global setting acts as a "damper" on all
+    reading querysets invoked by the resolver.
 
-    The querysize can be further adjusted for individual computed fields as optional argument on the
-    ``computed`` decorator. This is especially useful, if a certain update path creates a very big
-    interim querysets again running into memory issues.
-
-    Also see :ref:`memory-issues` in examples.
+    The querysize can be further adjusted for individual computed fields as optional argument `querysize`
+    on the ``@computed`` decorator. This is especially useful, if a field has overly complicated
+    dependencies pulling much more into memory than other fields. Also see :ref:`memory-issues` in examples.
 
 
 Basic usage
