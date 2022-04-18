@@ -601,7 +601,7 @@ Measuring with `updatedata`
 
 The revamped `updatedata` command since version 0.2.0 may help you to get a first impression,
 which computed models perform really bad. The ``-p`` switch will give you a nice progressbar with
-averaged `records/s`.
+averaged `records/s` (needs :mod:`tqdm` to be installed).
 
 *Note: The model definitions of the example below can be found in the exampleapp of the source repo.*
 
@@ -620,8 +620,8 @@ averaged `records/s`.
     Total update time: 0:00:24
 
 Here we measured the select & eval time of `Baz.foo_bar_baz` (which happens to be the only computed
-field on that model), for 1M records. Note that we did not measure any update time yet,
-since the values are already in sync, as the update resolver skips updates of unchanged fields.
+field on that model), for 1M records. Though we did not measure any update time yet, since the values
+are already in sync (the update resolver skips updates of unchanged fields).
 
 Now lets forcefully desync all 1M records (in the mangement shell)::
 
@@ -661,10 +661,10 @@ are very expensive). But there is also a catch here - `Baz.foo_bar_baz` is actua
 for another computed field `Foo.bazzes`, as indicated by the `checkdata` output. Thus we added
 more work than only updates on `Baz.foo_bar_baz`, also adding select & eval on `Foo.bazzes`.
 (And since `Foo.bazzes` did not really change from the initial sync state, the resolver would see
-them unchanged and not update them).
+them unchanged and not update anything).
 
 The update speed is still quite high, which is possible due to using the `fast` update mode.
-With `bulk` it already drops to 4600 rec/s (3:30 min), with `loop` we are at 240 rec/s(1h 10 min).
+With `bulk` it already drops to 4600 rec/s (3:30 min), with `loop` we are at 240 rec/s (1h 10 min).
 Therefore it might be a good idea to activate ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py` for
 update intensive projects.
 

@@ -469,8 +469,8 @@ Management Commands
             # pipe desync data through
             ./manage.py checkdata --silent --json - | ./manage.py updatedata --from-json -
 
-        Note that this command mode ignores any given applabels or modelnames (models/fields listed in desync data
-        take precedence).
+        Note that this command mode does not work with applabels or modelnames (always takes models/fields
+        from desync data).
 
     - ``--progress``
         Show a progressbar during the run (needs :mod:`tqdm` to be installed).
@@ -484,9 +484,9 @@ Management Commands
         See ``COMPUTEDFIELDS_QUERYSIZE`` setting.
 
 - ``showdependencies``
-    lists all models and fields on which a computed field depends. While the `depends` rules in the code are
-    defined as backward dependencies (`"this computed field shall get updated from ..."`), this listing shows
-    the forward dependencies as seen by the resolver after the graph reduction
+    lists all related models and fields on which a computed field depends. While the `depends` rules
+    in the code are defined as backward dependencies (`"this computed field shall get updated from ..."`),
+    this listing shows the forward dependencies as seen by the resolver after the graph reduction
     (`"a change to this field shall update computed field ..."`). The forward direction makes it a lot easier
     to comprehend, when the resolver kicks in or when you have to call `update_dependent` explicitly after
     bulk actions. The output marks contributing fk fields yellow to emphasize their special need for
