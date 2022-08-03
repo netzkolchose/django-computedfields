@@ -16,7 +16,7 @@ setup(
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=[
-        'Django>=2.2,<4.1',
+        'Django>=2.2,<4.2',
         'typing_extensions>=4.0.1',
         'django-fast-update'
     ],
