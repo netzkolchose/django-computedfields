@@ -50,7 +50,7 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
-  django_40:
+  django_41:
 
     runs-on: ubuntu-latest
     strategy:
@@ -285,7 +285,7 @@ jobs:
 
 
   coveralls_finish:
-    needs: [django_32, django_40, mysql, postgres, mariadb, sqlite333]
+    needs: [django_32, django_41, mysql, postgres, mariadb, sqlite333]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
