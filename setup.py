@@ -28,7 +28,7 @@ setup(
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.0.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.1.tar.gz',
     keywords=['django', 'method', 'decorator', 'autoupdate', 'persistent', 'field'],
     classifiers=[
         'Development Status :: 4 - Beta',
@@ -38,7 +38,7 @@ setup(
         'Topic :: Software Development :: Libraries',
         'Framework :: Django',
         'Framework :: Django :: 3.2',
-        'Framework :: Django :: 4.0',
+        'Framework :: Django :: 4.1',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.7',
