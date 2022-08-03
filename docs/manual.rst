@@ -165,9 +165,9 @@ pulls data from.
             # normal invocation with correct data pull across correct relation
             return self.nullable_relation.field
 
-    A special case in this regard are m2m relations during the first save of a newly
-    created instance, which cannot access the relation yet. You have to handle this case
-    explicitly as well:
+    A special case in this regard are m2m relations (and also backrelations under Django >=4.1)
+    during the first save of a newly created instance, which cannot access the relation yet.
+    You have to handle this case explicitly:
 
     .. CODE:: python
 
@@ -582,6 +582,9 @@ a similar feature in Django's ORM.
 
 Changelog
 ---------
+
+- 0.2.1
+    - Django 4.1 support
 - 0.2.0 - next beta release
     - new features:
         - better memory control for the update resolver via

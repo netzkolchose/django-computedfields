@@ -75,6 +75,8 @@ class NoRelatedA(ComputedFieldsModel):
     ])
     def comp(self):
         res = [self.name]
+        if not self.pk:
+            return '#'.join(res)
         for b in self.norelatedb_set.all():
             res.append(b.name)
             for c in b.norelatedc_set.all():
@@ -163,11 +165,15 @@ class PartialUpdateB(ComputedFieldsModel):
 class Parent(ComputedFieldsModel):
     @computed(models.IntegerField(default=0), depends=[('children', ['parent'])])
     def children_count(self):
+        if not self.pk:
+            return 0
         return self.children.all().count()
 
     @computed(models.IntegerField(default=0), depends=[('children.subchildren', ['subparent'])])
     def subchildren_count(self):
         count = 0
+        if not self.pk:
+            return count
         for child in self.children.all():
             count += child.subchildren.all().count()
         return count
@@ -176,6 +182,8 @@ class Parent(ComputedFieldsModel):
     def subchildren_count_proxy(self):
         from functools import reduce
         from operator import add
+        if not self.pk:
+            return 0
         return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
 
 class Child(ComputedFieldsModel):
@@ -183,6 +191,8 @@ class Child(ComputedFieldsModel):
 
     @computed(models.IntegerField(default=0), depends=[('subchildren', ['subparent'])])
     def subchildren_count(self):
+        if not self.pk:
+            return 0
         return self.subchildren.all().count()
 
 class Subchild(models.Model):
@@ -192,6 +202,8 @@ class Subchild(models.Model):
 class XParent(ComputedFieldsModel):
     @computed(models.IntegerField(default=0), depends=[('children', ['value'])])
     def children_value(self):
+        if not self.pk:
+            return 0
         return self.children.all().aggregate(sum=models.Sum('value'))['sum'] or 0
 
 class XChild(models.Model):
@@ -204,6 +216,8 @@ class DepBaseA(ComputedFieldsModel):
     @computed(models.CharField(max_length=256), depends=[('sub1.sub2.subfinal', ['name'])])
     def final_proxy(self):
         s = ''
+        if not self.pk:
+            return s
         for s1 in self.sub1.all().order_by('pk'):
             for s2 in s1.sub2.all().order_by('pk'):
                 for sf in s2.subfinal.all().order_by('pk'):
@@ -214,6 +228,8 @@ class DepBaseB(ComputedFieldsModel):
     @computed(models.CharField(max_length=256), depends=[('sub1.sub2.subfinal', ['name'])])
     def final_proxy(self):
         s = ''
+        if not self.pk:
+            return s
         for s1 in self.sub1.all().order_by('pk'):
             for s2 in s1.sub2.all().order_by('pk'):
                 for sf in s2.subfinal.all().order_by('pk'):
@@ -256,11 +272,15 @@ class Concrete(Abstract):
 class ParentOfAbstract(ComputedFieldsModel):
     @computed(models.IntegerField(default=0), depends=[('children', ['parent'])])
     def children_count(self):
+        if not self.pk:
+            return 0
         return self.children.all().count()
 
     @computed(models.IntegerField(default=0), depends=[('children.subchildren', ['subparent'])])
     def subchildren_count(self):
         count = 0
+        if not self.pk:
+            return count
         for child in self.children.all():
             count += child.subchildren.all().count()
         return count
@@ -269,6 +289,8 @@ class ParentOfAbstract(ComputedFieldsModel):
     def subchildren_count_proxy(self):
         from functools import reduce
         from operator import add
+        if not self.pk:
+            return 0
         return reduce(add, (el.subchildren_count for el in self.children.all()), 0)
 
 
@@ -282,6 +304,8 @@ class AbstractChild(ComputedFieldsModel):
 class ConcreteChild(AbstractChild):
     @computed(models.IntegerField(default=0), depends=[('subchildren', ['subparent'])])
     def subchildren_count(self):
+        if not self.pk:
+            return 0
         return self.subchildren.all().count()
 
 
@@ -472,6 +496,8 @@ class ParentReverseNotO(ComputedFieldsModel):
     )
     def children_comp(self):
         s = []
+        if not self.pk:
+            return '$'.join(s)
         for child in self.children.all():
             substr = child.name
             ss = []
@@ -502,6 +528,8 @@ class ParentReverseO(ComputedFieldsModel):
     )
     def children_comp(self):
         s = []
+        if not self.pk:
+            return '$'.join(s)
         for child in self.children.all():
             substr = child.name
             ss = []
@@ -572,6 +600,8 @@ class Registration(ComputedFieldsModel):
     @computed(models.FloatField(default=0), depends=[('payment_set', ['amount'])])
     def total_amount(self):
         paid = 0
+        if not self.pk:
+            return paid
         for cur_payment in self.payment_set.all():
             paid += cur_payment.amount
         return paid
@@ -697,6 +727,8 @@ class FixtureParent(ComputedFieldsModel):
 
     @computed(models.IntegerField(default=0), depends=[('children', ['parent'])])
     def children_count(self):
+        if not self.pk:
+            return 0
         return self.children.count()
 
 class FixtureChild(ComputedFieldsModel):

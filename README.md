@@ -81,6 +81,10 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog ####
+
+- 0.2.1
+    - Django 4.1 support
+
 - 0.2.0 - next beta release
     - new features:
         - better memory control for the update resolver via

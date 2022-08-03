@@ -14,9 +14,9 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
                   'func': lambda self: self.name},
             # one fk back step deps to comp field
             'F': {'depends': [('self', ['name']), ('fg_f', ['comp'])],
-                  'func': lambda self: self.name + ''.join(self.fg_f.all().values_list('comp', flat=True).order_by('pk'))},
+                  'func': lambda self: self.name + (''.join(self.fg_f.all().values_list('comp', flat=True).order_by('pk')) if self.pk else '')},
             'E': {'depends': [('self', ['name']), ('ef_f', ['comp'])],
-                  'func': lambda self: self.name + ''.join(self.ef_f.all().values_list('comp', flat=True).order_by('pk'))},
+                  'func': lambda self: self.name + (''.join(self.ef_f.all().values_list('comp', flat=True).order_by('pk')) if self.pk else '')},
             # multi fk back steps deps to non comp field
             'C': {'depends': [('self', ['name']), ('cd_f.de_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
