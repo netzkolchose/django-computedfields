@@ -8,9 +8,9 @@ class MultipleDependenciesOne(GenericModelTestBase):
             'C': {'depends': [('self', ['name']), ('f_cb.f_ba.ag_f.gd_f', ['name']), ('cd_f.de_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
                       MODELS['D'].objects.filter(f_dg__in=MODELS['G'].objects.filter(
-                          f_ga=self.f_cb.f_ba)).values_list('name', flat=True).order_by('pk')) + ''.join(
+                          f_ga=self.f_cb.f_ba)).values_list('name', flat=True).order_by('pk')) + (''.join(
                       MODELS['E'].objects.filter(f_ed__in=self.cd_f.all()).values_list('name', flat=True).order_by('pk')
-                  )},
+                  ) if self.pk else '')},
         })
         self.a = self.models.A(name='a')
         self.a.save()
@@ -96,10 +96,11 @@ class MultipleDependenciesTwo(GenericModelTestBase):
         self.setDeps({
             # fk_back + fk_back + fk_back + fk + fk + fk
             'D': {'depends': [['self', ['name']], ['de_f.ef_f.fg_f.f_ga.f_ac.f_cb', ['name']], ['f_dc.f_cb', ['name']]],
-                  'func': lambda self: self.name + ''.join(filter(bool, MODELS['G'].objects.filter(
+                  'func': lambda self: self.name + (''.join(filter(bool, MODELS['G'].objects.filter(
                       f_gf__in=MODELS['F'].objects.filter(
                           f_fe__in=self.de_f.all())).values_list(
-                      'f_ga__f_ac__f_cb__name', flat=True))) + self.f_dc.f_cb.name}
+                      'f_ga__f_ac__f_cb__name', flat=True))) if self.pk else '') + self.f_dc.f_cb.name
+            }
         })
         self.a = self.models.A(name='a')
         self.a.save()
