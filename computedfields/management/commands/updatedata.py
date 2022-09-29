@@ -99,12 +99,12 @@ class Command(BaseCommand):
                 with tqdm(total=amount, desc='  Update', unit=' rec') as bar:
                     pos = 0
                     while pos < amount:
-                        active_resolver.update_dependent(model.objects.filter(pk__in=desync[pos:pos+qsize]))
+                        active_resolver.update_dependent(model._base_manager.filter(pk__in=desync[pos:pos+qsize]))
                         progressed = min(pos+qsize, amount) - pos
                         bar.update(progressed)
                         pos += qsize
             else:
-                active_resolver.update_dependent(model.objects.filter(pk__in=desync))
+                active_resolver.update_dependent(model._base_manager.filter(pk__in=desync))
 
     @transaction.atomic
     def action_default(self, models, size, show_progress, mode=''):
@@ -118,7 +118,7 @@ class Command(BaseCommand):
         print(f'Default querysize: {size}')
         print('Models:')
         for model in models:
-            qs = model.objects.all()
+            qs = model._base_manager.all()
             amount = qs.count()
             fields = set(active_resolver.computed_models[model].keys())
             print(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
@@ -179,7 +179,7 @@ class Command(BaseCommand):
             from django.conf import settings as ds
             ds.COMPUTEDFIELDS_QUERYSIZE = size
         for model in models:
-            qs = model.objects.all()
+            qs = model._base_manager.all()
             amount = qs.count()
             fields = list(active_resolver.computed_models[model].keys())
             qsize = active_resolver.get_querysize(model, fields, size)

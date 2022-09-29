@@ -166,7 +166,7 @@ class ComputedModelsAdmin(admin.ModelAdmin):
         Render modelgraph view.
         """
         try:
-            inst = self.model.objects.get(pk=modelid)
+            inst = self.model._base_manager.get(pk=modelid)
             model = apps.get_model(inst.app_label, inst.model)
         except ObjectDoesNotExist:
             error = 'illegal value for model'

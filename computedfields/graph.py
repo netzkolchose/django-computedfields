@@ -650,8 +650,8 @@ class ComputedModelsGraph(Graph):
 
         .. code:: python
 
-            qs = target_model.objects.filter(filter_string=src_model.instance)
-            qs |= target_model.objects.filter(filter_string2=src_model.instance)
+            qs = target_model._base_manager.filter(filter_string=src_model.instance)
+            qs |= target_model._base_manager.filter(filter_string2=src_model.instance)
             ...
             bulk_updater(qs, cf_fields)
 

@@ -78,7 +78,7 @@ class Command(BaseCommand):
     def action_check(self, models, progress, size, json_out):
         has_desync = False
         for model in models:
-            qs = model.objects.all()
+            qs = model._base_manager.all()
             amount = qs.count()
             fields = set(active_resolver.computed_models[model].keys())
             qsize = active_resolver.get_querysize(model, fields, size)

@@ -115,7 +115,7 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         with transaction.atomic():
             for model, [pks, fields] in updates.items():
                 active_resolver.bulk_updater(
-                    model.objects.filter(pk__in=pks),
+                    model._base_manager.filter(pk__in=pks),
                     fields,
                     querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                 )
@@ -146,7 +146,7 @@ def merge_qs_maps(
     Updates obj1 inplace and also returns it.
     """
     for model, [qs2, fields2] in obj2.items():
-        query_field = obj1.setdefault(model, [model.objects.none(), set()])
+        query_field = obj1.setdefault(model, [model._base_manager.none(), set()])
         query_field[0] |= qs2            # or'ed querysets
         query_field[1].update(fields2)   # add fields
     return obj1
@@ -181,7 +181,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         data_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
             type(instance), instance, update_fields={left})
         other_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model.objects.filter(pk__in=pks_add), update_fields={right})
+            model, model._base_manager.filter(pk__in=pks_add), update_fields={right})
         if other_add:
             merge_qs_maps(data_add, other_add)
         if data_add:
@@ -198,7 +198,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         data_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
             type(instance), instance, update_fields={left}, pk_list=True)
         other_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model.objects.filter(pk__in=pks_remove), update_fields={right}, pk_list=True)
+            model, model._base_manager.filter(pk__in=pks_remove), update_fields={right}, pk_list=True)
         if other_remove:
             merge_pk_maps(data_remove, other_remove)
         if data_remove:
@@ -210,7 +210,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_remove.items():
                     active_resolver.bulk_updater(
-                        _model.objects.filter(pk__in=pks),
+                        _model._base_manager.filter(pk__in=pks),
                         update_fields,
                         querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                     )
@@ -231,7 +231,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_clear.items():
                     active_resolver.bulk_updater(
-                        _model.objects.filter(pk__in=pks),
+                        _model._base_manager.filter(pk__in=pks),
                         update_fields,
                         querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                     )
