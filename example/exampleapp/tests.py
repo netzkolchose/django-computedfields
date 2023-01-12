@@ -99,13 +99,17 @@ def create_instances(n):
     return inst
 
 
+# NOTE: Lowered instances from 10k to 6k to avoid test error with mysql,
+# running into thread stack overrun. As it worked before, this is prolly a change in
+# mysql docker release using now lower thread stack limits.
+# Alternatively we could have lowered COMPUTEDFIELDS_BATCHSIZE_FAST in settings.
 class TestBigUpdate(TestCase):
     def setUp(self) -> None:
-        print('create 10000 records of SelfRef:')
-        _ = timer(lambda : SelfRef.objects.bulk_create(create_instances(10000)))
+        print('create 6000 records of SelfRef:')
+        _ = timer(lambda : SelfRef.objects.bulk_create(create_instances(6000)))
     
     def test_updatetime(self):
-        print('update 10000 records of SelfRef:')
+        print('update 6000 records of SelfRef:')
         timer(lambda : update_dependent(SelfRef.objects.all()))
-        print('check 10000 records of SelfRef:')
+        print('check 6000 records of SelfRef:')
         timer(lambda : update_dependent(SelfRef.objects.all()))
