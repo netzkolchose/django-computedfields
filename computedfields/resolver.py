@@ -351,9 +351,9 @@ class Resolver:
                 m_paths.update(paths)
         for model, data in model_updates.items():
             fields, paths = data
-            queryset: Any = model.objects.none()
+            queryset: Any = model._base_manager.none()
             for path in paths:
-                queryset |= model.objects.filter(**{path+subquery: instance})
+                queryset |= model._base_manager.filter(**{path+subquery: instance})
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
@@ -464,7 +464,7 @@ class Resolver:
             # We skip a transaction here in the same sense,
             # as local cf updates are not guarded either.
             queryset = instance if isinstance(instance, QuerySet) \
-                else _model.objects.filter(pk__in=[instance.pk])
+                else _model._base_manager.filter(pk__in=[instance.pk])
             self.bulk_updater(queryset, _update_fields, local_only=True, querysize=querysize)
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
@@ -518,7 +518,7 @@ class Resolver:
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
             queryset = queryset.distinct()
         else:
-            queryset = model.objects.filter(pk__in=subquery_pk(queryset, queryset.db))
+            queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
         mro = self.get_local_mro(model, update_fields)
@@ -559,14 +559,14 @@ class Resolver:
         # other than before we exit the update tree early, if we have no changes at all
         # also cuts the update tree for recursive deps (tree-like)
         if not local_only and pks:
-            self.update_dependent(model.objects.filter(pk__in=pks), model, fields, update_local=False)
+            self.update_dependent(model._base_manager.filter(pk__in=pks), model, fields, update_local=False)
         return set(pks) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Sequence[str]) -> Union[int, None]:
         # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, None)
-        return queryset.model.objects.bulk_update(change, fields)
+        return queryset.model._base_manager.bulk_update(change, fields)
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
