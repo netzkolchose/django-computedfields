@@ -7,7 +7,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 3.2 and 4.0 (Python 3.7 to 3.10).
+Tested with Django 3.2 and 4.2 (Python 3.7 to 3.10).
 
 
 #### Example ####
@@ -30,7 +30,7 @@ class MyModel(ComputedFieldsModel):
 `computed_field` will be turned into a real database field
 and can be accessed and searched like any other database field.
 During saving the associated method gets called and it’s result
-written to the database. 
+written to the database.
 
 
 #### How to recalculate without saving the model record ####
@@ -81,6 +81,10 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog ####
+
+- 0.2.2
+    - Django 4.2 support
+    - Use `model._base_manager` instead of `model.objects` to prevent using overridden `models.objects` with a custom manager
 
 - 0.2.1
     - Django 4.1 support
