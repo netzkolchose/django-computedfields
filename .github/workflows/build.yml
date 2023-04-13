@@ -235,57 +235,8 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
-  sqlite333:
-
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10"]
-
-    steps:
-    - uses: actions/checkout@v2
-    - name: Upgrade sqlite to 3.33
-      run: |
-        mkdir sqlite3 && cd sqlite3
-        wget https://github.com/sqlite/sqlite/archive/refs/tags/version-3.33.0.tar.gz
-        tar -xf version-3.33.0.tar.gz
-        cd sqlite-version-3.33.0
-        ./configure && make
-        sudo make install
-        export PATH="/usr/local/lib:$PATH"
-    - uses: kamiazya/setup-graphviz@v1
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install "Django~=4.2"
-        pip install -r example/requirements-ci.txt
-    - name: Setup DB
-      run: |
-        ./example/manage.py makemigrations
-        ./example/manage.py migrate
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
-    - name: Run tests
-      run: |
-        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
-        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
-        coverage combine
-        coverage report
-    - name: Coveralls
-      uses: AndreMiras/coveralls-python-action@develop
-      with:
-        parallel: true
-        flag-name: Unit Test
-
-
   coveralls_finish:
-    needs: [django_32, django_42, mysql, postgres, mariadb, sqlite333]
+    needs: [django_32, django_42, mysql, postgres, mariadb]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
