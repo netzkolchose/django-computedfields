@@ -353,7 +353,7 @@ class Resolver:
             fields, paths = data
             queryset: Any = model._base_manager.none()
             for path in paths:
-                queryset |= model._base_manager.filter(**{path+subquery: instance})
+                queryset = queryset.union(model._base_manager.filter(**{path+subquery: instance}))
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
@@ -516,7 +516,8 @@ class Resolver:
         #       ideally we find a way to avoid it for forward relations
         #       also see #101
         if queryset.query.can_filter() and not queryset.query.distinct_fields:
-            queryset = queryset.distinct()
+            if queryset.query.combinator != "union":
+                queryset = queryset.distinct()
         else:
             queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
 
@@ -550,10 +551,10 @@ class Resolver:
                     change.append(elem)
                     pks.append(elem.pk)
                 if len(change) >= self._batchsize:
-                    self._update(queryset, change, fields)
+                    self._update(model._base_manager.all(), change, fields)
                     change = []
             if change:
-                self._update(queryset, change, fields)
+                self._update(model._base_manager.all(), change, fields)
 
         # trigger dependent comp field updates from changed records
         # other than before we exit the update tree early, if we have no changes at all
