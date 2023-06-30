@@ -82,6 +82,9 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 #### Changelog ####
 
+- 0.2.3
+    - performance improvement: use UNION for multi dependency query construction
+
 - 0.2.2
     - Django 4.2 support
     - Use `model._base_manager` instead of `model.objects` to prevent using overridden `models.objects` with a custom manager

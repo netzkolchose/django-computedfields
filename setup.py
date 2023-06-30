@@ -30,7 +30,7 @@ setup(
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.2.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.3.tar.gz',
     keywords=['django', 'method', 'decorator',
               'autoupdate', 'persistent', 'field'],
     classifiers=[

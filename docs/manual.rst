@@ -583,6 +583,11 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.2.3
+    - performance improvement: use UNION for multi dependency query construction
+- 0.2.2
+    - Django 4.2 support
+    - Use `model._base_manager` instead of `model.objects`
 - 0.2.1
     - Django 4.1 support
 - 0.2.0 - next beta release
