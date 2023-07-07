@@ -151,7 +151,7 @@ def merge_qs_maps(
         query_field[1].update(fields2)   # add fields
     return obj1
 
-
+# M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M
 def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     """
     ``m2m_change`` handler.
@@ -181,7 +181,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         data_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
             type(instance), instance, update_fields={left})
         other_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model._base_manager.filter(pk__in=pks_add), update_fields={right})
+            model, model._base_manager.filter(pk__in=pks_add), update_fields={right}, m2m=instance)
         if other_add:
             merge_qs_maps(data_add, other_add)
         if data_add:
@@ -198,7 +198,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         data_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
             type(instance), instance, update_fields={left}, pk_list=True)
         other_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model._base_manager.filter(pk__in=pks_remove), update_fields={right}, pk_list=True)
+            model, model._base_manager.filter(pk__in=pks_remove), update_fields={right}, pk_list=True, m2m=instance)
         if other_remove:
             merge_pk_maps(data_remove, other_remove)
         if data_remove:
@@ -219,7 +219,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         data: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
             type(instance), instance, update_fields={left}, pk_list=True)
         other: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, getattr(instance, left).all(), update_fields={right}, pk_list=True)
+            model, getattr(instance, left).all(), update_fields={right}, pk_list=True, m2m=instance)
         if other:
             merge_pk_maps(data, other)
         if data:
