@@ -1,4 +1,8 @@
+import operator
+
 from django.test import TestCase
+
+from computedfields.resolver import Resolver
 from ..models import ParentNotO, ChildNotO, SubChildNotO, ParentO, ChildO, SubChildO
 from ..models import (ParentReverseNotO, ChildReverseNotO, SubChildReverseNotO,
                       ParentReverseO, ChildReverseO, SubChildReverseO)
@@ -148,3 +152,22 @@ class PrefetchRelatedOptimization(TestCase):
 
         # should save 10 individual queries, but adds 2 for to prefetch related subs --> 8
         self.assertEqual(unoptimized - optimized, 8)
+
+
+class PipeQueriesOptimization(TestCase):
+
+    def test_join_queries_using_or(self):
+        with self.subTest("No queries to join."):
+            pipe_method = Resolver()._choose_optimal_query_pipe_method({'field1'})
+            self.assertEqual(operator.or_, pipe_method)
+        with self.subTest("Queries with were statement based on same model. Filter on self."):
+            pipe_method = Resolver()._choose_optimal_query_pipe_method({'field1', 'field2'})
+            self.assertEqual(operator.or_, pipe_method)
+        with self.subTest("Queries with were statement based on same model. Filter on external model."):
+            pipe_method = Resolver()._choose_optimal_query_pipe_method({'A__field1', 'A__field2'})
+            self.assertEqual(operator.or_, pipe_method)
+
+    def test_join_queries_using_union(self):
+        with self.subTest("Queries with were statement based on different models."):
+            pipe_method = Resolver()._choose_optimal_query_pipe_method({'A__field1', 'B__field2'})
+            self.assertNotEqual(operator.or_, pipe_method)
