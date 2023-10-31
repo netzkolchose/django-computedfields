@@ -611,6 +611,10 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.2.4
+    - performance improvement: use OR for simple multi dependency query construction
+    - performance improvement: better queryset narrowing for M2M lookups
+    - `ComputedField` for a more declarative code style added
 - 0.2.3
     - performance improvement: use UNION for multi dependency query construction
 - 0.2.2
