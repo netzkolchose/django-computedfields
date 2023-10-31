@@ -147,8 +147,8 @@ def merge_qs_maps(
     """
     for model, [qs2, fields2] in obj2.items():
         query_field = obj1.setdefault(model, [model._base_manager.none(), set()])
-        query_field[0] |= qs2            # or'ed querysets
-        query_field[1].update(fields2)   # add fields
+        query_field[0] = query_field[0].union(qs2)  # or'ed querysets
+        query_field[1].update(fields2)              # add fields
     return obj1
 
 # M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M

@@ -85,6 +85,7 @@ class Resolver:
         self._fk_map: IFkMap = {}
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
+        self._proxymodels: Dict[Type[Model], Type[Model]] = {}
         self.use_fastupdate: bool = settings.COMPUTEDFIELDS_FASTUPDATE
         self._batchsize: int = (settings.COMPUTEDFIELDS_BATCHSIZE_FAST
             if self.use_fastupdate else settings.COMPUTEDFIELDS_BATCHSIZE_BULK)
@@ -280,6 +281,7 @@ class Resolver:
                     self._local_mro[model] = self._local_mro[basemodel]
                 if basemodel in self._m2m:
                     self._m2m[model] = self._m2m[basemodel]
+                self._proxymodels[model] = basemodel or model
 
     def get_local_mro(
         self,
@@ -351,14 +353,12 @@ class Resolver:
                 m_fields.update(fields)
                 m_paths.update(paths)
 
-        m2m_model = type(m2m)   # FIXME: prolly not yet working for proxy models?
-
         # generate narrowed down querysets for all cf dependencies
         for model, data in model_updates.items():
             fields, paths = data
 
             # queryset construction
-            if m2m and m2m_model == model:
+            if m2m and self._proxymodels.get(type(m2m), type(m2m)) == model:
                 # M2M optimization: got called through an M2M signal
                 # narrow updates to the single signal instance
                 queryset = model._base_manager.filter(pk=m2m.pk)
