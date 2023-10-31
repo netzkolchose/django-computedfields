@@ -107,10 +107,38 @@ The ``@computed`` decorator expects a model field instance as first argument to 
 result of the decorated method.
 
 
+Alternative Syntax
+------------------
+
+For a more declarative code style you can use the ``ComputedField`` factory method instead
+(since version 2.4.0):
+
+.. code-block:: python
+
+    from django.db import models
+    from computedfields.models import ComputedFieldsModel, ComputedField
+
+    class Person(ComputedFieldsModel):
+        forename = models.CharField(max_length=32)
+        surname = models.CharField(max_length=32)
+        combined = ComputedField(
+            models.CharField(max_length=32),
+            depends=[('self', ['surname', 'forename'])],
+            compute=lambda inst: f'{inst.surname}, {inst.forename}'
+        )
+
+which yields the same behavior as the decorator. ``ComputedField`` expects
+the same arguments as the decorator, plus the compute function as ``compute``.
+The compute function should expect a model instance as single argument.
+
+While the code examples of this guide use only the decorator syntax,
+they also apply to the declarative syntax with ``ComputedField``.
+
+
 Automatic Updates
 -----------------
 
-The  `depends` keyword argument of the ``@computed`` decorator can be used with any relation
+The  `depends` keyword argument can be used with any relation
 to indicate dependencies to fields on other models as well.
 
 The example above extended by a model ``Address``:
