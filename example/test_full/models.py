@@ -1,6 +1,6 @@
 from django.db import models
 import sys
-from computedfields.models import ComputedFieldsModel, computed, precomputed
+from computedfields.models import ComputedFieldsModel, computed, precomputed, ComputedField
 
 
 def model_factory(name, keys):
@@ -1072,3 +1072,14 @@ class Querysize(ComputedFieldsModel):
     @computed(models.CharField(max_length=32), depends=[('self', ['name'])])
     def default(self):
         return self.name
+
+
+# ComputedField factory: direct usage test
+def calc_d(inst):
+    return inst.a * inst.b
+
+class FactorySimple(ComputedFieldsModel):
+    a = models.IntegerField()
+    b = models.IntegerField()
+    c = ComputedField(models.IntegerField(), compute=lambda inst: inst.a + inst.b)
+    d = ComputedField(models.IntegerField(), compute=calc_d)
