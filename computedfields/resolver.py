@@ -1,13 +1,16 @@
 """
 Contains the resolver logic for automated computed field updates.
 """
-
+import operator
 from collections import OrderedDict
+from functools import reduce
+from itertools import zip_longest
 
 from django.db import transaction
 from django.db.models import QuerySet
 from django.core.exceptions import FieldDoesNotExist
 
+from .helpers import are_same
 from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
 from .helper import proxy_to_base_model, slice_iterator, subquery_pk
@@ -364,9 +367,12 @@ class Resolver:
                 queryset = model._base_manager.filter(pk=m2m.pk)
             else:
                 queryset: Any = model._base_manager.none()
-                for path in paths:
-                    queryset = queryset.union(model._base_manager.filter(**{path+subquery: instance}))
-
+                query_pipe_method = self._choose_optimal_query_pipe_method(paths)
+                queryset = reduce(
+                    query_pipe_method,
+                    (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
+                    queryset
+                )
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
@@ -381,6 +387,28 @@ class Resolver:
     
     def _get_model(self, instance: Union[Model, QuerySet]) -> Type[Model]:
         return instance.model if isinstance(instance, QuerySet) else type(instance)
+
+    def _choose_optimal_query_pipe_method(self, paths: Set[str]) -> Callable:
+        """
+            Choose optimal pipe method, to combine querystes.
+            Returns `|` if there are only one element or the difference is only the fields name, on the same path.
+            Otherwise, return union.
+        """
+        if len(paths) == 1:
+            return operator.or_
+        else:
+            paths_by_parts = tuple(path.split("__") for path in paths)
+            if are_same(*(len(path_in_parts) for path_in_parts in paths_by_parts)):
+                max_depth = len(paths_by_parts[0]) - 1
+                for depth, paths_parts in enumerate(zip(*paths_by_parts)):
+                    if are_same(*paths_parts):
+                        pass
+                    else:
+                        if depth == max_depth:
+                            return operator.or_
+                        else:
+                            break
+        return lambda x, y: x.union(y)
 
     def preupdate_dependent(
         self,
