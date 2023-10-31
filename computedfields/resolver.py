@@ -678,6 +678,84 @@ class Resolver:
             raise ResolverException('resolver has no maps loaded yet')
         return self._fk_map
 
+    def _sanity_check(self, field: Field, depends: IDepends) -> None:
+        """
+        Basic type check for computed field arguments `field` and `depends`.
+        This only checks for proper type alignment (most crude source of errors) to give
+        devs an early startup error for misconfigured computed fields.
+        More subtle errors like non-existing paths or fields are caught
+        by the resolver during graph reduction yielding somewhat crytic error messages.
+
+        There is another class of misconfigured computed fields we currently cannot
+        find by any safety measures - if `depends` provides valid paths and fields,
+        but the function operates on different dependencies. Currently it is the devs'
+        responsibility to perfectly align `depends` entries with dependencies
+        used by the function to avoid faulty update behavior.
+        """
+        if not isinstance(field, Field):
+                raise ResolverException('field argument is not a Field instance')
+        for rule in depends:
+            try:
+                path, fieldnames = rule
+            except ValueError:
+                raise ResolverException(MALFORMED_DEPENDS)
+            if not isinstance(path, str) or not all(isinstance(f, str) for f in fieldnames):
+                raise ResolverException(MALFORMED_DEPENDS)
+
+    def computedfield_factory(
+        self,
+        field: 'Field[_ST, _GT]',
+        compute: Callable[..., _ST],
+        depends: Optional[IDepends] = None,
+        select_related: Optional[Sequence[str]] = None,
+        prefetch_related: Optional[Sequence[Any]] = None,
+        querysize: Optional[int] = None
+    ) -> 'Field[_ST, _GT]':
+        """
+        Factory for computed fields.
+
+        The method gets exposed as ``ComputedField`` to allow a more declarative
+        code style with better separation of field declarations and function
+        implementations. It is also used internally for the ``computed`` decorator.
+        Similar to the decorator, the ``compute`` function expects a single argument
+        as model instance of the model it got applied to.
+
+        Usage example:
+
+        .. code-block:: python
+
+            from computedfields.models import ComputedField
+
+            def calc_mul(inst):
+                return inst.a * inst.b
+
+            class MyModel(ComputedFieldsModel):
+                a = models.IntegerField()
+                b = models.IntegerField()
+                sum = ComputedField(
+                    models.IntegerField(),
+                    depends=[('self', ['a', 'b'])],
+                    compute=lambda inst: inst.a + inst.b
+                )
+                mul = ComputedField(
+                    models.IntegerField(),
+                    depends=[('self', ['a', 'b'])],
+                    compute=calc_mul
+                )
+        """
+        self._sanity_check(field, depends or [])
+        cf = cast('IComputedField[_ST, _GT]', field)
+        cf._computed = {
+            'func': compute,
+            'depends': depends or [],
+            'select_related': select_related or [],
+            'prefetch_related': prefetch_related or [],
+            'querysize': querysize
+        }
+        cf.editable = False
+        self.add_field(cf)
+        return field
+
     def computed(
         self,
         field: 'Field[_ST, _GT]',
@@ -781,30 +859,15 @@ class Resolver:
             Also see the graph documentation :ref:`here<graph>`.
         """
         def wrap(func: Callable[..., _ST]) -> 'Field[_ST, _GT]':
-            self._sanity_check(field, depends or [])
-            cf = cast('IComputedField[_ST, _GT]', field)
-            cf._computed = {
-                'func': func,
-                'depends': depends or [],
-                'select_related': select_related or [],
-                'prefetch_related': prefetch_related or [],
-                'querysize': querysize
-            }
-            cf.editable = False
-            self.add_field(cf)
-            return field
+            return self.computedfield_factory(
+                field,
+                compute=func,
+                depends=depends,
+                select_related=select_related,
+                prefetch_related=prefetch_related,
+                querysize=querysize
+            )
         return wrap
-
-    def _sanity_check(self, field: Field, depends: IDepends) -> None:
-        if not isinstance(field, Field):
-                raise ResolverException('field argument is not a Field instance')
-        for rule in depends:
-            try:
-                path, fieldnames = rule
-            except ValueError:
-                raise ResolverException(MALFORMED_DEPENDS)
-            if not isinstance(path, str) or not all(isinstance(f, str) for f in fieldnames):
-                raise ResolverException(MALFORMED_DEPENDS)
 
     @overload
     def precomputed(self, f: F) -> F:

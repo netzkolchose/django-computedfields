@@ -6,6 +6,7 @@ from .resolver import active_resolver, _ComputedFieldsModelBase
 
 __all__ = [
     'ComputedFieldsModel',
+    'ComputedField',
     'computed',
     'precomputed',
     'compute',
@@ -65,6 +66,10 @@ class ComputedFieldsModel(_ComputedFieldsModelBase, models.Model):
 computed = active_resolver.computed
 #: Convenient access to the decorator :meth:`@precomputed<.resolver.Resolver.precomputed>`.
 precomputed = active_resolver.precomputed
+
+# ComputedField factory
+#: Convenient access to :meth:`computedfield_factory<.resolver.Resolver.computedfield_factory>`.
+ComputedField = active_resolver.computedfield_factory
 
 # computed field updates
 #: Convenient access to :meth:`compute<.resolver.Resolver.compute>`.
