@@ -1083,3 +1083,27 @@ class FactorySimple(ComputedFieldsModel):
     b = models.IntegerField()
     c = ComputedField(models.IntegerField(), compute=lambda inst: inst.a + inst.b)
     d = ComputedField(models.IntegerField(), compute=calc_d)
+
+
+# better M2M handling #131
+class HaTag(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+class Ha(ComputedFieldsModel):
+    tags = models.ManyToManyField(HaTag, blank=True, related_name="ha_s")
+
+    @computed(
+        models.CharField(null=False, blank=True, max_length=100),
+        depends=[("tags", ["name"])],
+    )
+    def all_tags(self):
+        v = [] if not self.pk else list(self.tags.all().values_list('name', flat=True).order_by('pk'))
+        return ','.join(v)
+
+class HaTagProxy(HaTag):
+    class Meta:
+        proxy = True
+
+class HaProxy(Ha):
+    class Meta:
+        proxy = True
