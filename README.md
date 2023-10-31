@@ -2,7 +2,7 @@
 [![Coverage Status](https://coveralls.io/repos/github/netzkolchose/django-computedfields/badge.svg?branch=master)](https://coveralls.io/github/netzkolchose/django-computedfields?branch=master)
 
 
-### django-computedfields ###
+### django-computedfields
 
 django-computedfields provides autoupdated database fields
 for model methods.
@@ -10,7 +10,7 @@ for model methods.
 Tested with Django 3.2 and 4.2 (Python 3.7 to 3.10).
 
 
-#### Example ####
+#### Example
 
 Just derive your model from `ComputedFieldsModel` and place
 the `@computed` decorator at a method:
@@ -33,7 +33,7 @@ During saving the associated method gets called and it’s result
 written to the database.
 
 
-#### How to recalculate without saving the model record ####
+#### How to recalculate without saving the model record
 
 If you need to recalculate the computed field but without saving it, use
 `from computedfields.models import compute`
@@ -75,12 +75,34 @@ class MyModel(ComputedFieldsModel):
 Now changes to `self.name`, `fk` or `fk.fieldname` will update `computed_field`.
 
 
-#### Documentation ####
+#### Alternative Syntax
+
+Instead of using the `@computed` decorator with inline field definitions,
+you can also use a more declarative syntax with `ComputedField`, example from above rewritten:
+
+```python
+from django.db import models
+from computedfields.models import ComputedFieldsModel, ComputedField
+
+def get_upper_string(inst):
+    return inst.name.upper()
+
+class MyModel(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    computed_field = ComputedField(
+        models.CharField(max_length=32),
+        depends=[('self', ['name'])],
+        compute=get_upper_string
+    )
+```
+
+
+#### Documentation
 
 The documentation can be found [here](https://django-computedfields.readthedocs.io/en/latest/index.html).
 
 
-#### Changelog ####
+#### Changelog
 
 - 0.2.3
     - performance improvement: use UNION for multi dependency query construction
