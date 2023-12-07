@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.11"]
+        python-version: ["3.8", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v2
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.8", "3.11"]
+        python-version: ["3.8", "3.11", "3.12"]
 
     steps:
     - uses: actions/checkout@v2
@@ -89,12 +89,51 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
+  django_5:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: kamiazya/setup-graphviz@v1
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install "Django~=5.0"
+        pip install -r example/requirements-ci.txt
+    - name: Setup DB
+      run: |
+        ./example/manage.py makemigrations
+        ./example/manage.py migrate
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
+    - name: Run tests
+      run: |
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
+        coverage combine
+        coverage report
+    - name: Coveralls
+      uses: AndreMiras/coveralls-python-action@develop
+      with:
+        parallel: true
+        flag-name: Unit Test
+        
   mysql:
 
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     services:
       mysql:
         image: mysql:latest
@@ -112,7 +151,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install "Django~=4.2"
+        pip install "Django~=5.0"
         pip install -r example/requirements-ci.txt
     - name: Setup DB
       run: |
@@ -143,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     services:
       mysql:
         image: postgres:latest
@@ -160,7 +199,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install "Django~=4.2"
+        pip install "Django~=5.0"
         pip install -r example/requirements-ci.txt
     - name: Setup DB
       run: |
@@ -191,7 +230,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     services:
       mysql:
         image: postgres:latest
@@ -208,7 +247,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install "Django~=4.2"
+        pip install "Django~=5.0"
         pip install -r example/requirements-ci-psycopg3.txt
     - name: Setup DB
       run: |
@@ -239,7 +278,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     services:
       mysql:
         image: mariadb:latest
@@ -257,7 +296,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install "Django~=4.2"
+        pip install "Django~=5.0"
         pip install -r example/requirements-ci.txt
     - name: Setup DB
       run: |
@@ -284,7 +323,7 @@ jobs:
         flag-name: Unit Test
 
   coveralls_finish:
-    needs: [django_32, django_42, mysql, postgres, postgres-psycopg3, mariadb]
+    needs: [django_32, django_42, django_5, mysql, postgres, postgres-psycopg3, mariadb]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished
