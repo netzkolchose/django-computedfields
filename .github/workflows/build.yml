@@ -34,16 +34,16 @@ jobs:
       run: |
         ./example/manage.py makemigrations
         ./example/manage.py migrate
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine
         coverage report
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
@@ -73,16 +73,16 @@ jobs:
       run: |
         ./example/manage.py makemigrations
         ./example/manage.py migrate
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine
         coverage report
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
@@ -120,10 +120,6 @@ jobs:
         ./example/manage.py migrate
       env:
         DBENGINE: mysql
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
@@ -132,6 +128,10 @@ jobs:
         coverage report
       env:
         DBENGINE: mysql
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
@@ -168,10 +168,6 @@ jobs:
         ./example/manage.py migrate
       env:
         DBENGINE: postgres
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
@@ -180,6 +176,10 @@ jobs:
         coverage report
       env:
         DBENGINE: postgres
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
@@ -216,10 +216,6 @@ jobs:
         ./example/manage.py migrate
       env:
         DBENGINE: postgres
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
@@ -228,6 +224,10 @@ jobs:
         coverage report
       env:
         DBENGINE: postgres
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
@@ -265,10 +265,6 @@ jobs:
         ./example/manage.py migrate
       env:
         DBENGINE: mysql
-    - name: Build docs
-      run: |
-        cd docs && make html
-        cd ../
     - name: Run tests
       run: |
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
@@ -277,6 +273,10 @@ jobs:
         coverage report
       env:
         DBENGINE: mysql
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
     - name: Coveralls
       uses: AndreMiras/coveralls-python-action@develop
       with:
