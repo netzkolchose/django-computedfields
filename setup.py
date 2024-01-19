@@ -18,7 +18,7 @@ setup(
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=[
-        'Django>=2.2,<5.1',
+        'Django>=4.2,<5.1',
         'typing_extensions>=4.1',
         'django-fast-update'
     ],
@@ -30,7 +30,7 @@ setup(
     author='netzkolchose',
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
-    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.4.tar.gz',
+    download_url='https://github.com/netzkolchose/django-computedfields/archive/0.2.5.tar.gz',
     keywords=['django', 'method', 'decorator',
               'autoupdate', 'persistent', 'field'],
     classifiers=[
@@ -40,7 +40,6 @@ setup(
         'Topic :: Database :: Front-Ends',
         'Topic :: Software Development :: Libraries',
         'Framework :: Django',
-        'Framework :: Django :: 3.2',
         'Framework :: Django :: 4.2',
         'Framework :: Django :: 5.0',
         'License :: OSI Approved :: MIT License',

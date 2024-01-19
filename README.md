@@ -103,6 +103,9 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog
+- 0.2.5
+    - Django 5.0 & Python 3.12 support
+    - Django 3.2 support dropped
 - 0.2.4
     - performance improvement: use OR for simple multi dependency query construction
     - performance improvement: better queryset narrowing for M2M lookups
