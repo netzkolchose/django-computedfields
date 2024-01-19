@@ -6,8 +6,8 @@ sphinx_rtd_theme>=0.3.1
 coverage>=5.5.0
 typing_extensions==4.0.1
 
-mysqlclient==2.1.0
-psycopg2-binary==2.9.3
+mysqlclient>=2.1.0
+psycopg2-binary>=2.9.3
 tqdm==4.62.3
 django-fast-update
 alabaster==0.7.12
