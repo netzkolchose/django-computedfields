@@ -20,11 +20,15 @@ class ForeignKeyBackDependencies(GenericModelTestBase):
             # multi fk back steps deps to non comp field
             'C': {'depends': [('self', ['name']), ('cd_f.de_f', ['name'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['E'].objects.filter(f_ed__f_dc=self).values_list('name', flat=True).order_by('pk'))},
+                      MODELS['E'].objects.filter(f_ed__f_dc=self).values_list('name', flat=True).order_by('pk'))
+                      if self.pk
+                      else ''},
             # multi fk back steps deps to comp field
             'D': {'depends': [('self', ['name']), ('de_f.ef_f.fg_f', ['comp'])],
                   'func': lambda self: self.name + ''.join(
-                      MODELS['G'].objects.filter(f_gf__f_fe__f_ed=self).values_list('comp', flat=True).order_by('pk'))},
+                      MODELS['G'].objects.filter(f_gf__f_fe__f_ed=self).values_list('comp', flat=True).order_by('pk'))
+                      if self.pk
+                      else ''},
         })
         self.a = self.models.A(name='a')
         self.a.save()

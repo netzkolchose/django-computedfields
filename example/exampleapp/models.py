@@ -11,6 +11,8 @@ class Foo(ComputedFieldsModel):
         depends=[('bar_set.baz_set', ['name'])]
     )
     def bazzes(self) -> str:
+        if not self.pk:
+            return ''
         # note - the slice here is needed to get proper compare between
         # loop and bulk/fast mode in updatedata
         # background: bulk_update and fast_update do not raise on values not
