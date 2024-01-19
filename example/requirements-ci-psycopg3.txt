@@ -10,3 +10,4 @@ psycopg==3.1.8
 psycopg-binary==3.1.8
 tqdm==4.62.3
 django-fast-update
+alabaster==0.7.12
