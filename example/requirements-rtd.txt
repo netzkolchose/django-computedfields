@@ -10,3 +10,4 @@ typing_extensions==4.0.1
 
 tqdm==4.62.3
 django-fast-update
+alabaster==0.7.12
