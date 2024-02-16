@@ -1107,3 +1107,27 @@ class HaTagProxy(HaTag):
 class HaProxy(Ha):
     class Meta:
         proxy = True
+
+
+class Tag(ComputedFieldsModel):
+    name = models.CharField(max_length=32, unique=True)
+
+
+run_counter = 0
+
+
+class Advert(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    tags = models.ManyToManyField(Tag, related_name="adverts")
+
+    @computed(
+        field=models.CharField(max_length=500),
+        depends=[("tags", ["name"])],
+    )
+    def all_tags(self) -> str:
+        global run_counter
+        run_counter += 1
+        if not self.pk:
+            return ""
+        return ", ".join(self.tags.values_list("name", flat=True))
