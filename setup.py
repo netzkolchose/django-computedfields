@@ -18,7 +18,7 @@ setup(
     packages=find_packages(exclude=['example']),
     include_package_data=True,
     install_requires=[
-        'Django>=4.2,<5.1',
+        'Django>=4.2,<5.2',
         'typing_extensions>=4.1',
         'django-fast-update'
     ],
@@ -42,6 +42,7 @@ setup(
         'Framework :: Django',
         'Framework :: Django :: 4.2',
         'Framework :: Django :: 5.0',
+        'Framework :: Django :: 5.1',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
