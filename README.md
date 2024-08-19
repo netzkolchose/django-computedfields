@@ -103,6 +103,9 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog
+
+- 0.2.6
+    - Django 5.1 support
 - 0.2.5
     - Django 5.0 & Python 3.12 support
     - Django 3.2 support dropped
