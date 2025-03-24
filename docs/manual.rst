@@ -611,6 +611,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.2.7
+    - setuptools issue fixed
 - 0.2.6
     - Django 5.1 support
 - 0.2.5
