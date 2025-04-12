@@ -4,13 +4,9 @@ with open('README.md', 'r') as f:
     long_description = f.read()
 
 
-def get_version(path):
-    with open(path) as f:
-        for line in f:
-            if line.startswith('__version__'):
-                delim = '"' if '"' in line else "'"
-                return line.split(delim)[1]
-        raise RuntimeError('Unable to find version string.')
+def get_version():
+    import computedfields
+    return computedfields.__version__
 
 
 setup(
@@ -22,7 +18,7 @@ setup(
         'typing_extensions>=4.1',
         'django-fast-update'
     ],
-    version=get_version('computedfields/__init__.py'),
+    version=get_version(),
     license='MIT',
     description='autoupdated database fields for model methods',
     long_description=long_description,
