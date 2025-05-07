@@ -1107,3 +1107,18 @@ class HaTagProxy(HaTag):
 class HaProxy(Ha):
     class Meta:
         proxy = True
+
+
+# related_name vs. related_query_name issue #165
+class RNFoo(ComputedFieldsModel):
+    @computed(models.CharField(max_length=256), depends=[('bars', ['b'])])
+    def comp(self):
+        s = ''
+        if self.pk:
+            for bar in self.bars.all().order_by('pk'):
+                s += bar.b
+        return s
+
+class RNBar(models.Model):
+    b = models.CharField(max_length=10)
+    foo = models.ForeignKey(RNFoo, related_name='bars', related_query_name='bar', on_delete=models.CASCADE)
