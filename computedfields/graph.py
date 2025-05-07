@@ -557,9 +557,7 @@ class ComputedModelsGraph(Graph):
                             # handle reverse relation (not a concrete field)
                             descriptor = getattr(cls, symbol)
                             rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
-                            symbol = rel.related_name \
-                                     or rel.related_query_name \
-                                     or rel.related_model._meta.model_name
+                            symbol = rel.field.related_query_name()
                             # add dependency to reverse relation field as well
                             # this needs to be added in opposite direction on related model
                             path_segments.append(symbol)
