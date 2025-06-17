@@ -257,16 +257,16 @@ class Resolver:
                     for symbol in path.split('.'):
                         try:
                             rel: Any = cls._meta.get_field(symbol)
-                            if rel.many_to_many:
-                                if hasattr(rel, 'through'):
-                                    self._m2m[rel.through] = {
-                                        'left': rel.remote_field.name, 'right': rel.name}
-                                else:
-                                    self._m2m[rel.remote_field.through] = {
-                                        'left': rel.name, 'right': rel.remote_field.name}
                         except FieldDoesNotExist:
                             descriptor = getattr(cls, symbol)
                             rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
+                        if rel.many_to_many:
+                            if hasattr(rel, 'through'):
+                                self._m2m[rel.through] = {
+                                    'left': rel.remote_field.name, 'right': rel.name}
+                            else:
+                                self._m2m[rel.remote_field.through] = {
+                                    'left': rel.name, 'right': rel.remote_field.name}
                         cls = rel.related_model
 
     def _patch_proxy_models(self) -> None:
