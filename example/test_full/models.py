@@ -1122,3 +1122,18 @@ class RNFoo(ComputedFieldsModel):
 class RNBar(models.Model):
     b = models.CharField(max_length=10)
     foo = models.ForeignKey(RNFoo, related_name='bars', related_query_name='bar', on_delete=models.CASCADE)
+
+
+# related_name vs. related_query_name for m2m issue #172
+class RNM2MFoo(ComputedFieldsModel):
+    @computed(models.CharField(max_length=256), depends=[('bars', ['b'])])
+    def comp(self):
+        s = ''
+        if self.pk:
+            for bar in self.bars.all().order_by('pk'):
+                s += bar.b
+        return s
+
+class RNM2MBar(models.Model):
+    b = models.CharField(max_length=10)
+    foos = models.ManyToManyField(RNM2MFoo, related_name='bars', related_query_name='bar')
