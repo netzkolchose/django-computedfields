@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from computedfields.models import active_resolver
-from computedfields.helper import modelname, slice_iterator
+from computedfields.helpers import modelname, slice_iterator
 from computedfields.settings import settings
 from ._helpers import retrieve_computed_models, HAS_TQDM, tqdm
 

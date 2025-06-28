@@ -10,10 +10,9 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.core.exceptions import FieldDoesNotExist
 
-from .helpers import are_same
 from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
-from .helper import proxy_to_base_model, slice_iterator, subquery_pk
+from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same, modelname
 from . import __version__
 
 from fast_update.fast import fast_update
@@ -572,7 +571,8 @@ class Resolver:
         prefetch = self.get_prefetch_related(model, fields)
         if select:
             queryset = queryset.select_related(*select)
-        if prefetch:
+        # fix #167: skip prefetch if union was used
+        if prefetch and queryset.query.combinator != "union":
             queryset = queryset.prefetch_related(*prefetch)
 
         pks = []
