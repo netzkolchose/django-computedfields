@@ -103,7 +103,11 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog
-
+- 0.2.10
+    - Fix related_query_name on M2M relations
+    - Fix computed fk fields to use instances and not the _id attribute
+    - Fix UNIONed resolver updates, that contain prefetches
+    - Fix thread isolation in signal handlers
 - 0.2.9
     - fix related_query_name issue
 - 0.2.8
