@@ -1,7 +1,7 @@
 from typing import cast
 from django.core.management.base import BaseCommand
 from django.db.models.fields.related import ForeignObjectRel
-from computedfields.helper import modelname
+from computedfields.helpers import modelname
 from computedfields.models import active_resolver
 from ._helpers import retrieve_models
 

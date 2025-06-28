@@ -1,6 +1,6 @@
 from django.test import TestCase
 from computedfields.graph import Node, Edge, Graph, CycleNodeException, CycleEdgeException
-from computedfields.helper import pairwise
+from computedfields.helpers import pairwise
 
 
 class GraphTests(TestCase):

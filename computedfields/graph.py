@@ -11,7 +11,7 @@ from collections import OrderedDict
 from os import PathLike
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import ForeignKey
-from computedfields.helper import pairwise, modelname, parent_to_inherited_path, skip_equal_segments
+from computedfields.helpers import pairwise, modelname, parent_to_inherited_path, skip_equal_segments
 
 # typing imports
 from typing import (Callable, Dict, FrozenSet, Generic, Hashable, Any, List, Optional, Sequence,

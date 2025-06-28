@@ -7,7 +7,7 @@ from datetime import timedelta
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction, DatabaseError
 
-from computedfields.helper import modelname, slice_iterator
+from computedfields.helpers import modelname, slice_iterator
 from computedfields.settings import settings
 from computedfields.models import active_resolver
 from ._helpers import tqdm, HAS_TQDM, retrieve_computed_models
