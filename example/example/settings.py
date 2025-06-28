@@ -92,11 +92,11 @@ if os.environ.get('DBENGINE', 'sqlite') == 'postgres':
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'postgres',
-            'USER': 'postgres',
-            'PASSWORD': 'mysecretpassword',
-            'HOST': 'localhost',
-            'PORT': 5432,
+            'NAME': os.environ.get('DATABASE_NAME', 'postgres'),
+            'USER': os.environ.get('DATABASE_USER', 'postgres'),
+            'PASSWORD': os.environ.get('DATABASE_PASSWORD', 'mysecretpassword'),
+            'HOST': os.environ.get('DATABASE_HOST', 'localhost'),
+            'PORT': int(os.environ.get('DATABASE_PORT', '5432')),
         }
     }
 

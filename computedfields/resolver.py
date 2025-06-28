@@ -195,7 +195,7 @@ class Resolver:
                 raise ResolverException(f'{model} is not a subclass of ComputedFieldsModel')
             computed_models[model] = {}
             for field in computedfields:
-                computed_models[model][field.attname] = field
+                computed_models[model][field.name] = field
 
         return computed_models
 

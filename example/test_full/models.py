@@ -1137,3 +1137,38 @@ class RNM2MFoo(ComputedFieldsModel):
 class RNM2MBar(models.Model):
     b = models.CharField(max_length=10)
     foos = models.ManyToManyField(RNM2MFoo, related_name='bars', related_query_name='bar')
+
+
+# Computed Foreign Key models
+## Base catalogues
+class CFKCatalogue1(models.Model):
+    name = models.CharField(max_length=10)
+
+class CFKCatalogue2(models.Model):
+    name = models.CharField(max_length=10)
+
+## Some data in catalogues
+class CFKData(ComputedFieldsModel):
+    c1name = models.CharField(max_length=10)
+    c2name = models.CharField(max_length=10)
+
+    @computed(models.ForeignKey(CFKCatalogue1, on_delete=models.CASCADE))
+    def c1(self):
+        return CFKCatalogue1.objects.get(name=self.c1name)
+
+    @computed(models.ForeignKey(CFKCatalogue2, on_delete=models.CASCADE))
+    def c2(self):
+        return CFKCatalogue2.objects.get(name=self.c2name)
+
+## Some data related to parent data in catalogues
+class CFKRelatedData(ComputedFieldsModel):
+    parent = models.ForeignKey(CFKData, on_delete=models.CASCADE)
+    value = models.CharField(max_length=10)
+
+    @computed(models.ForeignKey(CFKCatalogue1, on_delete=models.CASCADE))
+    def c1(self):
+        return self.parent.c1
+
+    @computed(models.ForeignKey(CFKCatalogue2, on_delete=models.CASCADE))
+    def c2(self):
+        return self.parent.c2
