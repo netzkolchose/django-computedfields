@@ -23,15 +23,34 @@ from django.db.models import Model
 # thread local storage to hold
 # the pk lists for deletes/updates
 STORAGE = local()
-STORAGE.DELETES = {}
-STORAGE.M2M_REMOVE = {}
-STORAGE.M2M_CLEAR = {}
-STORAGE.UPDATE_OLD = {}
 
-DELETES = STORAGE.DELETES
-M2M_REMOVE = STORAGE.M2M_REMOVE
-M2M_CLEAR = STORAGE.M2M_CLEAR
-UPDATE_OLD = STORAGE.UPDATE_OLD
+def get_DELETES():
+    try:
+        return STORAGE.DELETES
+    except AttributeError:
+        STORAGE.DELETES = {}
+    return STORAGE.DELETES
+
+def get_M2M_REMOVE():
+    try:
+        return STORAGE.M2M_REMOVE
+    except AttributeError:
+        STORAGE.M2M_REMOVE = {}
+    return STORAGE.M2M_REMOVE
+
+def get_M2M_CLEAR():
+    try:
+        return STORAGE.M2M_CLEAR
+    except AttributeError:
+        STORAGE.M2M_CLEAR = {}
+    return STORAGE.M2M_CLEAR
+
+def get_UPDATE_OLD():
+    try:
+        return STORAGE.UPDATE_OLD
+    except AttributeError:
+        STORAGE.UPDATE_OLD = {}
+    return STORAGE.UPDATE_OLD
 
 
 def get_old_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
@@ -67,7 +86,7 @@ def get_old_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     #        filter by individual field changes instead? (tests are ~10% slower)
     data = active_resolver.preupdate_dependent(instance, sender)
     if data:
-        UPDATE_OLD[instance] = data
+        get_UPDATE_OLD()[instance] = data
     return
 
 
@@ -82,7 +101,7 @@ def postsave_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     if not kwargs.get('raw'):
         active_resolver.update_dependent(
             instance, sender, kwargs.get('update_fields'),
-            old=UPDATE_OLD.pop(instance, None),
+            old=get_UPDATE_OLD().pop(instance, None),
             update_local=False,
             querysize=settings.COMPUTEDFIELDS_QUERYSIZE
         )
@@ -99,7 +118,7 @@ def predelete_handler(sender: Type[Model], instance: Model, **_) -> None:
     # we have to get pks here since the queryset will be empty after deletion
     data = active_resolver._querysets_for_update(sender, instance, pk_list=True)
     if data:
-        DELETES[instance] = data
+        get_DELETES()[instance] = data
 
 
 def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
@@ -110,7 +129,7 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     and updates them.
     """
     # after deletion we can update the associated computed fields
-    updates = DELETES.pop(instance, None)
+    updates = get_DELETES().pop(instance, None)
     if updates:
         with transaction.atomic():
             for model, [pks, fields] in updates.items():
@@ -202,10 +221,10 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         if other_remove:
             merge_pk_maps(data_remove, other_remove)
         if data_remove:
-            M2M_REMOVE[instance] = data_remove
+            get_M2M_REMOVE()[instance] = data_remove
 
     elif action == 'post_remove':
-        updates_remove: Dict[Type[Model], List[Any]] = M2M_REMOVE.pop(instance, None)
+        updates_remove: Dict[Type[Model], List[Any]] = get_M2M_REMOVE().pop(instance, None)
         if updates_remove:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_remove.items():
@@ -223,10 +242,10 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         if other:
             merge_pk_maps(data, other)
         if data:
-            M2M_CLEAR[instance] = data
+            get_M2M_CLEAR()[instance] = data
 
     elif action == 'post_clear':
-        updates_clear: Dict[Type[Model], List[Any]] = M2M_CLEAR.pop(instance, None)
+        updates_clear: Dict[Type[Model], List[Any]] = get_M2M_CLEAR().pop(instance, None)
         if updates_clear:
             with transaction.atomic():
                 for _model, [pks, update_fields] in updates_clear.items():
