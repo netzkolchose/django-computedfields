@@ -169,8 +169,11 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         )
 
     elif action == 'post_remove':
-        active_resolver.update_dependent(
-            sender.objects.all(), old=get_M2M_REMOVE().pop(instance, None)
+        old = get_M2M_REMOVE().pop(instance, None)
+        if old:
+            active_resolver.update_dependent(
+                sender.objects.none(),
+                old=old
             )
 
     elif action == 'pre_clear':
@@ -179,6 +182,9 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         )
 
     elif action == 'post_clear':
-        active_resolver.update_dependent(
-            sender.objects.all(), old=get_M2M_CLEAR().pop(instance, None)
-        )
+        old = get_M2M_CLEAR().pop(instance, None)
+        if old:
+            active_resolver.update_dependent(
+                sender.objects.none(),
+                old=old
+            )
