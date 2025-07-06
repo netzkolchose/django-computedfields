@@ -140,36 +140,6 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
                 )
 
 
-def merge_pk_maps(
-    obj1: Dict[Type[Model], List[Any]],
-    obj2: Dict[Type[Model], List[Any]]
-) -> Dict[Type[Model], List[Any]]:
-    """
-    Merge pk map in `obj2` on `obj1`.
-    Updates obj1 inplace and also returns it.
-    """
-    for model, data in obj2.items():
-        m2_pks, m2_fields = data
-        m1_pks, m1_fields = obj1.setdefault(model, [set(), set()])
-        m1_pks.update(m2_pks)
-        m1_fields.update(m2_fields)
-    return obj1
-
-
-def merge_qs_maps(
-    obj1: Dict[Type[Model], List[Any]],
-    obj2: Dict[Type[Model], List[Any]]
-) -> Dict[Type[Model], List[Any]]:
-    """
-    Merge queryset map in `obj2` on `obj1`.
-    Updates obj1 inplace and also returns it.
-    """
-    for model, [qs2, fields2] in obj2.items():
-        query_field = obj1.setdefault(model, [model._base_manager.none(), set()])
-        query_field[0] = query_field[0].union(qs2)  # or'ed querysets
-        query_field[1].update(fields2)              # add fields
-    return obj1
-
 # M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M
 def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     """
@@ -177,80 +147,38 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
 
     Works like the other handlers but on the corresponding
     m2m actions.
-
-    .. NOTE::
-        The handler triggers updates for both ends of the m2m relation,
-        which might lead to massive database interaction.
     """
     fields = active_resolver._m2m.get(sender)
     # exit early if we have no update rule on the through model
     if not fields:
         return
 
-    # since the graph does not handle the m2m through model
-    # we have to trigger updates for both ends (left and right side)
     reverse = kwargs['reverse']
     left = fields['right'] if reverse else fields['left']   # fieldname on instance
     right = fields['left'] if reverse else fields['right']  # fieldname on model
     action = kwargs.get('action')
-    model = kwargs['model']
 
     if action == 'post_add':
-        pks_add: Set[Any] = kwargs['pk_set']
-        data_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields={left})
-        other_add: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model._base_manager.filter(pk__in=pks_add), update_fields={right}, m2m=instance)
-        if other_add:
-            merge_qs_maps(data_add, other_add)
-        if data_add:
-            with transaction.atomic():
-                for queryset, update_fields in data_add.values():
-                    active_resolver.bulk_updater(
-                        queryset,
-                        update_fields,
-                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                    )
+        active_resolver.update_dependent(
+            sender.objects.filter(**{left: instance.pk, right+'__in': kwargs['pk_set']})
+        )
 
     elif action == 'pre_remove':
-        pks_remove: Set[Any] = kwargs['pk_set']
-        data_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields={left}, pk_list=True)
-        other_remove: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, model._base_manager.filter(pk__in=pks_remove), update_fields={right}, pk_list=True, m2m=instance)
-        if other_remove:
-            merge_pk_maps(data_remove, other_remove)
-        if data_remove:
-            get_M2M_REMOVE()[instance] = data_remove
+        get_M2M_REMOVE()[instance] = active_resolver.preupdate_dependent(
+            sender.objects.filter(**{left: instance.pk, right+'__in': kwargs['pk_set']})
+        )
 
     elif action == 'post_remove':
-        updates_remove: Dict[Type[Model], List[Any]] = get_M2M_REMOVE().pop(instance, None)
-        if updates_remove:
-            with transaction.atomic():
-                for _model, [pks, update_fields] in updates_remove.items():
-                    active_resolver.bulk_updater(
-                        _model._base_manager.filter(pk__in=pks),
-                        update_fields,
-                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                    )
+        active_resolver.update_dependent(
+            sender.objects.all(), old=get_M2M_REMOVE().pop(instance, None)
+            )
 
     elif action == 'pre_clear':
-        data: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            type(instance), instance, update_fields={left}, pk_list=True)
-        other: Dict[Type[Model], List[Any]] = active_resolver._querysets_for_update(
-            model, getattr(instance, left).all(), update_fields={right}, pk_list=True, m2m=instance)
-        if other:
-            merge_pk_maps(data, other)
-        if data:
-            get_M2M_CLEAR()[instance] = data
+        get_M2M_CLEAR()[instance] = active_resolver.preupdate_dependent(
+            sender.objects.filter(**{left: instance.pk})
+        )
 
     elif action == 'post_clear':
-        updates_clear: Dict[Type[Model], List[Any]] = get_M2M_CLEAR().pop(instance, None)
-        if updates_clear:
-            with transaction.atomic():
-                for _model, [pks, update_fields] in updates_clear.items():
-                    active_resolver.bulk_updater(
-                        _model._base_manager.filter(pk__in=pks),
-                        update_fields,
-                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                    )
+        active_resolver.update_dependent(
+            sender.objects.all(), old=get_M2M_CLEAR().pop(instance, None)
+        )

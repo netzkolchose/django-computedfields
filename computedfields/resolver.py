@@ -4,15 +4,13 @@ Contains the resolver logic for automated computed field updates.
 import operator
 from collections import OrderedDict
 from functools import reduce
-from itertools import zip_longest
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.core.exceptions import FieldDoesNotExist
 
 from .settings import settings
-from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
-from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same, modelname
+from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph, IM2mMap
+from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same
 from . import __version__
 
 from fast_update.fast import fast_update
@@ -20,15 +18,8 @@ from fast_update.fast import fast_update
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
                     Tuple, Type, Union, cast, overload)
-from typing_extensions import TypedDict
 from django.db.models import Field, Model
 from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F
-
-
-class IM2mData(TypedDict):
-    left: str
-    right: str
-IM2mMap = Dict[Type[Model], IM2mData]
 
 
 MALFORMED_DEPENDS = """
@@ -236,37 +227,9 @@ class Resolver:
             self._graph.get_uniongraph().get_edgepaths()
         self._map, self._fk_map = self._graph.generate_maps()
         self._local_mro = self._graph.generate_local_mro_map()
-        self._extract_m2m_through()
+        self._m2m = self._graph._m2m
         self._patch_proxy_models()
         self._map_loaded = True
-
-    def _extract_m2m_through(self) -> None:
-        """
-        Creates M2M through model mappings with left/right field names.
-        The map is used by the m2m_changed handler for faster name lookups.
-        This cannot be pickled, thus is built for every resolver bootstrapping.
-        """
-        for model, fields in self.computed_models.items():
-            for _, real_field in fields.items():
-                depends = real_field._computed['depends']
-                for path, _ in depends:
-                    if path == 'self':
-                        continue
-                    cls: Type[Model] = model
-                    for symbol in path.split('.'):
-                        try:
-                            rel: Any = cls._meta.get_field(symbol)
-                        except FieldDoesNotExist:
-                            descriptor = getattr(cls, symbol)
-                            rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
-                        if rel.many_to_many:
-                            if hasattr(rel, 'through'):
-                                self._m2m[rel.through] = {
-                                    'left': rel.remote_field.name, 'right': rel.name}
-                            else:
-                                self._m2m[rel.remote_field.through] = {
-                                    'left': rel.name, 'right': rel.remote_field.name}
-                        cls = rel.related_model
 
     def _patch_proxy_models(self) -> None:
         """

@@ -85,5 +85,6 @@ def proxy_to_base_model(proxymodel: Type[Model]) -> Union[Type[Model], None]:
             return m
     return None
 
+
 def are_same(*args) -> bool:
     return len(set(args)) == 1
