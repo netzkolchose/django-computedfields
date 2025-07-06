@@ -280,7 +280,6 @@ class Resolver:
         instance: Union[Model, QuerySet],
         update_fields: Optional[Iterable[str]] = None,
         pk_list: bool = False,
-        m2m: Optional[Model] = None
     ) -> Dict[Type[Model], List[Any]]:
         """
         Returns a mapping of all dependent models, dependent fields and a
@@ -321,20 +320,13 @@ class Resolver:
         # generate narrowed down querysets for all cf dependencies
         for model, data in model_updates.items():
             fields, paths = data
-
-            # queryset construction
-            if m2m and self._proxymodels.get(type(m2m), type(m2m)) == model:
-                # M2M optimization: got called through an M2M signal
-                # narrow updates to the single signal instance
-                queryset = model._base_manager.filter(pk=m2m.pk)
-            else:
-                queryset: Any = model._base_manager.none()
-                query_pipe_method = self._choose_optimal_query_pipe_method(paths)
-                queryset = reduce(
-                    query_pipe_method,
-                    (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
-                    queryset
-                )
+            queryset: Any = model._base_manager.none()
+            query_pipe_method = self._choose_optimal_query_pipe_method(paths)
+            queryset = reduce(
+                query_pipe_method,
+                (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
+                queryset
+            )
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
