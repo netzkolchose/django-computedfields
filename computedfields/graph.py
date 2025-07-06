@@ -592,69 +592,6 @@ class ComputedModelsGraph(Graph):
                     for symbol in path.split('.'):
                         try:
                             rel: Any = cls._meta.get_field(symbol)
-                            if rel.many_to_many:
-                                assert 1 == 0
-                                #'m2m_column_name', 
-                                #'m2m_db_table', 
-                                #'m2m_field_name', 
-                                #'m2m_reverse_field_name', 
-                                #'m2m_reverse_name', 
-                                #'m2m_reverse_target_field_name', 
-                                #'m2m_target_field_name',
-                                #if hasattr(rel, 'through'):
-                                #    reverse = True
-                                #    through_model = rel.through
-                                #    m2m_field_name = rel.remote_field.m2m_field_name()
-                                #    m2m_reverse_field_name = rel.remote_field.m2m_reverse_field_name()
-                                #    related_name = through_model._meta.get_field(m2m_reverse_field_name).related_query_name()
-                                #    pathname = f'{related_name}.{m2m_field_name}'
-                                #else:
-                                #    reverse = False
-                                #    through_model = getattr(rel.model, symbol).through
-                                #    m2m_field_name = rel.m2m_field_name()
-                                #    m2m_reverse_field_name = rel.m2m_reverse_field_name()
-                                #    related_name = through_model._meta.get_field(m2m_field_name).related_query_name()
-                                #    pathname = f'{related_name}.{m2m_reverse_field_name}'
-                                #d = {
-                                #    'reltype': type(rel),
-                                #    'through': through_model,
-                                #    'reverse': reverse,
-                                #    'm2m_field_name': m2m_field_name,
-                                #    'm2m_reverse_field_name': m2m_reverse_field_name,
-                                #    'related_name': related_name,
-                                #    'pathname': pathname,
-                                #    'symbol': symbol
-                                #}
-                                #from pprint import pprint
-                                #pprint(d)
-
-
-                                #if hasattr(rel, 'through'):
-                                #    print('#####through', rel.through)
-                                #else:
-                                #    print('#####auto through', getattr(rel.model, symbol).through)
-                                #print('rel:', type(rel))
-                                #print(
-                                #    rel.related_model,
-                                #    symbol,
-                                #    getattr(rel, 'm2m_field_name', lambda: False)(),
-                                #    getattr(rel, 'm2m_reverse_field_name', lambda: False)(),
-                                #    getattr(rel, 'm2m_reverse_name', lambda: False)(),
-                                #    getattr(rel, 'm2m_reverse_target_field_name', lambda: False)(),
-                                #    getattr(rel, 'm2m_target_field_name', lambda: False)(),
-                                #    rel.is_relation
-                                #)
-                                #through = rel.through if hasattr(rel, 'through') else getattr(rel.model, symbol).through
-                                #try:
-                                #    qn = through._meta.get_field(getattr(rel, 'm2m_reverse_field_name', lambda: False)()).related_query_name()
-                                #except Exception:
-                                #    pass
-                                #print('#########', dir(rel))
-                                # add dependency to m2m relation fields
-                                #path_segments.append(symbol)
-                                #fieldentry.setdefault(rel.related_model, []).append(
-                                #    {'path': '__'.join(path_segments), 'depends': rel.remote_field.name})
-                                #path_segments.pop()
                         except FieldDoesNotExist:
                             # handle reverse relation (not a concrete field)
                             descriptor = getattr(cls, symbol)
