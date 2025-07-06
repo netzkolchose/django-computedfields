@@ -15,7 +15,7 @@ from .resolver import active_resolver
 from .settings import settings
 
 # typing imports
-from typing import Any, Dict, Iterable, List, Set, Type, cast
+from typing import Iterable, Type, cast
 from django.db.models import Model
 
 
@@ -139,7 +139,6 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
                     querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                 )
 
-
 # M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M
 def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     """
@@ -160,7 +159,10 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
 
     if action == 'post_add':
         active_resolver.update_dependent(
-            sender.objects.filter(**{left: instance.pk, right+'__in': kwargs['pk_set']})
+            sender.objects.filter(**{left: instance.pk, right+'__in': kwargs['pk_set']}),
+            sender,
+            update_local=False,
+            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
         )
 
     elif action == 'pre_remove':
@@ -171,10 +173,13 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     elif action == 'post_remove':
         old = get_M2M_REMOVE().pop(instance, None)
         if old:
-            active_resolver.update_dependent(
-                sender.objects.none(),
-                old=old
-            )
+            with transaction.atomic():
+                for _model, [pks, update_fields] in old.items():
+                    active_resolver.bulk_updater(
+                        _model._base_manager.filter(pk__in=pks),
+                        update_fields,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
 
     elif action == 'pre_clear':
         get_M2M_CLEAR()[instance] = active_resolver.preupdate_dependent(
@@ -184,7 +189,10 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     elif action == 'post_clear':
         old = get_M2M_CLEAR().pop(instance, None)
         if old:
-            active_resolver.update_dependent(
-                sender.objects.none(),
-                old=old
-            )
+            with transaction.atomic():
+                for _model, [pks, update_fields] in old.items():
+                    active_resolver.bulk_updater(
+                        _model._base_manager.filter(pk__in=pks),
+                        update_fields,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
