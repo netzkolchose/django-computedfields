@@ -27,7 +27,7 @@ setup(
     author_email='j.breitbart@netzkolchose.de',
     url='https://github.com/netzkolchose/django-computedfields',
     download_url=f'https://github.com/netzkolchose/django-computedfields/archive/{get_version()}.tar.gz',
-    keywords=['django', 'method', 'decorator',
+    keywords=['django', 'denormalization', 'method', 'decorator',
               'autoupdate', 'persistent', 'field'],
     classifiers=[
         'Development Status :: 4 - Beta',

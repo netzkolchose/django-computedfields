@@ -529,8 +529,7 @@ class ComputedModelsGraph(Graph):
 
         - fk relations are added on the model holding the fk field
         - reverse fk relations are added on related model holding the fk field
-        - m2m fields and backrelations are added on the model directly, but
-          only used for inter-model resolving, never for field lookups during ``save``
+        - m2m fields are expanded via their through model
         """
         global_deps: IGlobalDeps = OrderedDict()
         local_deps: ILocalDeps = {}

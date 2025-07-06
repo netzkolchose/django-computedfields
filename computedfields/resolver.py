@@ -162,7 +162,7 @@ class Resolver:
 
         The data is the single source of truth for the graph reduction and
         map creations. Thus it can be used to decide at runtime whether
-        the active resolver a certain as a model with computed fields.
+        the active resolver respects a certain model with computed fields.
         
         .. NOTE::
         
@@ -793,7 +793,7 @@ class Resolver:
 
         .. NOTE::
 
-            Dependencies to model local fields should be list with ``'self'`` as relation name.
+            Dependencies to model local fields should be listed with ``'self'`` as relation name.
 
         With `select_related` and `prefetch_related` you can instruct the dependency resolver
         to apply certain optimizations on the update queryset.
@@ -841,16 +841,8 @@ class Resolver:
             by directly accessing the graph objects:
 
             - intermodel dependency graph: ``active_resolver._graph``
-            - mode local dependency graphs: ``active_resolver._graph.modelgraphs[your_model]``
+            - model local dependency graphs: ``active_resolver._graph.modelgraphs[your_model]``
             - union graph: ``active_resolver._graph.get_uniongraph()``
-
-            Note that there is not graph object, when running with ``COMPUTEDFIELDS_MAP = True``.
-            In that case either comment out that line `settings.py` and restart the server
-            or build the graph at runtime with:
-
-                >>> from computedfields.graph import ComputedModelsGraph
-                >>> from computedfields.resolver import active_resolver
-                >>> graph = ComputedModelsGraph(active_resolver.computed_models)
 
             Also see the graph documentation :ref:`here<graph>`.
         """
