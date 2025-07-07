@@ -32,9 +32,10 @@ class NoComputedContext(TestCase):
         products = []
         for i in range(10):
             shelfs.append(shelf := Shelf(name=f's{i}'))
+        Shelf.objects.bulk_create(shelfs)
+        for shelf in shelfs:
             for j in range(10):
                 products.append(Product(name=f'p{j}', shelf=shelf))
-        Shelf.objects.bulk_create(shelfs)
         Product.objects.bulk_create(products)
         update_dependent(Shelf.objects.all())
         return time()-start
