@@ -31,9 +31,9 @@ class NoComputedContext(TestCase):
         shelfs = []
         products = []
         for i in range(10):
-            shelfs.append(shelf := Shelf(name=f's{i}'))
+            shelfs.append(shelf := Shelf(name=f's{i}', product_names='sentinel'))
         Shelf.objects.bulk_create(shelfs)
-        for shelf in shelfs:
+        for shelf in Shelf.objects.filter(product_names='sentinel').order_by('pk'):
             for j in range(10):
                 products.append(Product(name=f'p{j}', shelf=shelf))
         Product.objects.bulk_create(products)
