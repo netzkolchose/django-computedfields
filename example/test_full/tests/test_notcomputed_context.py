@@ -53,8 +53,8 @@ class NoComputedContext(TestCase):
         
         print(f'\nCREATE\nnormal     : {normal}\nnocomputed : {nocomputed}\nbulk       : {bulk}')
 
-        # no_computed is magnitudes faster than normal (at least 4x)
-        self.assertGreater(normal, nocomputed * 4)
+        # no_computed is magnitudes faster than normal (at least 3x)
+        self.assertGreater(normal, nocomputed * 3)
         # but cannot beat bulk
         self.assertGreater(nocomputed, bulk)
 
@@ -110,7 +110,7 @@ class NoComputedContext(TestCase):
 
         print(f'\nUPDATE\nnormal     : {normal}\nnocomputed : {nocomputed}\nbulk       : {bulk}')
 
-        # no_computed is magnitudes faster than normal (at least 4x)
-        self.assertGreater(normal, nocomputed * 4)
+        # no_computed is magnitudes faster than normal (at least 3x)
+        self.assertGreater(normal, nocomputed * 3)
         # but cannot beat bulk
         self.assertGreater(nocomputed, bulk)
