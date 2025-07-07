@@ -36,6 +36,7 @@ class IComputedData(TypedDict):
     select_related: Sequence[str]
     prefetch_related: Sequence[Any]
     querysize: Optional[int]
+    default_on_create: Optional[bool]
 
 
 # django Field type extended by our _computed data attribute

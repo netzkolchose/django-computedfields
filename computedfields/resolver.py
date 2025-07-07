@@ -620,6 +620,9 @@ class Resolver:
         to the database, always use ``compute(fieldname)`` instead.
         """
         field = self._computed_models[model][fieldname]
+        if instance._state.adding or not instance.pk:
+            if field._computed['default_on_create']:
+                return field.get_default()
         return field._computed['func'](instance)
 
     def compute(self, instance: Model, fieldname: str) -> Any:
@@ -750,7 +753,8 @@ class Resolver:
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
         prefetch_related: Optional[Sequence[Any]] = None,
-        querysize: Optional[int] = None
+        querysize: Optional[int] = None,
+        default_on_create: Optional[bool] = False
     ) -> 'Field[_ST, _GT]':
         """
         Factory for computed fields.
@@ -791,7 +795,8 @@ class Resolver:
             'depends': depends or [],
             'select_related': select_related or [],
             'prefetch_related': prefetch_related or [],
-            'querysize': querysize
+            'querysize': querysize,
+            'default_on_create': default_on_create
         }
         cf.editable = False
         self.add_field(cf)
@@ -803,7 +808,8 @@ class Resolver:
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
         prefetch_related: Optional[Sequence[Any]] = None,
-        querysize: Optional[int] = None
+        querysize: Optional[int] = None,
+        default_on_create: Optional[bool] = False
     ) -> Callable[[Callable[..., _ST]], 'Field[_ST, _GT]']:
         """
         Decorator to create computed fields.
@@ -906,7 +912,8 @@ class Resolver:
                 depends=depends,
                 select_related=select_related,
                 prefetch_related=prefetch_related,
-                querysize=querysize
+                querysize=querysize,
+                default_on_create=default_on_create
             )
         return wrap
 
