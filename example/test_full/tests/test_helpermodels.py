@@ -1,7 +1,6 @@
 from django.test import TestCase
 from computedfields.models import (
     ComputedFieldsAdminModel, ContributingModelsModel, active_resolver, get_contributing_fks)
-from computedfields.helpers import modelname
 from django.apps import apps
 
 
@@ -14,15 +13,16 @@ class TestHelperModels(TestCase):
         )
     
     def test_ContributingModelsModel(self):
-        # FIXME: for some reason this test fails with "./manage.py test"
-        #        nagging about missing through models,
-        #        but works with "./manage.py test test_full" and the browser???
-        pass
+        # NOTE: for some reason this test fails with "./manage.py test"
+        #       nagging about missing through models,
+        #       but works with "./manage.py test test_full" and the browser?
+        #       --> patched by adding through model explicitly
         # NOTE: we have to filter proxy models here
-        #self.assertEqual(
-        #    set(f'{entry.app_label}.{entry.model}' for entry in ContributingModelsModel.objects.all()),
-        #    set(modelname(m) for m in active_resolver._fk_map.keys() if not m._meta.proxy)
-        #)
+        self.assertEqual(
+            set(apps.get_model(e.app_label, e.model) for e in ContributingModelsModel.objects.all())
+            | set(active_resolver._m2m.keys()), # through model hack
+            set(m for m in active_resolver._fk_map.keys() if not m._meta.proxy)
+        )
     
     def test_get_contributing_fks(self):
         self.assertEqual(
