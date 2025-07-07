@@ -97,6 +97,9 @@ class Resolver:
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
 
+        #: Disabled state, if `True` no resolver updates will happen.
+        self.disabled: bool = False
+
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
         `class_prepared` signal hook to collect models during ORM registration.
@@ -324,6 +327,9 @@ class Resolver:
         queryset containing all dependent objects.
         """
         final: Dict[Type[Model], List[Any]] = OrderedDict()
+        if self.disabled:
+            # TODO: track instance/queryset for context re-plays
+            return final
         modeldata = self._map.get(model)
         if not modeldata:
             return final
@@ -493,6 +499,10 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
+        if self.disabled:
+            # TODO: track instance/queryset for context re-plays
+            return
+
         _model = model or self._get_model(instance)
 
         # bulk_updater might change fields, ensure we have set/None
@@ -1040,3 +1050,28 @@ BOOT_RESOLVER = active_resolver
 # during initial field resolving
 class _ComputedFieldsModelBase:
     pass
+
+
+class NoComputedContextManager:
+    """
+    Context to disable all computed fields resolver updates temporarily.
+
+    Note. that local computed fields will still be calculated during save calls,
+    use the `skip_computedfields=True` argument on save to also disable those.
+
+    .. CAUTION::
+
+        Currently there is no auto-recovery implemented at all,
+        therefore it is your responsibility to recover properly from the desync state.
+    """
+    def __init__(self, resolver=None):
+        self.resolver = resolver or active_resolver
+
+    def __enter__(self):
+        self.resolver.disabled = True
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.resolver.disabled = False
+        # TODO: re-play aggragated changes
+        return False
