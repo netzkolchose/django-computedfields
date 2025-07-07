@@ -862,6 +862,10 @@ class Resolver:
             it is a good idea not to rely on lookups with custom attributes,
             or to test explicitly for them in the method with an appropriate plan B.
 
+        With `default_on_create` set to ``True`` the function calculation will be skipped
+        for newly created or copy-cloned instances, instead the value will be set from the
+        inner field's `default` argument.
+
         .. CAUTION::
 
             With the dependency resolver you can easily create recursive dependencies

@@ -207,6 +207,10 @@ pulls data from.
             # normal data pull across m2m relation
             return ''.join(self.m2m.all().values_list('field', flat=True))
 
+    Alternatively you can set the `default_on_create` argument of the decorator to true
+    and provide a default value on the inner field. This will completely skip the
+    compute function for new instances.
+
     Pulling field dependencies over m2m relations has several more drawbacks, in general
     it is a good idea to avoid m2m relations in `depends` as much as possible.
     Also see examples about m2m relations.

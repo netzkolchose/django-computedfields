@@ -1197,9 +1197,11 @@ class DefaultChild(ComputedFieldsModel):
 
 class DefaultToy(ComputedFieldsModel):
     name = models.CharField(max_length=32)
-    children_names = ComputedField(
+
+    @computed(
         models.CharField(max_length=256, default='no one wants to play with this'),
         depends=[('children', ['name'])],
-        compute=lambda inst: ','.join(inst.children.all().values_list('name', flat=True)),
         default_on_create=True
     )
+    def children_names(self):
+        return ','.join(self.children.all().values_list('name', flat=True))
