@@ -1172,3 +1172,36 @@ class CFKRelatedData(ComputedFieldsModel):
     @computed(models.ForeignKey(CFKCatalogue2, on_delete=models.CASCADE))
     def c2(self):
         return self.parent.c2
+
+
+# default_on_create tests
+class DefaultParent(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    children_names = ComputedField(
+        models.CharField(max_length=256, default='NOTHING'),
+        depends=[('children', ['name'])],
+        compute=lambda inst: ','.join(inst.children.all().values_list('name', flat=True)),
+        default_on_create=True
+    )
+
+class DefaultChild(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    parent = models.ForeignKey(DefaultParent, related_name='children', on_delete=models.CASCADE)
+    toys = models.ManyToManyField('DefaultToy', related_name='children')
+    toy_names = ComputedField(
+        models.CharField(max_length=256, default=lambda:'NO TOYS, SAD'),
+        depends=[('toys', ['name'])],
+        compute=lambda inst: ','.join(inst.toys.all().values_list('name', flat=True)),
+        default_on_create=True
+    )
+
+class DefaultToy(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    @computed(
+        models.CharField(max_length=256, default='no one wants to play with this'),
+        depends=[('children', ['name'])],
+        default_on_create=True
+    )
+    def children_names(self):
+        return ','.join(self.children.all().values_list('name', flat=True))
