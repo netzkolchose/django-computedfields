@@ -63,7 +63,7 @@ class NoComputedContext(TestCase):
         start = time()
         for i, p in enumerate(products):
             p.name = f'p{i+1}'
-            p.save()
+            p.save(update_fields=['name'])
         return time() - start
     
     def update_nocomputed(self, products):
@@ -71,7 +71,7 @@ class NoComputedContext(TestCase):
         with no_computed():
             for i, p in enumerate(products):
                 p.name = f'p{i+1}'
-                p.save()
+                p.save(update_fields=['name'])
         update_dependent(Shelf.objects.all())
         return time() - start
     
