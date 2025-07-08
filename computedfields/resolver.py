@@ -650,6 +650,8 @@ class Resolver:
         # - calc all local cfs, that the requested one depends on
         # - stack and rewind interim values, as we dont want to introduce side effects here
         #   (in fact the save/bulker logic might try to save db calls based on changes)
+        if self.disabled:
+            return getattr(instance, fieldname)
         mro = self.get_local_mro(type(instance), None)
         if not fieldname in mro:
             return getattr(instance, fieldname)
@@ -989,6 +991,8 @@ class Resolver:
         changed based on the input fields, thus should extend `update_fields`
         on a save call.
         """
+        if self.disabled:
+            return update_fields
         model = type(instance)
         if not self.has_computedfields(model):
             return update_fields
@@ -1054,10 +1058,7 @@ class _ComputedFieldsModelBase:
 
 class NoComputedContextManager:
     """
-    Context to disable all computed fields resolver updates temporarily.
-
-    Note. that local computed fields will still be calculated during save calls,
-    use the `skip_computedfields=True` argument on save to also disable those.
+    Context to disable all computed field calculations and resolver updates temporarily.
 
     .. CAUTION::
 
