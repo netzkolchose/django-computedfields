@@ -3,7 +3,14 @@ from ..models import Product, Shelf
 from computedfields.models import no_computed, update_dependent
 from time import time
 from django.db.transaction import atomic
-from fast_update.query import FastUpdateQuerySet
+
+
+def fms(v):
+    """
+    Format seconds value to milliseconds.
+    """
+    v = int(v * 1000)
+    return '% 5d' % v + ' ms'
 
 
 class NoComputedContext(TestCase):
@@ -17,13 +24,15 @@ class NoComputedContext(TestCase):
     
     def create_nocomputed(self):
         start = time()
+        shelf_pks = []
         with no_computed():
             for i in range(10):
                 shelf = Shelf.objects.create(name=f's{i}')
+                shelf_pks.append(shelf.pk)
                 for j in range(10):
                     Product.objects.create(name=f'p{j}', shelf=shelf)
         # manually resync
-        update_dependent(Shelf.objects.all())
+        update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
         return time() - start
     
     def create_bulk(self):
@@ -37,7 +46,7 @@ class NoComputedContext(TestCase):
             for j in range(10):
                 products.append(Product(name=f'p{j}', shelf=shelf))
         Product.objects.bulk_create(products)
-        update_dependent(Shelf.objects.all())
+        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
         return time()-start
 
     def test_compare_create(self):
@@ -52,7 +61,12 @@ class NoComputedContext(TestCase):
             self.assertEqual(s_normal.product_names, s_nocomputed.product_names)
             self.assertEqual(s_normal.product_names, s_bulk.product_names)
         
-        print(f'\nCREATE\nnormal     : {normal}\nnocomputed : {nocomputed}\nbulk       : {bulk}')
+        print(
+            f'\nCREATE\n'
+            f'normal     : {fms(normal)}\n'
+            f'nocomputed : {fms(nocomputed)}\n'
+            f'bulk       : {fms(bulk)}'
+        )
 
         # no_computed is magnitudes faster than normal (at least 3x)
         self.assertGreater(normal, nocomputed * 3)
@@ -72,7 +86,7 @@ class NoComputedContext(TestCase):
             for i, p in enumerate(products):
                 p.name = f'p{i+1}'
                 p.save(update_fields=['name'])
-        update_dependent(Shelf.objects.all())
+        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
         return time() - start
     
     def update_bulk(self, products):
@@ -80,7 +94,7 @@ class NoComputedContext(TestCase):
         for i, p in enumerate(products):
             p.name = f'p{i+1}'
         Product.objects.fast_update(products, ['name'])  # alot faster than bulk_update
-        update_dependent(Shelf.objects.all())
+        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
         return time() - start
 
     def test_compare_update(self):
@@ -98,6 +112,10 @@ class NoComputedContext(TestCase):
             nocomputeds.extend(products[10:20])
             bulks.extend(products[20:30])
         
+        self.assertEqual(len(normals), 100)
+        self.assertEqual(len(nocomputeds), 100)
+        self.assertEqual(len(bulks), 100)
+        
         with atomic():
             normal = self.update_normal(normals)
             nocomputed = self.update_nocomputed(nocomputeds)
@@ -109,7 +127,12 @@ class NoComputedContext(TestCase):
             self.assertEqual(s_normal.product_names, s_nocomputed.product_names)
             self.assertEqual(s_normal.product_names, s_bulk.product_names)
 
-        print(f'\nUPDATE\nnormal     : {normal}\nnocomputed : {nocomputed}\nbulk       : {bulk}')
+        print(
+            f'\nUPDATE\n'
+            f'normal     : {fms(normal)}\n'
+            f'nocomputed : {fms(nocomputed)}\n'
+            f'bulk       : {fms(bulk)}'
+        )
 
         # no_computed is magnitudes faster than normal (at least 3x)
         self.assertGreater(normal, nocomputed * 3)
