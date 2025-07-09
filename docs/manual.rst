@@ -376,6 +376,55 @@ which is not allowed. Computed fields inherited from the parent model keep worki
 (treated as alias). Constructing depends rules from proxy models is not supported (untested).
 
 
+Related Managers
+----------------
+
+Django's `RelatedManager` supports several mass actions like ``add``, ``remove``, ``clear`` and ``set``
+(also see `official Django docs
+<https://docs.djangoproject.com/en/5.2/ref/models/relations/>`_). While most developers know these actions
+from m2m relations, they are less known or used on fk relations. With :mod:`django-computedfields` there are
+several catches around those mass actions.
+
+The mass actions on m2m relations are known to work with :mod:`django-computedfields`,
+changes get caught by the `m2m_changed` signal handler, which will trigger the update of dependent computed fields.
+
+On fk relations the mass actions will not trigger the update of dependent computed fields by default.
+Their default argument `bulk=True` causes them to use bulk actions internally not triggering any signal
+we could listen to. You have 2 options to work around this issue:
+
+- Call the action with the `bulk=False` argument. With this, the mass action will use single instance actions
+  internally, which triggers the dependent updates. Note that this may show poor performance.
+- Stick with `bulk=True` and trigger the updates yourself, schematically:
+
+    .. CODE:: python
+
+        class Blog(models.Model):
+            ...
+        class Entry(models.Model):
+            blog = models.ForeignKey(Blog, on_delete=models.CASCADE, null=True)
+
+        # add
+        b.entry_set.add(*objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # remove
+        b.entry_set.remove(*objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # clear
+        pks = set(b.entry_set.all().values_list('pk', flat=True))
+        b.entry_set.clear()
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # set
+        old = preupdate_dependent(b.entry_set.all(), update_fields=['blog'])
+        b.entry_set.set(objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'], old=old)
+
+
 f-expressions
 -------------
 
