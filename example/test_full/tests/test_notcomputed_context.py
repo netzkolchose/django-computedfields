@@ -1,6 +1,7 @@
 from django.test import TestCase
 from ..models import Book, Shelf
-from computedfields.models import not_computed, update_dependent
+from exampleapp.models import SelfRef
+from computedfields.models import not_computed, update_dependent, active_resolver
 from time import time
 from django.db.transaction import atomic
 from computedfields.thread_locals import get_not_computed_context, set_not_computed_context
@@ -182,3 +183,62 @@ class NoComputedContext(TestCase):
         orig_ctx = get_not_computed_context()
         t.join()
         self.assertEqual(orig_ctx, None)
+
+    def test_disabled_resolver_methods(self):
+        # disabled resolver methods:
+        # - _querysets_for_update
+        # - preupdate_dependent
+        # - update_dependent
+
+        shelf1 = Shelf.objects.create(name='s1')
+        shelf2 = Shelf.objects.create(name='s2')
+        book = Book.objects.create(name='b', shelf=shelf1)
+        shelf1.refresh_from_db()
+        shelf2.refresh_from_db()
+        self.assertEqual(shelf1.book_names, 'b')
+        self.assertEqual(shelf2.book_names, '')
+
+        with not_computed():
+            # changes that would need intermodel updates
+            book.name = 'book'
+            book.shelf = shelf2
+            book.save()
+            qs = active_resolver._querysets_for_update(Book, book)
+            self.assertEqual(qs, {})
+            old = active_resolver.preupdate_dependent(book)
+            self.assertEqual(old, {})
+            update_dependent(book)
+            self.assertEqual(shelf1.book_names, 'b')
+            self.assertEqual(shelf2.book_names, '')
+
+        update_dependent(book)
+        shelf1.refresh_from_db()
+        shelf2.refresh_from_db()
+        self.assertEqual(shelf1.book_names, 'b')    # wrong now (due to missing contributing fk change)
+        self.assertEqual(shelf2.book_names, 'book')
+        update_dependent(Shelf.objects.all())
+        shelf1.refresh_from_db()
+        shelf2.refresh_from_db()
+        self.assertEqual(shelf1.book_names, '')    # now fixed
+
+    def test_disabled_local_methods(self):
+        # disabled model local methods:
+        # - update_computedfields
+        # - compute
+
+        sf = SelfRef.objects.create(name='test')
+        self.assertEqual(sf.c1, 'TEST')
+
+        with not_computed():
+            sf.name = 'kaputt'
+            computed = active_resolver.compute(sf, 'c1')
+            self.assertEqual(computed, 'TEST')
+            active_resolver.update_computedfields(sf)
+            self.assertEqual(sf.c1, 'TEST')
+            sf.save()
+            sf.refresh_from_db()
+            self.assertEqual(sf.c1, 'TEST')
+
+        sf.save()
+        sf.refresh_from_db()
+        self.assertEqual(sf.c1, 'KAPUTT')
