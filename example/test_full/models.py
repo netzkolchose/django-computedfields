@@ -1207,7 +1207,7 @@ class DefaultToy(ComputedFieldsModel):
         return ','.join(self.children.all().values_list('name', flat=True))
 
 
-# no_computed context
+# not_computed context
 from fast_update.query import FastUpdateManager
 class Product(models.Model):
     name = models.CharField(max_length=5)

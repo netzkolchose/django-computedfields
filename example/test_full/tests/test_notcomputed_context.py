@@ -1,6 +1,6 @@
 from django.test import TestCase
 from ..models import Product, Shelf
-from computedfields.models import no_computed, update_dependent
+from computedfields.models import not_computed, update_dependent
 from time import time
 from django.db.transaction import atomic
 
@@ -14,7 +14,7 @@ def fms(v):
 
 
 class NoComputedContext(TestCase):
-    def create_normal(self):
+    def create_looped(self):
         start = time()
         for i in range(10):
             shelf = Shelf.objects.create(name=f's{i}')
@@ -25,7 +25,7 @@ class NoComputedContext(TestCase):
     def create_nocomputed(self):
         start = time()
         shelf_pks = []
-        with no_computed():
+        with not_computed():
             for i in range(10):
                 shelf = Shelf.objects.create(name=f's{i}')
                 shelf_pks.append(shelf.pk)
@@ -51,29 +51,29 @@ class NoComputedContext(TestCase):
 
     def test_compare_create(self):
         with atomic():
-            normal = self.create_normal()
+            looped = self.create_looped()
             nocomputed = self.create_nocomputed()
             bulk = self.create_bulk()
 
         # resync yields same result
         for i in range(10):
-            s_normal, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
-            self.assertEqual(s_normal.product_names, s_nocomputed.product_names)
-            self.assertEqual(s_normal.product_names, s_bulk.product_names)
+            s_looped, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
+            self.assertEqual(s_looped.product_names, s_nocomputed.product_names)
+            self.assertEqual(s_looped.product_names, s_bulk.product_names)
         
         print(
             f'\nCREATE\n'
-            f'normal     : {fms(normal)}\n'
-            f'nocomputed : {fms(nocomputed)}\n'
-            f'bulk       : {fms(bulk)}'
+            f'looped       : {fms(looped)}\n'
+            f'not_computed : {fms(nocomputed)}\n'
+            f'bulk         : {fms(bulk)}'
         )
 
-        # no_computed is magnitudes faster than normal (at least 3x)
-        self.assertGreater(normal, nocomputed * 3)
+        # no_computed is magnitudes faster than looped (at least 3x)
+        self.assertGreater(looped, nocomputed * 3)
         # but cannot beat bulk
         self.assertGreater(nocomputed, bulk)
 
-    def update_normal(self, products):
+    def update_looped(self, products):
         start = time()
         for i, p in enumerate(products):
             p.name = f'p{i+1}'
@@ -82,7 +82,7 @@ class NoComputedContext(TestCase):
     
     def update_nocomputed(self, products):
         start = time()
-        with no_computed():
+        with not_computed():
             for i, p in enumerate(products):
                 p.name = f'p{i+1}'
                 p.save(update_fields=['name'])
@@ -99,42 +99,42 @@ class NoComputedContext(TestCase):
 
     def test_compare_update(self):
         with atomic():
-            self.create_normal()
+            self.create_looped()
             self.create_nocomputed()
             self.create_bulk()
 
-        normals = []
+        loopeds = []
         nocomputeds = []
         bulks = []
         for i in range(10):
             products = list(Product.objects.filter(name=f'p{i}').order_by('pk'))
-            normals.extend(products[0:10])
+            loopeds.extend(products[0:10])
             nocomputeds.extend(products[10:20])
             bulks.extend(products[20:30])
         
-        self.assertEqual(len(normals), 100)
+        self.assertEqual(len(loopeds), 100)
         self.assertEqual(len(nocomputeds), 100)
         self.assertEqual(len(bulks), 100)
         
         with atomic():
-            normal = self.update_normal(normals)
+            looped = self.update_looped(loopeds)
             nocomputed = self.update_nocomputed(nocomputeds)
             bulk = self.update_bulk(bulks)
 
         # resync yields same result
         for i in range(10):
-            s_normal, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
-            self.assertEqual(s_normal.product_names, s_nocomputed.product_names)
-            self.assertEqual(s_normal.product_names, s_bulk.product_names)
+            s_looped, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
+            self.assertEqual(s_looped.product_names, s_nocomputed.product_names)
+            self.assertEqual(s_looped.product_names, s_bulk.product_names)
 
         print(
             f'\nUPDATE\n'
-            f'normal     : {fms(normal)}\n'
-            f'nocomputed : {fms(nocomputed)}\n'
-            f'bulk       : {fms(bulk)}'
+            f'looped       : {fms(looped)}\n'
+            f'not_computed : {fms(nocomputed)}\n'
+            f'bulk         : {fms(bulk)}'
         )
 
-        # no_computed is magnitudes faster than normal (at least 3x)
-        self.assertGreater(normal, nocomputed * 3)
+        # no_computed is magnitudes faster than looped (at least 3x)
+        self.assertGreater(looped, nocomputed * 3)
         # but cannot beat bulk
         self.assertGreater(nocomputed, bulk)

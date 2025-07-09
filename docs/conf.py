@@ -27,7 +27,7 @@ django.setup()
 # -- Project information -----------------------------------------------------
 
 project = 'django-computedfields'
-copyright = '2018, 2019, 2020 netzkolchose'
+copyright = '2018 - 2025 netzkolchose'
 author = 'netzkolchose'
 
 # The short X.Y version

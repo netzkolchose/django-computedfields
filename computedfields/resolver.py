@@ -1056,7 +1056,7 @@ class _ComputedFieldsModelBase:
     pass
 
 
-class NoComputedContextManager:
+class NotComputedContextManager:
     """
     Context to disable all computed field calculations and resolver updates temporarily.
 
