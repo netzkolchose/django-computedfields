@@ -3,6 +3,9 @@ from ..models import Book, Shelf
 from computedfields.models import not_computed, update_dependent
 from time import time
 from django.db.transaction import atomic
+from computedfields.thread_locals import get_not_computed_context, set_not_computed_context
+from time import sleep
+from threading import Thread
 
 
 def fms(v):
@@ -149,3 +152,33 @@ class NoComputedContext(TestCase):
         self.assertGreater(looped, notcomputed * 3)
         # but cannot beat bulk
         self.assertGreater(notcomputed, bulk)
+
+    def test_nesting(self):
+        self.assertEqual(get_not_computed_context(), None)
+        with not_computed() as ctx:
+            stored_ctx = get_not_computed_context()
+            self.assertNotEqual(stored_ctx, None)
+            self.assertEqual(ctx, stored_ctx)
+            with not_computed() as ctx2:
+                # stored and returned context may not change
+                self.assertEqual(get_not_computed_context(), stored_ctx)
+                self.assertEqual(ctx2, stored_ctx)
+            self.assertEqual(get_not_computed_context(), ctx)
+        self.assertEqual(get_not_computed_context(), None)
+
+    def test_thread_locality(self):
+        thread_ctx = None
+
+        def f():
+            nonlocal thread_ctx
+            ctx = not_computed()
+            set_not_computed_context(ctx)
+            thread_ctx = get_not_computed_context()
+            self.assertEqual(thread_ctx, ctx)
+
+        t = Thread(target=f)
+        t.start()
+        sleep(.1)
+        orig_ctx = get_not_computed_context()
+        t.join()
+        self.assertEqual(orig_ctx, None)

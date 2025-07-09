@@ -1,10 +1,10 @@
 """
 Contains the resolver logic for automated computed field updates.
 """
+from .thread_locals import get_not_computed_context, set_not_computed_context
 import operator
 from collections import OrderedDict
 from functools import reduce
-from itertools import zip_longest
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -12,7 +12,7 @@ from django.core.exceptions import FieldDoesNotExist
 
 from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
-from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same, modelname
+from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same
 from . import __version__
 
 from fast_update.fast import fast_update
@@ -96,9 +96,6 @@ class Resolver:
         self._sealed: bool = False        # initial boot phase
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
-
-        #: Disabled state, if `True` no resolver updates will happen.
-        self.disabled: bool = False
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -327,7 +324,7 @@ class Resolver:
         queryset containing all dependent objects.
         """
         final: Dict[Type[Model], List[Any]] = OrderedDict()
-        if self.disabled:
+        if get_not_computed_context():
             # TODO: track instance/queryset for context re-plays
             return final
         modeldata = self._map.get(model)
@@ -499,7 +496,7 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
-        if self.disabled:
+        if get_not_computed_context():
             # TODO: track instance/queryset for context re-plays
             return
 
@@ -650,7 +647,7 @@ class Resolver:
         # - calc all local cfs, that the requested one depends on
         # - stack and rewind interim values, as we dont want to introduce side effects here
         #   (in fact the save/bulker logic might try to save db calls based on changes)
-        if self.disabled:
+        if get_not_computed_context():
             return getattr(instance, fieldname)
         mro = self.get_local_mro(type(instance), None)
         if not fieldname in mro:
@@ -991,7 +988,7 @@ class Resolver:
         changed based on the input fields, thus should extend `update_fields`
         on a save call.
         """
-        if self.disabled:
+        if get_not_computed_context():
             return update_fields
         model = type(instance)
         if not self.has_computedfields(model):
@@ -1056,7 +1053,7 @@ class _ComputedFieldsModelBase:
     pass
 
 
-class NotComputedContextManager:
+class NotComputed:
     """
     Context to disable all computed field calculations and resolver updates temporarily.
 
@@ -1065,14 +1062,19 @@ class NotComputedContextManager:
         Currently there is no auto-recovery implemented at all,
         therefore it is your responsibility to recover properly from the desync state.
     """
-    def __init__(self, resolver=None):
-        self.resolver = resolver or active_resolver
+    def __init__(self):
+        self.remove_ctx = True
 
     def __enter__(self):
-        self.resolver.disabled = True
+        ctx = get_not_computed_context()
+        if ctx:
+            self.remove_ctx = False
+            return ctx
+        set_not_computed_context(self)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.resolver.disabled = False
-        # TODO: re-play aggregated changes
+        if self.remove_ctx:
+            set_not_computed_context(None)
+            # TODO: re-play aggregated changes
         return False
