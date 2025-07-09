@@ -1205,12 +1205,6 @@ Some basic rules regarding querysize:
 `not_computed` Context
 ----------------------
 
-.. WARNING::
-
-    This feature is labelled as alpha, as it currently misses any auto recovery from the desync state.
-    It is not clear yet, whether proper auto recovery can ever be achieved or just will turn into
-    an untameable beast due to endless edge cases.
-
 Since version 0.3.0 it is possible to disable all computed field calculations temporarily
 with the help of a context manager:
 
@@ -1224,34 +1218,42 @@ with the help of a context manager:
     # computed field calculations: on
     # fix desync state manually here
 
-The behavior within the context is, as if you had declared your computed fields on your models normally,
+The behavior within the context is, as if you had declared your computed fields directly on your models,
 means the fields still exist on your models but without any calculations being done.
 Calls into resolver methods like `update_dependent` are turned into NOOPs, so no dependency resolving happens.
-Therefore any insert, update or delete action done within this context has a high chance of creating a desync state
+Therefore any insert, update or delete actions done within this context have a high chance to create a desync state
 in the database.
 
-For a future version it is planned to offer some auto recovery from the desync state on the context's exit,
-but until then - **you are totally on your own to resync the database state after the `not_computed` context**.
+.. WARNING::
+
+    For a future version it is planned to offer some auto recovery from the desync state on the context's exit.
+    Until then - **you are totally on your own to get the database state back in sync after the
+    `not_computed` context**.
+
+.. WARNING::
+
+    The context state is stored as thread local data. To not get surprising results, you should avoid threaded code
+    with ORM actions in the context.
 
 At a first glance it may seem odd to disable all the nifty denormalization trickery, you just carefully introduced,
 and to run into a desync state deliberately. So what is the deal here?
 
 Well, the auto resolver creates a runtime penalty during inserts, updates and deletes.
-Furthermore the realtime approach on single instance puts that penalty on every step of looped actions
-like loop-saving, although we might not really care about the sync state before the loop has finished:
+Furthermore the realtime approach on single instance actions puts that penalty on each step of looped actions
+like loop-saving, although you might not really care about the sync state before the loop has finished:
 
 .. code-block:: python
 
     for instance in A_instances:
         instance.xy = some_new_value
         instance.save()
-        # here we actually dont care yet,
+        # here you actually dont care,
         # if dependent computed fields are in sync
         ...
-    # here we do care again
+    # here you do care again
     ...
 
-To avoid the calculation penalty on the save call, the code can be rewritten as:
+To avoid the calculation penalty on each save call, the code can be rewritten as:
 
 .. code-block:: python
 
@@ -1261,7 +1263,6 @@ To avoid the calculation penalty on the save call, the code can be rewritten as:
             instance.save()  # returns much faster now
             # desync here
             ...
-    # here we do care again
     # HELP: how to get things back to sync?
     ...
 
@@ -1274,11 +1275,11 @@ Note that the process of finding the needed changesets is error-prone, so it sho
 
 *If resolving the desync state is that tricky, when should I actually use the context?*
 
-Glad you asked - in general you should avoid the context like the plague. When you really need performant insert and
-update code, my first advice will always be to switch to proper bulk usage in your business logic.
+In general you should avoid the context as much as possible. When you really need performant insert and update code,
+my first advice will always be to switch to proper bulk usage in your business logic.
 This is guaranteed to give you the best performance without getting into dirty raw SQL business,
 and databases just love set-like mass actions. Furthermore the querysets for those bulk actions
-are directly supported by `(pre)update_dependent`, so can just be copied over most of the time to get rid
+are directly supported by `(pre)update_dependent`, so most of the time you can just copy them over to get rid
 of the desync state. Done?
 
 Well, there are still those cases, where you have to rely a lot on looped instance actions,
@@ -1291,7 +1292,7 @@ into a more bulk-friendly version.
     For performant database business logic, django's favoured single instance approach is often toxic.
     If you know in advance, that performance will play a major role in parts of your application, than you should
     try to restrain from anything binding your code to that pattern (e.g. avoid heavy `save` overloads
-    or instance signal hooks). If you cannot really avoid using them, then preparing the hook code to be used
+    or instance signal hooks). If you cannot really avoid using those, then preparing the hook code to be used
     with multiple instances at once turning them into set-like mass actions will help to keep your code working
     in conjunction with bulk actions later on.
 
@@ -1305,7 +1306,7 @@ approaches.
 - Model Setup: A `Book` can be associated with a `Shelf`. A shelf tracks its books' names
   in a computed field `book_names`.
 - Task **CREATE**: In each of 10 new shelves put 10 new books.
-- Task **UPDATE**: Previously created books get a new name.
+- Task **UPDATE**: Rename previously created books.
 
 The runtime numbers are (in msec):
 
