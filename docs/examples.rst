@@ -1296,7 +1296,7 @@ into a more bulk-friendly version.
     in conjunction with bulk actions later on.
 
     *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it had to support
-    the single instance pattern to integrate tightly. Solution was to extend the critical methods like
+    the single instance pattern to integrate tightly. Solution was to extend critical methods like
     `update_dependent` to support an instance or a queryset as first argument. 
 
 But since "all theory is grey", there is a test case in `test_notcomputed_context.py` illustrating the different
