@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import Product, Shelf
+from ..models import Book, Shelf
 from computedfields.models import not_computed, update_dependent
 from time import time
 from django.db.transaction import atomic
@@ -19,10 +19,10 @@ class NoComputedContext(TestCase):
         for i in range(10):
             shelf = Shelf.objects.create(name=f's{i}')
             for j in range(10):
-                Product.objects.create(name=f'p{j}', shelf=shelf)
+                Book.objects.create(name=f'p{j}', shelf=shelf)
         return time() - start
     
-    def create_nocomputed(self):
+    def create_notcomputed(self):
         start = time()
         shelf_pks = []
         with not_computed():
@@ -30,111 +30,122 @@ class NoComputedContext(TestCase):
                 shelf = Shelf.objects.create(name=f's{i}')
                 shelf_pks.append(shelf.pk)
                 for j in range(10):
-                    Product.objects.create(name=f'p{j}', shelf=shelf)
-        # manually resync
+                    Book.objects.create(name=f'p{j}', shelf=shelf)
+        # handcrafted resync:
+        # There is only one dependent CF - Shelf.book_names via Book.shelf fk relation.
+        # Therefore we stored the shelf pks and can do a slightly optimized resync here.
+        # Without good knowledge about the dependency tree an easier but more costly way
+        # would be to just store all created object pks above and call update_dependent
+        # on book and shelf pks separately.
         update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
         return time() - start
     
     def create_bulk(self):
         start = time()
-        shelfs = []
-        products = []
+        shelves = []
+        books = []
+        # NOTE: the sentinel trick is needed for mysql, as it does not populate pk in bulk_create
         for i in range(10):
-            shelfs.append(Shelf(name=f's{i}', product_names='sentinel'))
-        Shelf.objects.bulk_create(shelfs)
-        for shelf in Shelf.objects.filter(product_names='sentinel').order_by('pk'):
+            shelves.append(Shelf(name=f's{i}', book_names='sentinel'))
+        Shelf.objects.bulk_create(shelves)
+        shelves = []
+        for shelf in Shelf.objects.filter(book_names='sentinel').order_by('pk'):
+            shelves.append(shelf.pk)
             for j in range(10):
-                products.append(Product(name=f'p{j}', shelf=shelf))
-        Product.objects.bulk_create(products)
-        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
-        return time()-start
+                books.append(Book(name=f'p{j}', shelf=shelf))
+        Book.objects.bulk_create(books)
+        # resync
+        update_dependent(Shelf.objects.filter(pk__in=shelves))
+        return time() - start
 
     def test_compare_create(self):
         with atomic():
             looped = self.create_looped()
-            nocomputed = self.create_nocomputed()
+            notcomputed = self.create_notcomputed()
             bulk = self.create_bulk()
 
         # resync yields same result
         for i in range(10):
-            s_looped, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
-            self.assertEqual(s_looped.product_names, s_nocomputed.product_names)
-            self.assertEqual(s_looped.product_names, s_bulk.product_names)
+            s_looped, s_notcomputed, s_bulk = Shelf.objects.filter(name=f's{i}').order_by('pk')
+            self.assertEqual(s_looped.book_names, s_notcomputed.book_names)
+            self.assertEqual(s_looped.book_names, s_bulk.book_names)
         
         print(
             f'\nCREATE\n'
             f'looped       : {fms(looped)}\n'
-            f'not_computed : {fms(nocomputed)}\n'
+            f'not_computed : {fms(notcomputed)}\n'
             f'bulk         : {fms(bulk)}'
         )
 
-        # no_computed is magnitudes faster than looped (at least 3x)
-        self.assertGreater(looped, nocomputed * 3)
+        # not_computed is magnitudes faster than looped (at least 3x)
+        self.assertGreater(looped, notcomputed * 3)
         # but cannot beat bulk
-        self.assertGreater(nocomputed, bulk)
+        self.assertGreater(notcomputed, bulk)
 
-    def update_looped(self, products):
+    def update_looped(self, books):
         start = time()
-        for i, p in enumerate(products):
-            p.name = f'p{i+1}'
-            p.save(update_fields=['name'])
+        for i, b in enumerate(books):
+            b.name += str(i)
+            b.save(update_fields=['name'])
         return time() - start
     
-    def update_nocomputed(self, products):
+    def update_notcomputed(self, books):
         start = time()
         with not_computed():
-            for i, p in enumerate(products):
-                p.name = f'p{i+1}'
-                p.save(update_fields=['name'])
-        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
+            for i, b in enumerate(books):
+                b.name += str(i)
+                b.save(update_fields=['name'])
+        # resync
+        update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
         return time() - start
     
-    def update_bulk(self, products):
+    def update_bulk(self, books):
         start = time()
-        for i, p in enumerate(products):
-            p.name = f'p{i+1}'
-        Product.objects.fast_update(products, ['name'])  # alot faster than bulk_update
-        update_dependent(Shelf.objects.filter(pk__in=set(p.shelf_id for p in products)))
+        for i, b in enumerate(books):
+            b.name += str(i)
+        Book.objects.fast_update(books, ['name'])  # alot faster than bulk_update
+        # resync
+        update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
         return time() - start
 
     def test_compare_update(self):
         with atomic():
             self.create_looped()
-            self.create_nocomputed()
+            self.create_notcomputed()
             self.create_bulk()
 
         loopeds = []
-        nocomputeds = []
+        notcomputeds = []
         bulks = []
         for i in range(10):
-            products = list(Product.objects.filter(name=f'p{i}').order_by('pk'))
-            loopeds.extend(products[0:10])
-            nocomputeds.extend(products[10:20])
-            bulks.extend(products[20:30])
+            books = Book.objects.filter(name=f'p{i}').order_by('pk')
+            loopeds.extend(books[0:10])
+            notcomputeds.extend(books[10:20])
+            bulks.extend(books[20:30])
         
         self.assertEqual(len(loopeds), 100)
-        self.assertEqual(len(nocomputeds), 100)
+        self.assertEqual(len(notcomputeds), 100)
         self.assertEqual(len(bulks), 100)
         
         with atomic():
             looped = self.update_looped(loopeds)
-            nocomputed = self.update_nocomputed(nocomputeds)
+            notcomputed = self.update_notcomputed(notcomputeds)
             bulk = self.update_bulk(bulks)
 
         # resync yields same result
         for i in range(10):
-            s_looped, s_nocomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
-            self.assertEqual(s_looped.product_names, s_nocomputed.product_names)
-            self.assertEqual(s_looped.product_names, s_bulk.product_names)
+            s_looped, s_notcomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
+            self.assertEqual(s_looped.book_names, s_notcomputed.book_names)
+            self.assertEqual(s_looped.book_names, s_bulk.book_names)
 
         print(
             f'\nUPDATE\n'
             f'looped       : {fms(looped)}\n'
-            f'not_computed : {fms(nocomputed)}\n'
+            f'not_computed : {fms(notcomputed)}\n'
             f'bulk         : {fms(bulk)}'
         )
 
         # no_computed is magnitudes faster than looped (at least 3x)
-        self.assertGreater(looped, nocomputed * 3)
+        self.assertGreater(looped, notcomputed * 3)
         # but cannot beat bulk
-        self.assertGreater(nocomputed, bulk)
+        self.assertGreater(notcomputed, bulk)

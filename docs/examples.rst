@@ -1277,13 +1277,13 @@ Note that the process of finding the needed changesets is error-prone, so it sho
 Glad you asked - in general you should avoid the context like the plague. When you really need performant insert and
 update code, my first advice will always be to switch to proper bulk usage in your business logic.
 This is guaranteed to give you the best performance without getting into dirty raw SQL business,
-and databases just love set-like mass actions. Furthermore the formulated querysets for those bulk actions
+and databases just love set-like mass actions. Furthermore the querysets for those bulk actions
 are directly supported by `(pre)update_dependent`, so can just be copied over most of the time to get rid
 of the desync state. Done?
 
 Well, there are still those cases, where you have to rely a lot on looped instance actions,
 e.g. due to tons of `save` overloads - then using this context can be a relief to your insert or update actions.
-Here manually fixing the desync state might be less tedious than refactoring half of your previous code
+Here manually fixing the desync state might be less disrupting than refactoring half of your previous code
 into a more bulk-friendly version.
 
 .. TIP::
@@ -1295,19 +1295,26 @@ into a more bulk-friendly version.
     with multiple instances at once turning them into set-like mass actions will help to keep your code working
     in conjunction with bulk actions later on.
 
-    *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it has to support
+    *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it had to support
     the single instance pattern to integrate tightly. Solution was to extend the critical methods like
     `update_dependent` to support an instance or a queryset as first argument. 
 
-But since "all theory is grey", here are some runtime numbers from the test case in `test_notcomputed_context.py`
-doing the same tasks with different approaches (in msec):
+But since "all theory is grey", there is a test case in `test_notcomputed_context.py` illustrating the different
+approaches.
+
+- Model Setup: A `Book` can be associated with a `Shelf`. A shelf tracks its books' names
+  in a computed field `book_names`.
+- Task **CREATE**: In each of 10 new shelves put 10 new books.
+- Task **UPDATE**: Previously created books get a new name.
+
+The runtime numbers are (in msec):
 
 +--------------+--------+----------+-------+---------+
 |              | sqlite | postgres | mysql | mariadb |
 +==============+========+==========+=======+=========+
 | **CREATE**   |        |          |       |         |
 +--------------+--------+----------+-------+---------+
-| normal       | 206    | 404      | 372   | 370     |
+| looped       | 206    | 404      | 372   | 370     |
 +--------------+--------+----------+-------+---------+
 | not_computed | 38     | 65       | 70    | 72      |
 +--------------+--------+----------+-------+---------+
@@ -1315,7 +1322,7 @@ doing the same tasks with different approaches (in msec):
 +--------------+--------+----------+-------+---------+
 | **UPDATE**   |        |          |       |         |
 +--------------+--------+----------+-------+---------+
-| normal       | 211    | 394      | 387   | 368     |
+| looped       | 211    | 394      | 387   | 368     |
 +--------------+--------+----------+-------+---------+
 | not_computed | 43     | 71       | 80    | 74      |
 +--------------+--------+----------+-------+---------+

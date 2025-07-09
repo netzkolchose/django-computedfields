@@ -1209,17 +1209,17 @@ class DefaultToy(ComputedFieldsModel):
 
 # not_computed context
 from fast_update.query import FastUpdateManager
-class Product(models.Model):
+class Book(models.Model):
     name = models.CharField(max_length=5)
-    shelf = models.ForeignKey('Shelf', related_name='products', on_delete=models.CASCADE)
+    shelf = models.ForeignKey('Shelf', related_name='books', on_delete=models.CASCADE)
 
     objects = FastUpdateManager()
 
 class Shelf(ComputedFieldsModel):
     name = models.CharField(max_length=5)
-    product_names = ComputedField(
+    book_names = ComputedField(
         models.CharField(max_length=1000, default=''),
-        depends=[('products', ['name'])],
-        compute=lambda inst:','.join(inst.products.all().values_list('name', flat=True)),
+        depends=[('books', ['name'])],
+        compute=lambda inst:','.join(inst.books.all().values_list('name', flat=True)),
         default_on_create=True
     )
