@@ -1,6 +1,7 @@
 """
 Contains the resolver logic for automated computed field updates.
 """
+from .thread_locals import get_not_computed_context, set_not_computed_context
 import operator
 from collections import OrderedDict
 from functools import reduce
@@ -286,6 +287,9 @@ class Resolver:
         queryset containing all dependent objects.
         """
         final: Dict[Type[Model], List[Any]] = OrderedDict()
+        if get_not_computed_context():
+            # TODO: track instance/queryset for context re-plays
+            return final
         modeldata = self._map.get(model)
         if not modeldata:
             return final
@@ -448,6 +452,10 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
+        if get_not_computed_context():
+            # TODO: track instance/queryset for context re-plays
+            return
+
         _model = model or self._get_model(instance)
 
         # bulk_updater might change fields, ensure we have set/None
@@ -575,6 +583,9 @@ class Resolver:
         to the database, always use ``compute(fieldname)`` instead.
         """
         field = self._computed_models[model][fieldname]
+        if instance._state.adding or not instance.pk:
+            if field._computed['default_on_create']:
+                return field.get_default()
         return field._computed['func'](instance)
 
     def compute(self, instance: Model, fieldname: str) -> Any:
@@ -592,6 +603,8 @@ class Resolver:
         # - calc all local cfs, that the requested one depends on
         # - stack and rewind interim values, as we dont want to introduce side effects here
         #   (in fact the save/bulker logic might try to save db calls based on changes)
+        if get_not_computed_context():
+            return getattr(instance, fieldname)
         mro = self.get_local_mro(type(instance), None)
         if not fieldname in mro:
             return getattr(instance, fieldname)
@@ -705,7 +718,8 @@ class Resolver:
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
         prefetch_related: Optional[Sequence[Any]] = None,
-        querysize: Optional[int] = None
+        querysize: Optional[int] = None,
+        default_on_create: Optional[bool] = False
     ) -> 'Field[_ST, _GT]':
         """
         Factory for computed fields.
@@ -746,7 +760,8 @@ class Resolver:
             'depends': depends or [],
             'select_related': select_related or [],
             'prefetch_related': prefetch_related or [],
-            'querysize': querysize
+            'querysize': querysize,
+            'default_on_create': default_on_create
         }
         cf.editable = False
         self.add_field(cf)
@@ -758,7 +773,8 @@ class Resolver:
         depends: Optional[IDepends] = None,
         select_related: Optional[Sequence[str]] = None,
         prefetch_related: Optional[Sequence[Any]] = None,
-        querysize: Optional[int] = None
+        querysize: Optional[int] = None,
+        default_on_create: Optional[bool] = False
     ) -> Callable[[Callable[..., _ST]], 'Field[_ST, _GT]']:
         """
         Decorator to create computed fields.
@@ -811,6 +827,10 @@ class Resolver:
             it is a good idea not to rely on lookups with custom attributes,
             or to test explicitly for them in the method with an appropriate plan B.
 
+        With `default_on_create` set to ``True`` the function calculation will be skipped
+        for newly created or copy-cloned instances, instead the value will be set from the
+        inner field's `default` argument.
+
         .. CAUTION::
 
             With the dependency resolver you can easily create recursive dependencies
@@ -853,7 +873,8 @@ class Resolver:
                 depends=depends,
                 select_related=select_related,
                 prefetch_related=prefetch_related,
-                querysize=querysize
+                querysize=querysize,
+                default_on_create=default_on_create
             )
         return wrap
 
@@ -915,6 +936,8 @@ class Resolver:
         changed based on the input fields, thus should extend `update_fields`
         on a save call.
         """
+        if get_not_computed_context():
+            return update_fields
         model = type(instance)
         if not self.has_computedfields(model):
             return update_fields
@@ -976,3 +999,30 @@ BOOT_RESOLVER = active_resolver
 # during initial field resolving
 class _ComputedFieldsModelBase:
     pass
+
+
+class NotComputed:
+    """
+    Context to disable all computed field calculations and resolver updates temporarily.
+
+    .. CAUTION::
+
+        Currently there is no auto-recovery implemented at all,
+        therefore it is your responsibility to recover properly from the desync state.
+    """
+    def __init__(self):
+        self.remove_ctx = True
+
+    def __enter__(self):
+        ctx = get_not_computed_context()
+        if ctx:
+            self.remove_ctx = False
+            return ctx
+        set_not_computed_context(self)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.remove_ctx:
+            set_not_computed_context(None)
+            # TODO: re-play aggregated changes
+        return False

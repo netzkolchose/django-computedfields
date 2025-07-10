@@ -9,7 +9,7 @@ in ``apps.ready``.
     The handlers are not registered in the managment
     commands ``makemigrations``, ``migrate`` and ``help``.
 """
-from threading import local
+from .thread_locals import get_DELETES, get_M2M_REMOVE, get_M2M_CLEAR, get_UPDATE_OLD
 from django.db import transaction
 from .resolver import active_resolver
 from .settings import settings
@@ -17,40 +17,6 @@ from .settings import settings
 # typing imports
 from typing import Iterable, Type, cast
 from django.db.models import Model
-
-
-
-# thread local storage to hold
-# the pk lists for deletes/updates
-STORAGE = local()
-
-def get_DELETES():
-    try:
-        return STORAGE.DELETES
-    except AttributeError:
-        STORAGE.DELETES = {}
-    return STORAGE.DELETES
-
-def get_M2M_REMOVE():
-    try:
-        return STORAGE.M2M_REMOVE
-    except AttributeError:
-        STORAGE.M2M_REMOVE = {}
-    return STORAGE.M2M_REMOVE
-
-def get_M2M_CLEAR():
-    try:
-        return STORAGE.M2M_CLEAR
-    except AttributeError:
-        STORAGE.M2M_CLEAR = {}
-    return STORAGE.M2M_CLEAR
-
-def get_UPDATE_OLD():
-    try:
-        return STORAGE.UPDATE_OLD
-    except AttributeError:
-        STORAGE.UPDATE_OLD = {}
-    return STORAGE.UPDATE_OLD
 
 
 def get_old_handler(sender: Type[Model], instance: Model, **kwargs) -> None:

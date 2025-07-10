@@ -1181,3 +1181,132 @@ Some basic rules regarding querysize:
     for a model above ``COMPUTEDFIELDS_QUERYSIZE`` by applying higher `querysize` values to all its computed fields.
     Such a sophisticated fine-tuning might help, if you have identified a big bulk update on one model as the
     main bottleneck in your business actions, while keeping other uncritical updates at lower throughput and memory.
+
+
+`not_computed` Context
+----------------------
+
+Since version 0.3.0 it is possible to disable all computed field calculations temporarily
+with the help of a context manager:
+
+.. code-block:: python
+
+    from computedfields.models import not_computed
+
+    with not_computed():
+        # computed field calculations: off
+        ...
+    # computed field calculations: on
+    # fix desync state manually here
+
+The behavior within the context is, as if you had declared your computed fields directly on your models,
+means the fields still exist on your models but without any calculations being done.
+Calls into resolver methods like `update_dependent` are turned into NOOPs, so no dependency resolving happens.
+Therefore any insert, update or delete actions done within this context have a high chance to create a desync state
+in the database.
+
+.. WARNING::
+
+    For a future version it is planned to offer some auto recovery from the desync state on the context's exit.
+    Until then - **you are totally on your own to get the database state back in sync after the
+    `not_computed` context**.
+
+.. WARNING::
+
+    The context state is stored as thread local data. To not get surprising results, you should avoid threaded code
+    with ORM actions in the context.
+
+At a first glance it may seem odd to disable all the nifty denormalization trickery, you just carefully introduced,
+and to run into a desync state deliberately. So what is the deal here?
+
+Well, the auto resolver creates a runtime penalty during inserts, updates and deletes.
+Furthermore the realtime approach on single instance actions puts that penalty on each step of looped actions
+like loop-saving, although you might not really care about the sync state before the loop has finished:
+
+.. code-block:: python
+
+    for instance in A_instances:
+        instance.xy = some_new_value
+        instance.save()
+        # here you actually dont care,
+        # if dependent computed fields are in sync
+        ...
+    # here you do care again
+    ...
+
+To avoid the calculation penalty on each save call, the code can be rewritten as:
+
+.. code-block:: python
+
+    with not_computed():
+        for instance in A_instances:
+            instance.xy = some_new_value
+            instance.save()  # returns much faster now
+            # desync here
+            ...
+    # HELP: how to get things back to sync?
+    ...
+
+Now you have traded a much faster loop execution for a potential desync state afterwards. To get things back
+to sync in the example above, a call of
+``update_dependent(A.objects.filter(pk__in=[a.pk for a in A_instances]))`` might be enough.
+For much more complicated code you have to track the changes done to the database,
+intersect them with your computed fields' dependencies and call `update_dependent` for the remaining changesets.
+Note that the process of finding the needed changesets is error-prone, so it should be done carefully.
+
+*If resolving the desync state is that tricky, when should I actually use the context?*
+
+In general you should avoid the context as much as possible. When you really need performant insert and update code,
+my first advice will always be to switch to proper bulk usage in your business logic.
+This is guaranteed to give you the best performance without getting into dirty raw SQL business,
+and databases just love set-like mass actions. Furthermore the querysets for those bulk actions
+are directly supported by `(pre)update_dependent`, so most of the time you can just copy them over to get rid
+of the desync state. Done?
+
+Well, there are still those cases, where you have to rely a lot on looped instance actions,
+e.g. due to tons of `save` overloads - then using this context can be a relief to your insert or update actions.
+Here manually fixing the desync state might be less disrupting than refactoring half of your previous code
+into a more bulk-friendly version.
+
+.. TIP::
+
+    For performant database business logic, django's favoured single instance approach is often toxic.
+    If you know in advance, that performance will play a major role in parts of your application, than you should
+    try to restrain from anything binding your code to that pattern (e.g. avoid heavy `save` overloads
+    or instance signal hooks). If you cannot really avoid using those, then preparing the hook code to be used
+    with multiple instances at once turning them into set-like mass actions will help to keep your code working
+    in conjunction with bulk actions later on.
+
+    *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it had to support
+    the single instance pattern to integrate tightly. Solution was to extend critical methods like
+    `update_dependent` to support an instance or a queryset as first argument. 
+
+But since "all theory is grey", there is a test case in `test_notcomputed_context.py` illustrating the different
+approaches.
+
+- Model Setup: A `Book` can be associated with a `Shelf`. A shelf tracks its books' names
+  in a computed field `book_names`.
+- Task **CREATE**: In each of 10 new shelves put 10 new books.
+- Task **UPDATE**: Rename previously created books.
+
+The runtime numbers are (in msec):
+
++--------------+--------+----------+-------+---------+
+|              | sqlite | postgres | mysql | mariadb |
++==============+========+==========+=======+=========+
+| **CREATE**   |        |          |       |         |
++--------------+--------+----------+-------+---------+
+| looped       | 206    | 404      | 372   | 370     |
++--------------+--------+----------+-------+---------+
+| not_computed | 38     | 65       | 70    | 72      |
++--------------+--------+----------+-------+---------+
+| bulk         | 14     | 18       | 20    | 19      |
++--------------+--------+----------+-------+---------+
+| **UPDATE**   |        |          |       |         |
++--------------+--------+----------+-------+---------+
+| looped       | 211    | 394      | 387   | 368     |
++--------------+--------+----------+-------+---------+
+| not_computed | 43     | 71       | 80    | 74      |
++--------------+--------+----------+-------+---------+
+| bulk         | 8      | 12       | 14    | 12      |
++--------------+--------+----------+-------+---------+
