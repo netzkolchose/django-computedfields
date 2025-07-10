@@ -38,3 +38,11 @@ admin.py
 .. automodule:: computedfields.admin
    :members:
    :show-inheritance:
+
+
+signals.py
+----------
+
+.. automodule:: computedfields.signals
+   :members:
+   :show-inheritance:

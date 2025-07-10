@@ -14,6 +14,7 @@ from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
 from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same, modelname
 from . import __version__
+from .signals import resolver_start, resolver_exit, resolver_update
 
 from fast_update.fast import fast_update
 
@@ -432,7 +433,8 @@ class Resolver:
         update_fields: Optional[Iterable[str]] = None,
         old: Optional[Dict[Type[Model], List[Any]]] = None,
         update_local: bool = True,
-        querysize: Optional[int] = None
+        querysize: Optional[int] = None,
+        _is_recursive: bool = False
     ) -> None:
         """
         Updates all dependent computed fields on related models traversing
@@ -498,6 +500,9 @@ class Resolver:
         # bulk_updater might change fields, ensure we have set/None
         _update_fields = None if update_fields is None else set(update_fields)
 
+        if not _is_recursive:
+            resolver_start.send(sender=self)
+
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and self.has_computedfields(_model):
@@ -520,6 +525,9 @@ class Resolver:
                         pks, fields = data
                         queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
                         self.bulk_updater(queryset, fields, querysize=querysize)
+
+        if not _is_recursive:
+            resolver_exit.send(sender=self)
 
     def bulk_updater(
         self,
@@ -597,11 +605,20 @@ class Resolver:
             if change:
                 self._update(model._base_manager.all(), change, fields)
 
+            if pks:
+                resolver_update.send(sender=self, model=model, fields=fields, pk_set=pks)
+
         # trigger dependent comp field updates from changed records
         # other than before we exit the update tree early, if we have no changes at all
         # also cuts the update tree for recursive deps (tree-like)
         if not local_only and pks:
-            self.update_dependent(model._base_manager.filter(pk__in=pks), model, fields, update_local=False)
+            self.update_dependent(
+                instance=model._base_manager.filter(pk__in=pks),
+                model=model,
+                update_fields=fields,
+                update_local=False,
+                _is_recursive=True
+            )
         return set(pks) if return_pks else None
     
     def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Sequence[str]) -> Union[int, None]:
