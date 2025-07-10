@@ -84,13 +84,14 @@ class Signals(TestCase):
         # - first cascade delete p1 --> c1,c2
         # - delete c1,c2 updates DefaultParent.children_name and DefaultToy.children_names
         # - delete p1
+        pk = self.p1.pk
         self.p1.delete()
         self.assertEqual(RECORDED, [
             ['start'],
-            ['update', DefaultParent, {'children_names'}, [1]],
+            ['update', DefaultParent, {'children_names'}, [pk]],
             ['exit'],
             ['start'],  # FIXME: why second run here?
-            ['update', DefaultToy, {'children_names'}, [1]],
+            ['update', DefaultToy, {'children_names'}, [pk]],
             ['exit'],
         ])
         RECORDED.clear()
@@ -107,11 +108,12 @@ class Signals(TestCase):
         RECORDED.clear()
 
         # delete child with toys updates DefaultParent.children_name and DefaultToy.children_names
+        child_pk = self.c1.pk
         self.c1.delete()
         try:
             self.assertEqual(RECORDED, [
                 ['start'],
-                ['update', DefaultToy, {'children_names'}, [1]], # updates may flip positions
+                ['update', DefaultToy, {'children_names'}, [child_pk]], # updates may flip positions
                 ['update', DefaultParent, {'children_names'}, [self.p1.pk]],
                 ['exit'],
             ])
@@ -119,7 +121,7 @@ class Signals(TestCase):
             self.assertEqual(RECORDED, [
                 ['start'],
                 ['update', DefaultParent, {'children_names'}, [self.p1.pk]],
-                ['update', DefaultToy, {'children_names'}, [1]],
+                ['update', DefaultToy, {'children_names'}, [child_pk]],
                 ['exit'],
             ])
         RECORDED.clear()
