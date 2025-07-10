@@ -463,9 +463,6 @@ class Resolver:
         # bulk_updater might change fields, ensure we have set/None
         _update_fields = None if update_fields is None else set(update_fields)
 
-        if not _is_recursive:
-            resolver_start.send(sender=self)
-
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
         if update_local and self.has_computedfields(_model):
@@ -477,6 +474,8 @@ class Resolver:
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
+            if not _is_recursive:
+                resolver_start.send(sender=self)
             with transaction.atomic():  # FIXME: place transaction only once in tree descent
                 pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
@@ -488,9 +487,8 @@ class Resolver:
                         pks, fields = data
                         queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
                         self.bulk_updater(queryset, fields, querysize=querysize)
-
-        if not _is_recursive:
-            resolver_exit.send(sender=self)
+            if not _is_recursive:
+                resolver_exit.send(sender=self)
 
     def bulk_updater(
         self,
