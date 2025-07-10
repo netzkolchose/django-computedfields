@@ -1205,3 +1205,21 @@ class DefaultToy(ComputedFieldsModel):
     )
     def children_names(self):
         return ','.join(self.children.all().values_list('name', flat=True))
+
+
+# not_computed context
+from fast_update.query import FastUpdateManager
+class Book(models.Model):
+    name = models.CharField(max_length=5)
+    shelf = models.ForeignKey('Shelf', related_name='books', on_delete=models.CASCADE)
+
+    objects = FastUpdateManager()
+
+class Shelf(ComputedFieldsModel):
+    name = models.CharField(max_length=5)
+    book_names = ComputedField(
+        models.CharField(max_length=1000, default=''),
+        depends=[('books', ['name'])],
+        compute=lambda inst:','.join(inst.books.all().values_list('name', flat=True)),
+        default_on_create=True
+    )
