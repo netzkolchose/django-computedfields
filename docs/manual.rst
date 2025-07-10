@@ -446,7 +446,7 @@ of the resolver's tree update, it comes with a few caveats:
 .. WARNING::
 
     To not compromise the resolver's DFS update, you should not use any complicated or likely-to-raise code
-    in your `resolver_update` handler. Also database interactions, especially calls to `update_dependent`
+    in your `resolver_update` handler. Also database interactions, especially calls to `update_dependent`,
     should be avoided.
 
 Instead collect the interesting data points and wait for the `resolver_exit` signal.

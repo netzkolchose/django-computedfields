@@ -606,7 +606,7 @@ class Resolver:
                 self._update(model._base_manager.all(), change, fields)
 
             if pks:
-                resolver_update.send(sender=self, model=model, fields=fields, pk_set=pks)
+                resolver_update.send(sender=self, model=model, fields=fields, pks=pks)
 
         # trigger dependent comp field updates from changed records
         # other than before we exit the update tree early, if we have no changes at all
