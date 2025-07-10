@@ -78,5 +78,6 @@ class CommandTests(GenericModelTestBase):
 
     def test_updatedata(self):
         # TODO: advanced test case
+        from io import StringIO
         self.models.A(name='a').save()
-        call_command('updatedata', verbosity=0)
+        call_command('updatedata', verbosity=0, stdout=StringIO())

@@ -49,7 +49,8 @@ class TestUpdatedata(TestCase):
         self.assertEqual(any(FixtureChild.objects.all().values_list('path', flat=True)), False)
 
     def test_computedfields_resync(self):
-        call_command('updatedata')  # expensive since resyncing all cfs in test models (~120ms)
+        from io import StringIO
+        call_command('updatedata', stdout=StringIO())  # expensive since resyncing all cfs in test models (~120ms)
         self.assertEqual(list(FixtureParent.objects.all().values_list('children_count', flat=True).order_by('pk')), [10, 0, 0])
         self.assertEqual(
             list(FixtureChild.objects.all().values_list('path', flat=True)),
