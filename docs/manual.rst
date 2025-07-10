@@ -713,6 +713,14 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.3.0 - new beta release
+    - new features:
+        - default_on_create argument for @computed
+        - not_computed context to disable resolver temporarily
+        - resolver signals
+    - enhancements:
+        - altered m2m handling with full through model expansion
+        - reduced transaction pressure in resolver
 - 0.2.10
     - Fix related_query_name on M2M relations
     - Fix computed fk fields to use instances and not the _id attribute
