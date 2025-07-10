@@ -476,7 +476,18 @@ class Resolver:
         if updates:
             if not _is_recursive:
                 resolver_start.send(sender=self)
-            with transaction.atomic():  # FIXME: place transaction only once in tree descent
+                with transaction.atomic():
+                    pks_updated: Dict[Type[Model], Set[Any]] = {}
+                    for queryset, fields in updates:
+                        _pks = self.bulk_updater(queryset, fields, return_pks=True, querysize=querysize)
+                        if _pks:
+                            pks_updated[queryset.model] = _pks
+                    if old:
+                        for model2, data in old.items():
+                            pks, fields = data
+                            queryset = model2.objects.filter(pk__in=pks-pks_updated.get(model2, set()))
+                            self.bulk_updater(queryset, fields, querysize=querysize)
+            else:
                 pks_updated: Dict[Type[Model], Set[Any]] = {}
                 for queryset, fields in updates:
                     _pks = self.bulk_updater(queryset, fields, return_pks=True, querysize=querysize)
