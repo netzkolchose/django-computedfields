@@ -7,7 +7,7 @@
 django-computedfields provides autoupdated database fields
 for model methods.
 
-Tested with Django 3.2 and 4.2 (Python 3.8 to 3.11).
+Tested with Django 4.2 and 5.2 (Python 3.8 to 3.13).
 
 
 #### Example

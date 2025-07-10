@@ -23,11 +23,17 @@ class Command(BaseCommand):
     
     def handle(self, *app_labels, **options):
         models = retrieve_models(app_labels)
+        auto_through = set()
+        for through in active_resolver._m2m.keys():
+            if not through in models:
+                models.add(through)
+                auto_through.add(through)
         for model in models:
             if not model in active_resolver._map:
                 print(f'- {modelname(model)}: None')
                 continue
-            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}:')
+            through_msg = ' (auto-generated through)' if model in auto_through else ''
+            print(f'- {self.style.MIGRATE_LABEL(modelname(model))}{through_msg}:')
             for source_field, targets in active_resolver._map[model].items():
                 real_source_field = model._meta.get_field(source_field)
                 if real_source_field.is_relation and not real_source_field.concrete:

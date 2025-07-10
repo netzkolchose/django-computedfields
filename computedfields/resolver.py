@@ -8,10 +8,9 @@ from functools import reduce
 
 from django.db import transaction
 from django.db.models import QuerySet
-from django.core.exceptions import FieldDoesNotExist
 
 from .settings import settings
-from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph
+from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph, IM2mMap
 from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same
 from . import __version__
 
@@ -20,15 +19,8 @@ from fast_update.fast import fast_update
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
                     Tuple, Type, Union, cast, overload)
-from typing_extensions import TypedDict
 from django.db.models import Field, Model
 from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F
-
-
-class IM2mData(TypedDict):
-    left: str
-    right: str
-IM2mMap = Dict[Type[Model], IM2mData]
 
 
 MALFORMED_DEPENDS = """
@@ -171,7 +163,7 @@ class Resolver:
 
         The data is the single source of truth for the graph reduction and
         map creations. Thus it can be used to decide at runtime whether
-        the active resolver a certain as a model with computed fields.
+        the active resolver respects a certain model with computed fields.
         
         .. NOTE::
         
@@ -236,37 +228,9 @@ class Resolver:
             self._graph.get_uniongraph().get_edgepaths()
         self._map, self._fk_map = self._graph.generate_maps()
         self._local_mro = self._graph.generate_local_mro_map()
-        self._extract_m2m_through()
+        self._m2m = self._graph._m2m
         self._patch_proxy_models()
         self._map_loaded = True
-
-    def _extract_m2m_through(self) -> None:
-        """
-        Creates M2M through model mappings with left/right field names.
-        The map is used by the m2m_changed handler for faster name lookups.
-        This cannot be pickled, thus is built for every resolver bootstrapping.
-        """
-        for model, fields in self.computed_models.items():
-            for _, real_field in fields.items():
-                depends = real_field._computed['depends']
-                for path, _ in depends:
-                    if path == 'self':
-                        continue
-                    cls: Type[Model] = model
-                    for symbol in path.split('.'):
-                        try:
-                            rel: Any = cls._meta.get_field(symbol)
-                        except FieldDoesNotExist:
-                            descriptor = getattr(cls, symbol)
-                            rel = getattr(descriptor, 'rel', None) or getattr(descriptor, 'related')
-                        if rel.many_to_many:
-                            if hasattr(rel, 'through'):
-                                self._m2m[rel.through] = {
-                                    'left': rel.remote_field.name, 'right': rel.name}
-                            else:
-                                self._m2m[rel.remote_field.through] = {
-                                    'left': rel.name, 'right': rel.remote_field.name}
-                        cls = rel.related_model
 
     def _patch_proxy_models(self) -> None:
         """
@@ -317,7 +281,6 @@ class Resolver:
         instance: Union[Model, QuerySet],
         update_fields: Optional[Iterable[str]] = None,
         pk_list: bool = False,
-        m2m: Optional[Model] = None
     ) -> Dict[Type[Model], List[Any]]:
         """
         Returns a mapping of all dependent models, dependent fields and a
@@ -361,20 +324,13 @@ class Resolver:
         # generate narrowed down querysets for all cf dependencies
         for model, data in model_updates.items():
             fields, paths = data
-
-            # queryset construction
-            if m2m and self._proxymodels.get(type(m2m), type(m2m)) == model:
-                # M2M optimization: got called through an M2M signal
-                # narrow updates to the single signal instance
-                queryset = model._base_manager.filter(pk=m2m.pk)
-            else:
-                queryset: Any = model._base_manager.none()
-                query_pipe_method = self._choose_optimal_query_pipe_method(paths)
-                queryset = reduce(
-                    query_pipe_method,
-                    (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
-                    queryset
-                )
+            queryset: Any = model._base_manager.none()
+            query_pipe_method = self._choose_optimal_query_pipe_method(paths)
+            queryset = reduce(
+                query_pipe_method,
+                (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
+                queryset
+            )
             if pk_list:
                 # need pks for post_delete since the real queryset will be empty
                 # after deleting the instance in question
@@ -853,7 +809,7 @@ class Resolver:
 
         .. NOTE::
 
-            Dependencies to model local fields should be list with ``'self'`` as relation name.
+            Dependencies to model local fields should be listed with ``'self'`` as relation name.
 
         With `select_related` and `prefetch_related` you can instruct the dependency resolver
         to apply certain optimizations on the update queryset.
@@ -905,16 +861,8 @@ class Resolver:
             by directly accessing the graph objects:
 
             - intermodel dependency graph: ``active_resolver._graph``
-            - mode local dependency graphs: ``active_resolver._graph.modelgraphs[your_model]``
+            - model local dependency graphs: ``active_resolver._graph.modelgraphs[your_model]``
             - union graph: ``active_resolver._graph.get_uniongraph()``
-
-            Note that there is not graph object, when running with ``COMPUTEDFIELDS_MAP = True``.
-            In that case either comment out that line `settings.py` and restart the server
-            or build the graph at runtime with:
-
-                >>> from computedfields.graph import ComputedModelsGraph
-                >>> from computedfields.resolver import active_resolver
-                >>> graph = ComputedModelsGraph(active_resolver.computed_models)
 
             Also see the graph documentation :ref:`here<graph>`.
         """
