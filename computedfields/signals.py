@@ -3,13 +3,13 @@ from django.dispatch import Signal
 
 # Signal sent upon start of the resolver. `sender` points to the resolver instance.
 resolver_start = Signal()
-"""Signal sent upon start of the resolver. `sender` points to the resolver instance."""
+"""Signal sent upon start of a tree update. `sender` points to the resolver instance."""
 
 
 # Signal sent after a bulk update by the resolver.
 resolver_update = Signal()
 """
-Signal sent after a bulk update by the resolver.
+Signal sent after a bulk update on a model.
 
 Arguments sent with this signal:
 
@@ -37,4 +37,4 @@ Also refer to the manual on how to use this signal in a safe way.
 
 # Signal sent upon exit of the resolver. `sender` points to the resolver instance.
 resolver_exit = Signal()
-"""Signal sent upon exit of the resolver. `sender` points to the resolver instance."""
+"""Signal sent upon exit of a tree update. `sender` points to the resolver instance."""
