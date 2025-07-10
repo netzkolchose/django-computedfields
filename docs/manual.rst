@@ -206,13 +206,13 @@ pulls data from.
                 return ''
             # normal data pull across m2m relation
             return ''.join(self.m2m.all().values_list('field', flat=True))
-
+    
     Alternatively you can set the `default_on_create` argument of the decorator to true
     and provide a default value on the inner field. This will completely skip the
     compute function for new instances.
 
-    Pulling field dependencies over m2m relations has several more drawbacks, in general
-    it is a good idea to avoid m2m relations in `depends` as much as possible.
+    Please note that using m2m fields in `depends` will quickly lead to bad update performance.
+    In general it is a good idea to avoid m2m relations in `depends` as much as possible.
     Also see examples about m2m relations.
 
 .. WARNING::
@@ -229,7 +229,7 @@ If you have a custom ``save`` method defined on your model, it is important to n
 that by default local computed field values are not yet updated to their new values during the invocation,
 as this happens in ``ComputedFieldModel.save`` afterwards. Thus code in ``save`` still sees old values.
 
-With the decorator ``@precomputed`` you can change that behavior to also update computed fields
+With the decorator ``@precomputed`` you can change that behavior to update computed fields
 before entering your custom save method:
 
 .. code-block:: python
@@ -296,12 +296,12 @@ computed fields have been finally updated.
     For more advanced usage in conjunction with bulk actions and `update_dependent` see below and in the
     examples documentation.
 
-On ORM level all updates are turned into select querysets filtering on dependent computed field models
+On ORM level all updates are turned into select querys filtering on dependent computed field models
 in ``update_dependent``. A dependency like ``['a.b.c', [...]]`` of a computed field on model `X` will either
 be turned into a queryset like ``X.objects.filter(a__b__c=instance)`` or ``X.objects.filter(a__b__c__in=instance)``,
 depending on `instance` being a single model instance or a queryset of model `C`.
 
-The auto resolver only triggers field updates for real values changes by comparing old and new value.
+The auto resolver only triggers field updates for real values changes by comparing old and new values.
 If a `depends` rule contains a 1:`n` relation (reverse fk relation), ``update_dependent`` additionally updates
 old relations, that were grabbed by a `pre_save` signal handler.
 Similar measures to catch old relations are in place for m2m relations and delete actions (see `handlers.py`).
@@ -640,16 +640,18 @@ Best Practices
 ^^^^^^^^^^^^^^
 
 - start highly normalized
-- cover needed field calculations with field annotations where possible
+- cover needed field calculations with field annotations or `GeneratedField` where possible
 - do other calculations in normal methods/properties
 
 These steps should be followed first, as they guarantee low to no redundancy of the data if properly done,
 before resorting to any denormalization trickery. Of course complicated field calculations create
-additional workload either on the database or in Python, which might turn into serious query bottlenecks in your project.
+additional workload either on the database or in Python, which might turn into serious query bottlenecks
+in your project.
 
-That is the point where :mod:`django-computedfields` can help by creating pre-computed fields.
-It can remove the recurring calculation workload during queries by providing precalculated values.
-Please keep in mind, that this comes to a price:
+That is the point where :mod:`django-computedfields` can help by creating pre-computed database fields.
+It removes the recurring calculation workload during select queries by moving the calculation work
+to inserts and updates.
+Please keep in mind, that this comes at a price:
 
 - additional space requirement in database
 - redundant data (as with any denormalization)
@@ -659,7 +661,7 @@ Please keep in mind, that this comes to a price:
 
 If your project suffers from query bottlenecks created by recurring field calculations and
 you have ruled out worse negative side effects from the list above,
-:mod:`django-computedfields` can help to speed up some parts of your Django project.
+:mod:`django-computedfields` can help you to speed up some parts of your Django project.
 
 
 Specific Usage Hints
@@ -674,8 +676,8 @@ Specific Usage Hints
   affected computed fields only once, it does not help much, if method invocations have to touch 80%
   of all database entries to get the updates done.
 - Try to apply `select_related` and `prefetch_related` optimizations for complicated dependencies. While this can
-  reduce the query load by far, it also increases memory usage alot, thus it needs proper testing to find the sweep spot.
-  Also see optimization examples documentation.
+  reduce the query load by far, it also increases memory usage alot, thus it needs proper testing to find
+  the sweet spot. Also see the documentation of optimization examples.
 - Try to reduce the "update pressure" by grouping update paths by dimensions like update frequency or update penalty
   (isolate the slowpokes). Mix in fast turning entities late.
 

@@ -1174,6 +1174,53 @@ class CFKRelatedData(ComputedFieldsModel):
         return self.parent.c2
 
 
+# issue #144
+from collections import Counter
+
+class Tag(ComputedFieldsModel):
+    name = models.CharField(max_length=32, unique=True)
+
+run_counters = Counter()
+
+class Advert(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+
+    tags = models.ManyToManyField(
+        Tag,
+        related_name="adverts"
+    )
+
+    @computed(
+        field=models.CharField(max_length=500),
+        depends=[("tags", ["name"])]
+    )
+    def all_tags(self) -> str:
+        run_counters.update(["all_tags"])
+        if not self.pk:
+            return ""
+        return ", ".join(self.tags.values_list("name", flat=True))
+
+    def __str__(self) -> str:
+        return f"{self.name}"
+
+class Room(ComputedFieldsModel):
+    name = models.CharField(max_length=32)
+    advert = models.ForeignKey(Advert, related_name="rooms", on_delete=models.CASCADE)
+
+    @computed(
+        field=models.BooleanField(),
+        depends=[("advert.tags", ["name"])]
+    )
+    def is_ready(self) -> bool:
+        run_counters.update(["is_ready"])
+        if not self.pk:
+            return False
+        return self.advert.tags.filter(name="ready").exists()
+
+    def __str__(self) -> str:
+        return f"{self.name}"
+
+
 # default_on_create tests
 class DefaultParent(ComputedFieldsModel):
     name = models.CharField(max_length=32)
@@ -1205,3 +1252,21 @@ class DefaultToy(ComputedFieldsModel):
     )
     def children_names(self):
         return ','.join(self.children.all().values_list('name', flat=True))
+
+
+# not_computed context
+from fast_update.query import FastUpdateManager
+class Book(models.Model):
+    name = models.CharField(max_length=5)
+    shelf = models.ForeignKey('Shelf', related_name='books', on_delete=models.CASCADE)
+
+    objects = FastUpdateManager()
+
+class Shelf(ComputedFieldsModel):
+    name = models.CharField(max_length=5)
+    book_names = ComputedField(
+        models.CharField(max_length=1000, default=''),
+        depends=[('books', ['name'])],
+        compute=lambda inst:','.join(inst.books.all().values_list('name', flat=True)),
+        default_on_create=True
+    )

@@ -2,7 +2,7 @@ from typing import Iterable, Optional
 from django.db import models
 from django.contrib.contenttypes.models import ContentType, ContentTypeManager
 from django.utils.translation import gettext_lazy as _
-from .resolver import active_resolver, _ComputedFieldsModelBase
+from .resolver import active_resolver, _ComputedFieldsModelBase, NotComputed
 
 __all__ = [
     'ComputedFieldsModel',
@@ -70,6 +70,10 @@ precomputed = active_resolver.precomputed
 # ComputedField factory
 #: Convenient access to :meth:`computedfield_factory<.resolver.Resolver.computedfield_factory>`.
 ComputedField = active_resolver.computedfield_factory
+
+# not_computed context
+#: Convenient access to :meth:`computedfield_factory<.resolver.NotComputedContextManager>`.
+not_computed = NotComputed
 
 # computed field updates
 #: Convenient access to :meth:`compute<.resolver.Resolver.compute>`.

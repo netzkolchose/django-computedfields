@@ -44,7 +44,7 @@ def retrieve_computed_models(app_labels):
 
 def retrieve_models(app_labels):
     if not app_labels:
-        return apps.get_models()
+        return set(apps.get_models())
     considered = set()
     for label in app_labels:
         app_model = label.split('.')
