@@ -425,6 +425,53 @@ we could listen to. You have 2 options to work around this issue:
         update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'], old=old)
 
 
+Signals
+-------
+
+Version 0.3.0 introduced 3 custom signals sent by the resolver:
+
+- `resolver_start` indicates the start of a resolver update
+- `resolver_update` sent immediately after a model's bulk update
+- `resolver_exit` indicates the exit of a resolver update
+
+The interesting signal is `resolver_update`, as it allows you to introspect,
+which computed fields on which records were updated. But since that signal is sent right away from deep within
+of the resolver's tree update, it comes with a few caveats:
+
+- still in resolver DFS recursion
+- database not fully resynced yet
+- still under the resolver's transaction umbrella
+
+
+.. WARNING::
+
+    To not compromise the resolver's DFS update, you should not use any complicated or likely-to-raise code
+    in your `resolver_update` handler. Also database interactions, especially calls to `update_dependent`,
+    should be avoided.
+
+Instead collect the interesting data points and wait for the `resolver_exit` signal.
+After that you can safely do your processing, example:
+
+.. CODE:: python
+
+    from computedfields.signals import resolver_update, resolver_exit
+
+    def collect_updates(sender, model, fields, pks):
+        # filter for updates of ModelXY.comp
+        if model == ModelXY and 'comp' in fields:
+            # only collect updated pks here
+            store_somewhere(pks)
+    resolver_update.connect(collect_updates)
+
+    def on_resolver_exit(sender):
+        # retrieve updated pks for ModelXY.comp
+        pks = retrieve_again()
+        # here it is safe to do all nasty things
+        # without compromising the resolver update
+        likely_to_fail(ModelXY.objects.filter(pk__pks))
+    resolver_exit.connect(on_resolver_exit)
+
+
 f-expressions
 -------------
 
