@@ -436,7 +436,7 @@ Version 0.3.0 introduced 3 custom signals sent by the resolver:
 
 The interesting signal is `resolver_update`, as it allows you to introspect,
 which computed fields on which records were updated. But since that signal is sent right away from deep within
-of the resolver's tree update, it comes with a few caveats:
+the resolver's tree update, it comes with a few caveats:
 
 - still in resolver DFS recursion
 - database not fully resynced yet
@@ -445,7 +445,7 @@ of the resolver's tree update, it comes with a few caveats:
 
 .. WARNING::
 
-    To not compromise the resolver's DFS update, you should not use any complicated or likely-to-raise code
+    To not compromise the resolver's tree update, you should not use any complicated or likely-to-fail code
     in your `resolver_update` handler. Also database interactions, especially calls to `update_dependent`,
     should be avoided.
 
@@ -456,19 +456,19 @@ After that you can safely do your processing, example:
 
     from computedfields.signals import resolver_update, resolver_exit
 
-    def collect_updates(sender, model, fields, pks):
+    def collect_updates(sender, model, fields, pks, **kwargs):
         # filter for updates of ModelXY.comp
         if model == ModelXY and 'comp' in fields:
-            # only collect updated pks here
+            # only collect stuff here
             store_somewhere(pks)
     resolver_update.connect(collect_updates)
 
-    def on_resolver_exit(sender):
+    def on_resolver_exit(sender, **kwargs):
         # retrieve updated pks for ModelXY.comp
         pks = retrieve_again()
         # here it is safe to do all nasty things
         # without compromising the resolver update
-        likely_to_fail(ModelXY.objects.filter(pk__pks))
+        likely_to_fail(ModelXY.objects.filter(pk__in=pks))
     resolver_exit.connect(on_resolver_exit)
 
 
