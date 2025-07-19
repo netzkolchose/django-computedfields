@@ -1270,3 +1270,19 @@ class Shelf(ComputedFieldsModel):
         compute=lambda inst:','.join(inst.books.all().values_list('name', flat=True)),
         default_on_create=True
     )
+
+
+# fix #187
+class AT(models.Model):
+    name = models.CharField(max_length=32)
+class BT(models.Model):
+    name = models.CharField(max_length=32)
+    ats = models.ManyToManyField(to=AT, through='ATBT', related_name='bts')
+class ATBT(ComputedFieldsModel):
+    at = models.ForeignKey(AT, on_delete=models.CASCADE)
+    bt = models.ForeignKey(BT, on_delete=models.CASCADE)
+    names = ComputedField(
+        models.CharField(max_length=64, default=''),
+        depends=[('at', ['name']), ('bt', ['name'])],
+        compute=lambda inst: inst.at.name + inst.bt.name
+    )
