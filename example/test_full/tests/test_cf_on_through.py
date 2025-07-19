@@ -1,9 +1,11 @@
 from django.test import TestCase
 from ..models import AT, BT, ATBT
+from computedfields.handlers import PATCHED_M2M
 
 
 class CfOnThrough(TestCase):
     def test_add(self):
+        PATCHED_M2M.clear()
         at = AT.objects.create(name='aa')
         bt = BT.objects.create(name='bb')
         bt.ats.add(at)
@@ -18,6 +20,7 @@ class CfOnThrough(TestCase):
         self.assertEqual(atbt.names, 'AABB')
 
     def test_add_reverse(self):
+        PATCHED_M2M.clear()
         at = AT.objects.create(name='aa')
         bt = BT.objects.create(name='bb')
         at.bts.add(bt)
