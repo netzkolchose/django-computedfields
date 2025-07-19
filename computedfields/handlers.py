@@ -153,7 +153,7 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         # to identify through models at the resolver's init stage.
         fields = _patch_m2m_fields(kwargs['model'], sender, reverse)
         if not fields:
-            return
+            return  # pragma: no cover
 
     left = fields['right'] if reverse else fields['left']   # fieldname on instance
     right = fields['left'] if reverse else fields['right']  # fieldname on model
