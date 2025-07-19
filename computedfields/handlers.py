@@ -109,28 +109,22 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
         resolver_exit.send(sender=active_resolver)
 
 
-# Runtime patched M2M through models, that have no entry in the M2M resolver map.
-# Fixes #187
-PATCHED_M2M = {}
-def _patch_m2m_fields(model, sender, reverse):
-    try:
-        return PATCHED_M2M[sender]
-    except KeyError:
-        for field in model._meta.get_fields():
-            if field.many_to_many:
-                if reverse:
-                    field = field.remote_field
-                if field.through is sender:
-                    m2m_field_name = field.remote_field.m2m_field_name()
-                    m2m_reverse_field_name = field.remote_field.m2m_reverse_field_name()
-                    PATCHED_M2M[sender] = {
-                        'left': m2m_field_name,
-                        'right': m2m_reverse_field_name
-                    }
-                    return PATCHED_M2M[sender]
+# Fix #187, runtime patched M2M through models, that have no entry in the M2M resolver map.
+def _patch_fields(sender: Type[Model], model: Type[Model], reverse: bool):
+    if not active_resolver.has_computedfields(sender):
+        return
+    for field in model._meta.get_fields():
+        if field.many_to_many:
+            if not reverse:
+                field = field.remote_field
+            if field.remote_field.through is sender:
+                active_resolver._m2m[sender] = {
+                    'left': field.m2m_field_name(),
+                    'right': field.m2m_reverse_field_name()
+                }
+                return active_resolver._m2m[sender]
 
 
-# M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M
 def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     """
     ``m2m_change`` handler.
@@ -138,22 +132,12 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     Works like the other handlers but on the corresponding
     m2m actions.
     """
-    action = kwargs.get('action')
-    fields = active_resolver._m2m.get(sender)
-    # exit early if we have no update rule for the through model
-    if not fields and not active_resolver.has_computedfields(sender):
-        return
-
+    action = kwargs['action']
     reverse = kwargs['reverse']
-
+    fields = active_resolver._m2m.get(sender, _patch_fields(sender, kwargs['model'], reverse))
+    # exit early if we have no update rule for the through model
     if not fields:
-        # We end up here, if nothing depends on the m2m relation,
-        # but the through model itself has CFs.
-        # We have to patch it on first m2m signal, as there is no easy way
-        # to identify through models at the resolver's init stage.
-        fields = _patch_m2m_fields(kwargs['model'], sender, reverse)
-        if not fields:
-            return  # pragma: no cover
+        return
 
     left = fields['right'] if reverse else fields['left']   # fieldname on instance
     right = fields['left'] if reverse else fields['right']  # fieldname on model

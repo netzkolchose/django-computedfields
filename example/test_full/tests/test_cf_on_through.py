@@ -1,11 +1,11 @@
 from django.test import TestCase
 from ..models import AT, BT, ATBT
-from computedfields.handlers import PATCHED_M2M
+from computedfields.models import active_resolver
 
 
 class CfOnThrough(TestCase):
     def test_add(self):
-        PATCHED_M2M.clear()
+        active_resolver._m2m.pop(ATBT, None)
         at = AT.objects.create(name='aa')
         bt = BT.objects.create(name='bb')
         bt.ats.add(at)
@@ -20,7 +20,7 @@ class CfOnThrough(TestCase):
         self.assertEqual(atbt.names, 'AABB')
 
     def test_add_reverse(self):
-        PATCHED_M2M.clear()
+        active_resolver._m2m.pop(ATBT, None)
         at = AT.objects.create(name='aa')
         bt = BT.objects.create(name='bb')
         at.bts.add(bt)
