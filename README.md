@@ -104,6 +104,9 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 #### Changelog
 
+- 0.3.1
+    - improved CF updates on through models
+    - limitations section in docs
 - 0.3.0 - new beta release
     - new features:
         - default_on_create argument for @computed
