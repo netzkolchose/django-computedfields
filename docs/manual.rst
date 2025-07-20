@@ -376,55 +376,6 @@ which is not allowed. Computed fields inherited from the parent model keep worki
 (treated as alias). Constructing depends rules from proxy models is not supported (untested).
 
 
-Related Managers
-----------------
-
-Django's `RelatedManager` supports several mass actions like ``add``, ``remove``, ``clear`` and ``set``
-(also see `official Django docs
-<https://docs.djangoproject.com/en/5.2/ref/models/relations/>`_). While most developers know these actions
-from m2m relations, they are less known or used on fk relations. With :mod:`django-computedfields` there are
-several catches around those mass actions.
-
-The mass actions on m2m relations are known to work with :mod:`django-computedfields`,
-changes get caught by the `m2m_changed` signal handler, which will trigger the update of dependent computed fields.
-
-On fk relations the mass actions will not trigger the update of dependent computed fields by default.
-Their default argument `bulk=True` causes them to use bulk actions internally not triggering any signal
-we could listen to. You have 2 options to work around this issue:
-
-- Call the action with the `bulk=False` argument. With this, the mass action will use single instance actions
-  internally, which triggers the dependent updates. Note that this may show poor performance.
-- Stick with `bulk=True` and trigger the updates yourself, schematically:
-
-    .. CODE:: python
-
-        class Blog(models.Model):
-            ...
-        class Entry(models.Model):
-            blog = models.ForeignKey(Blog, on_delete=models.CASCADE, null=True)
-
-        # add
-        b.entry_set.add(*objs)
-        pks = set(o.pk for o in objs)
-        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
-
-        # remove
-        b.entry_set.remove(*objs)
-        pks = set(o.pk for o in objs)
-        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
-
-        # clear
-        pks = set(b.entry_set.all().values_list('pk', flat=True))
-        b.entry_set.clear()
-        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
-
-        # set
-        old = preupdate_dependent(b.entry_set.all(), update_fields=['blog'])
-        b.entry_set.set(objs)
-        pks = set(o.pk for o in objs)
-        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'], old=old)
-
-
 Signals
 -------
 
@@ -472,8 +423,100 @@ After that you can safely do your processing, example:
     resolver_exit.connect(on_resolver_exit)
 
 
+
+Known Limitations
+-----------------
+
+The following section tries to list known limitations of :mod:`django-computedfields`,
+esp. around more advanced ORM usage pattern.
+
+
+Computed ForeignKey Fields
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Computed foreign keys are somewhat special, as they can mess up the resolver's tree update
+by changing the affected records during an ongoing update. The resolver is currently not prepared
+for this, thus you should avoid them in dependency chains. So depending other computed fields on
+computed foreign keys is a bad idea. (A future release might lift that restriction,
+if there is some demand and the extra workload can be justified.)
+
+Computed foreign key fields can still be used as terminal computed field
+(leaf node in the dependency tree).
+
+.. ATTENTION::
+
+    There was a long standing bug in the releases 0.1.5 to 0.2.9, where you had to return
+    the pk of the fk instance from the computed function. This was finally fixed with release 0.2.10,
+    from this release on you again have to return the instance itself.
+    This is a *BREAKING CHANGE* for your compute functions on computed foreign keys.
+
+
+Related Managers
+^^^^^^^^^^^^^^^^
+
+Django's `RelatedManager` supports several mass actions like ``add``, ``remove``, ``clear`` and ``set``
+(also see `official Django docs
+<https://docs.djangoproject.com/en/5.2/ref/models/relations/>`_). While most developers know these actions
+from m2m relations, they are less known or used on fk relations. With :mod:`django-computedfields` there are
+several catches around those mass actions.
+
+The mass actions on m2m relations are known to work with :mod:`django-computedfields`,
+changes get caught by the `m2m_changed` signal handler, which will trigger the update of
+dependent computed fields (also see restrictions on the through model below).
+
+On fk relations the mass actions will not trigger the update of dependent computed fields by default.
+Their default argument `bulk=True` causes them to use bulk actions internally not triggering any signal
+we could listen to. You have 2 options to work around this issue:
+
+- Call the action with the `bulk=False` argument. With this, the mass action will use single instance actions
+  internally, which triggers the dependent updates. Note that this may show poor performance.
+- Stick with `bulk=True` and trigger the updates yourself, schematically:
+
+    .. CODE:: python
+
+        class Blog(models.Model):
+            ...
+        class Entry(models.Model):
+            blog = models.ForeignKey(Blog, on_delete=models.CASCADE, null=True)
+
+        # add
+        b.entry_set.add(*objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # remove
+        b.entry_set.remove(*objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # clear
+        pks = set(b.entry_set.all().values_list('pk', flat=True))
+        b.entry_set.clear()
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'])
+
+        # set
+        old = preupdate_dependent(b.entry_set.all(), update_fields=['blog'])
+        b.entry_set.set(objs)
+        pks = set(o.pk for o in objs)
+        update_dependent(Entry.objects.filter(pk__in=pks), update_fields=['blog'], old=old)
+
+
+M2M Through Model
+^^^^^^^^^^^^^^^^^
+
+In general M2M support of this library has matured a lot over the time. Updates from mass actions
+should work as expected, also computed fields on through models are supported.
+
+There is one exception to this - for multiple M2M relations pointing to the same through model things
+get quite hairy with the ORM. Currently the resolver cannot update dependencies across those relations
+reliably from mass actions, as the ORM does not provide enough context information with its
+*m2m_changed* signal to determine the underlying relation. If you have such an advanced use case,
+be prepared to update the dependencies yourself by calling *(pre)update_dependent* explicitly
+in conjunction with mass actions.
+
+
 f-expressions
--------------
+^^^^^^^^^^^^^
 
 While f-expressions are a nice way to offload some work to the database, they are not supported
 with computed fields. In particular this means, that computed fields should not depend on
@@ -723,7 +766,7 @@ Changelog
         - reduced transaction pressure in resolver
 - 0.2.10
     - Fix related_query_name on M2M relations
-    - Fix computed fk fields to use instances and not the _id attribute
+    - Fix computed fk fields to use instances and not the _id attribute (BREAKING CHANGE)
     - Fix UNIONed resolver updates, that contain prefetches
     - Fix thread isolation in signal handlers
 - 0.2.9

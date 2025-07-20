@@ -108,7 +108,23 @@ def postdelete_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
                 )
         resolver_exit.send(sender=active_resolver)
 
-# M2M tests: test_full.tests.test05_m2m test_full.tests.test06_m2mback test_full.tests.test_43.TestBetterM2M test_full.tests.test_m2m_advanced test_full.tests.test_norelated.TestNoReverse test_full.tests.test_proxymodels.TestProxyModelsM2M
+
+# Fix #187, runtime patched M2M through models, that have no entry in the M2M resolver map.
+def _patch_fields(sender: Type[Model], model: Type[Model], reverse: bool):
+    if not active_resolver.has_computedfields(sender):
+        return
+    for field in model._meta.get_fields():
+        if field.many_to_many:
+            if not reverse:
+                field = field.remote_field
+            if field.remote_field.through is sender:
+                active_resolver._m2m[sender] = {
+                    'left': field.m2m_field_name(),
+                    'right': field.m2m_reverse_field_name()
+                }
+                return active_resolver._m2m[sender]
+
+
 def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     """
     ``m2m_change`` handler.
@@ -116,21 +132,21 @@ def m2m_handler(sender: Type[Model], instance: Model, **kwargs) -> None:
     Works like the other handlers but on the corresponding
     m2m actions.
     """
-    fields = active_resolver._m2m.get(sender)
-    # exit early if we have no update rule on the through model
+    action = kwargs['action']
+    reverse = kwargs['reverse']
+    fields = active_resolver._m2m.get(sender, _patch_fields(sender, kwargs['model'], reverse))
+    # exit early if we have no update rule for the through model
     if not fields:
         return
 
-    reverse = kwargs['reverse']
     left = fields['right'] if reverse else fields['left']   # fieldname on instance
     right = fields['left'] if reverse else fields['right']  # fieldname on model
-    action = kwargs.get('action')
 
     if action == 'post_add':
         active_resolver.update_dependent(
             sender.objects.filter(**{left: instance.pk, right+'__in': kwargs['pk_set']}),
             sender,
-            update_local=False,
+            update_local=True,
             querysize=settings.COMPUTEDFIELDS_QUERYSIZE
         )
 
