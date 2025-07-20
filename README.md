@@ -114,7 +114,7 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
         - reduced transaction pressure in resolver
 - 0.2.10
     - Fix related_query_name on M2M relations
-    - Fix computed fk fields to use instances and not the _id attribute
+    - Fix computed fk fields to use instances and not the _id attribute (BREAKING CHANGE)
     - Fix UNIONed resolver updates, that contain prefetches
     - Fix thread isolation in signal handlers
 - 0.2.9
