@@ -1272,12 +1272,14 @@ class Shelf(ComputedFieldsModel):
     )
 
 
-# fix #187
+# fix #187 - CF on through model w'o any other m2m dependency
 class AT(models.Model):
     name = models.CharField(max_length=32)
+
 class BT(models.Model):
     name = models.CharField(max_length=32)
     ats = models.ManyToManyField(to=AT, through='ATBT', related_name='bts')
+
 class ATBT(ComputedFieldsModel):
     at = models.ForeignKey(AT, on_delete=models.CASCADE)
     bt = models.ForeignKey(BT, on_delete=models.CASCADE)
