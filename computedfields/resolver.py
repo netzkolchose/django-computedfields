@@ -4,6 +4,7 @@ Contains the resolver logic for automated computed field updates.
 from .thread_locals import get_not_computed_context, set_not_computed_context
 import operator
 from functools import reduce
+from collections import defaultdict
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -20,7 +21,7 @@ from fast_update.fast import fast_update
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
                     Tuple, Type, Union, cast, overload)
 from django.db.models import Field, Model
-from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F
+from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F, IRecorded
 
 
 MALFORMED_DEPENDS = """
@@ -308,13 +309,13 @@ class Resolver:
             if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
                 instance = set(instance.values_list('pk', flat=True).iterator())
 
-        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = {}
+        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = defaultdict(lambda: (set(), set()))
         for update in updates:
             # first aggregate fields and paths to cover
             # multiple comp field dependencies
             for model, resolver in modeldata[update].items():
                 fields, paths = resolver
-                m_fields, m_paths = model_updates.setdefault(model, (set(), set()))
+                m_fields, m_paths = model_updates[model]
                 m_fields.update(fields)
                 m_paths.update(paths)
 
@@ -1031,8 +1032,8 @@ class NotComputed:
     def __init__(self, recover=False):
         self.remove_ctx = True
         self.recover = recover
-        self.pre = {}
-        self.upd = {}
+        self.pre: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
+        self.upd: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
 
     def __enter__(self):
         ctx = get_not_computed_context()
@@ -1077,13 +1078,13 @@ class NotComputed:
         if data[0] == 'pre':
             for model, pre_data in data[1].items():
                 pks, fields = pre_data
-                entry = self.pre.setdefault(model, {'pks': set(), 'fields': set()})
+                entry = self.pre[model]
                 entry['pks'] |= pks
                 # FIXME: do we need here special None handling?
                 entry['fields'] |= fields
         elif data[0] == 'upd':
             _, inst, model, fields = data
-            entry = self.upd.setdefault(model, {'pks': set(), 'fields': set()})
+            entry = self.upd[model]
             if isinstance(inst, QuerySet):
                 entry['pks'].update(inst.values_list('pk', flat=True))
             else:

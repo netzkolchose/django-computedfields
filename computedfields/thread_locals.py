@@ -1,5 +1,10 @@
 from threading import local
 
+from typing import TYPE_CHECKING, Optional
+if TYPE_CHECKING:
+    from .resolver import NotComputed
+
+
 _STORAGE = local()
 
 # thread local storage to hold pk lists
@@ -35,8 +40,12 @@ def get_UPDATE_OLD():
 
 
 # get/set not_computed context
-def get_not_computed_context():
-    return getattr(_STORAGE, 'not_computed_context', None)
+def get_not_computed_context() -> Optional['NotComputed']:
+    try:
+        return _STORAGE.not_computed_context
+    except AttributeError:
+        _STORAGE.not_computed_context = None
+    return _STORAGE.not_computed_context
 
-def set_not_computed_context(ctx):
+def set_not_computed_context(ctx: Optional['NotComputed'] = None):
     _STORAGE.not_computed_context = ctx
