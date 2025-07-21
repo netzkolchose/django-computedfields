@@ -3,7 +3,6 @@ Contains the resolver logic for automated computed field updates.
 """
 from .thread_locals import get_not_computed_context, set_not_computed_context
 import operator
-from collections import OrderedDict
 from functools import reduce
 
 from django.db import transaction
@@ -287,10 +286,7 @@ class Resolver:
         Returns a mapping of all dependent models, dependent fields and a
         queryset containing all dependent objects.
         """
-        final: Dict[Type[Model], List[Any]] = OrderedDict()
-        if get_not_computed_context():
-            # TODO: track instance/queryset for context re-plays
-            return final
+        final: Dict[Type[Model], List[Any]] = {}
         modeldata = self._map.get(model)
         if not modeldata:
             return final
@@ -312,7 +308,7 @@ class Resolver:
             if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
                 instance = set(instance.values_list('pk', flat=True).iterator())
 
-        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
+        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = {}
         for update in updates:
             # first aggregate fields and paths to cover
             # multiple comp field dependencies
@@ -382,8 +378,12 @@ class Resolver:
         Feed the mapping back to ``update_dependent`` as `old` argument
         after your bulk action to update de-associated computed field records as well.
         """
-        return self._querysets_for_update(
+        result = self._querysets_for_update(
             model or self._get_model(instance), instance, update_fields, pk_list=True)
+        if ctx := get_not_computed_context():
+            ctx.record(['pre', result])
+            return {}
+        return result
 
     def update_dependent(
         self,
@@ -454,8 +454,8 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
-        if get_not_computed_context():
-            # TODO: track instance/queryset for context re-plays
+        if ctx := get_not_computed_context():
+            ctx.record(['upd', instance, model or self._get_model(instance), update_fields])
             return
 
         _model = model or self._get_model(instance)
@@ -1028,8 +1028,11 @@ class NotComputed:
         Currently there is no auto-recovery implemented at all,
         therefore it is your responsibility to recover properly from the desync state.
     """
-    def __init__(self):
+    def __init__(self, recover=False):
         self.remove_ctx = True
+        self.recover = recover
+        self.pre = {}
+        self.upd = {}
 
     def __enter__(self):
         ctx = get_not_computed_context()
@@ -1042,5 +1045,52 @@ class NotComputed:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.remove_ctx:
             set_not_computed_context(None)
-            # TODO: re-play aggregated changes
+            if self.pre or self.upd:
+                with transaction.atomic():
+                    # TODO: merge pre and upd list in a clever way
+                    # issues:
+                    # - pre starts always on bulk_updater (already resolved qs)
+                    # - upd starts on:
+                    #   - bulk_updater (model itself contains CFs)
+                    #   - resolved qs' --> bulk_updater
+                    # - pre has exact fields to be updated
+                    # - upd fields state might be undefined (update all)
+                    # --> needs a proper "flatten" strategy
+                    for model, pre_data in self.pre.items():
+                        active_resolver.bulk_updater(
+                            model._base_manager.filter(pk__in=pre_data['pks']),
+                            pre_data['fields'],
+                            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                        )
+                    for model, upd_data in self.upd.items():
+                        active_resolver.update_dependent(
+                            model._base_manager.filter(pk__in=upd_data['pks']),
+                            model,
+                            upd_data['fields'],
+                            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                        )
         return False
+
+    def record(self, data):
+        if not self.recover:
+            return
+        if data[0] == 'pre':
+            for model, pre_data in data[1].items():
+                pks, fields = pre_data
+                entry = self.pre.setdefault(model, {'pks': set(), 'fields': set()})
+                entry['pks'] |= pks
+                # FIXME: do we need here special None handling?
+                entry['fields'] |= fields
+        elif data[0] == 'upd':
+            _, inst, model, fields = data
+            entry = self.upd.setdefault(model, {'pks': set(), 'fields': set()})
+            if isinstance(inst, QuerySet):
+                entry['pks'].update(inst.values_list('pk', flat=True))
+            else:
+                entry['pks'].add(inst.pk)
+            # FIXME: investigate on special None handling
+            if fields is None:
+                entry['fields'] = None
+            else:
+                if not entry['fields'] is None:
+                    entry['fields'] |= fields

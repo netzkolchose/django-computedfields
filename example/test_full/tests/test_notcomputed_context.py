@@ -29,7 +29,7 @@ class NoComputedContext(TestCase):
     def create_notcomputed(self):
         start = time()
         shelf_pks = []
-        with not_computed():
+        with not_computed(recover=True):
             for i in range(10):
                 shelf = Shelf.objects.create(name=f's{i}')
                 shelf_pks.append(shelf.pk)
@@ -41,7 +41,7 @@ class NoComputedContext(TestCase):
         # Without good knowledge about the dependency tree an easier but more costly way
         # would be to just store all created object pks above and call update_dependent
         # on book and shelf pks separately.
-        update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
+        #update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
         return time() - start
     
     def create_bulk(self):
@@ -95,12 +95,12 @@ class NoComputedContext(TestCase):
     
     def update_notcomputed(self, books):
         start = time()
-        with not_computed():
+        with not_computed(recover=True):
             for i, b in enumerate(books):
                 b.name += str(i)
                 b.save(update_fields=['name'])
         # resync
-        update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
+        #update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
         return time() - start
     
     def update_bulk(self, books):
@@ -203,8 +203,6 @@ class NoComputedContext(TestCase):
             book.name = 'book'
             book.shelf = shelf2
             book.save()
-            qs = active_resolver._querysets_for_update(Book, book)
-            self.assertEqual(qs, {})
             old = active_resolver.preupdate_dependent(book)
             self.assertEqual(old, {})
             update_dependent(book)
