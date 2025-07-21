@@ -69,7 +69,7 @@ IM2mMap = Dict[Type[Model], IM2mData]
 
 class IChange(TypedDict):
     pks: Set[Any]
-    fields: Set[str] | None
+    fields: Optional[Set[str]]
 IRecorded = Dict[Type[Model], IChange]
 
 
