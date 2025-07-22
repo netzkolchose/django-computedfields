@@ -21,7 +21,8 @@ from fast_update.fast import fast_update
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
                     Tuple, Type, Union, cast, overload)
 from django.db.models import Field, Model
-from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F, IRecorded
+from .graph import (IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F,
+                    IRecorded, IModelUpdate, IModelUpdateCache)
 
 
 MALFORMED_DEPENDS = """
@@ -89,6 +90,9 @@ class Resolver:
         self._sealed: bool = False        # initial boot phase
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
+
+        # model update cache
+        self._updates_cache: IModelUpdateCache = defaultdict(dict)
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -232,6 +236,7 @@ class Resolver:
         self._m2m = self._graph._m2m
         self._patch_proxy_models()
         self._map_loaded = True
+        self._updates_cache = defaultdict(dict)
 
     def _patch_proxy_models(self) -> None:
         """
@@ -276,6 +281,44 @@ class Resolver:
             mro |= fields.get(field, 0)
         return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
+    def get_model_updates(
+        self,
+        model: Type[Model],
+        update_fields: Optional[Iterable[str]] = None
+    ) -> IModelUpdate:
+        """
+        For a given model and updated fields this method
+        returns a dictionary with dependent models (keys) and a tuple
+        with dependent fields and the queryset accessor string (value).
+        """
+        modeldata = self._map.get(model)
+        if not modeldata:
+            return {}
+        if not update_fields is None:
+            update_fields = frozenset(update_fields)
+        try:
+            return self._updates_cache[model][update_fields]
+        except KeyError:
+            pass
+        if not update_fields:
+            updates: Set[str] = set(modeldata.keys())
+        else:
+            updates = set()
+            for fieldname in update_fields:
+                if fieldname in modeldata:
+                    updates.add(fieldname)
+        model_updates: IModelUpdate = defaultdict(lambda: (set(), set()))
+        for update in updates:
+            # aggregate fields and paths to cover
+            # multiple comp field dependencies
+            for m, r in modeldata[update].items():
+                fields, paths = r
+                m_fields, m_paths = model_updates[m]
+                m_fields.update(fields)
+                m_paths.update(paths)
+        self._updates_cache[model][update_fields] = model_updates
+        return model_updates
+
     def _querysets_for_update(
         self,
         model: Type[Model],
@@ -288,18 +331,11 @@ class Resolver:
         queryset containing all dependent objects.
         """
         final: Dict[Type[Model], List[Any]] = {}
-        modeldata = self._map.get(model)
-        if not modeldata:
+        model_updates = self.get_model_updates(model, update_fields)
+        if not model_updates:
             return final
-        if not update_fields:
-            updates: Set[str] = set(modeldata.keys())
-        else:
-            updates = set()
-            for fieldname in update_fields:
-                if fieldname in modeldata:
-                    updates.add(fieldname)
-        subquery = '__in' if isinstance(instance, QuerySet) else ''
 
+        subquery = '__in' if isinstance(instance, QuerySet) else ''
         # fix #100
         # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
         # thus we extract pks explicitly instead
@@ -309,24 +345,14 @@ class Resolver:
             if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
                 real_inst = set(instance.values_list('pk', flat=True).iterator())
 
-        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = defaultdict(lambda: (set(), set()))
-        for update in updates:
-            # first aggregate fields and paths to cover
-            # multiple comp field dependencies
-            for model, resolver in modeldata[update].items():
-                fields, paths = resolver
-                m_fields, m_paths = model_updates[model]
-                m_fields.update(fields)
-                m_paths.update(paths)
-
         # generate narrowed down querysets for all cf dependencies
-        for model, data in model_updates.items():
+        for m, data in model_updates.items():
             fields, paths = data
-            queryset: Any = model._base_manager.none()
+            queryset: Any = m._base_manager.none()
             query_pipe_method = self._choose_optimal_query_pipe_method(paths)
             queryset = reduce(
                 query_pipe_method,
-                (model._base_manager.filter(**{path+subquery: real_inst}) for path in paths),
+                (m._base_manager.filter(**{path+subquery: real_inst}) for path in paths),
                 queryset
             )
             if pk_list:
@@ -338,7 +364,7 @@ class Resolver:
                 if not queryset:
                     continue
             # FIXME: change to tuple or dict for narrower type
-            final[model] = [queryset, fields]
+            final[m] = [queryset, fields]
         return final
     
     def _get_model(self, instance: Union[Model, QuerySet]) -> Type[Model]:

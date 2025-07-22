@@ -72,6 +72,9 @@ class IChange(TypedDict):
     fields: Optional[Set[str]]
 IRecorded = Dict[Type[Model], IChange]
 
+IModelUpdate = Dict[Type[Model], Tuple[Set[str], Set[str]]]
+IModelUpdateCache = Dict[Type[Model], Dict[Optional[FrozenSet[str]], IModelUpdate]]
+
 
 # global deps: {cfModel: {cfname: {srcModel: {'path': lookup_path, 'depends': src_fieldname}}}}
 IGlobalDeps = Dict[Type[Model], Dict[str, Dict[Type[Model], List[IDependsData]]]]
