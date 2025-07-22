@@ -1254,13 +1254,9 @@ class DefaultToy(ComputedFieldsModel):
         return ','.join(self.children.all().values_list('name', flat=True))
 
 
-# not_computed context
+# not_computed context & bug #190
 from fast_update.query import FastUpdateManager
-class Book(models.Model):
-    name = models.CharField(max_length=5)
-    shelf = models.ForeignKey('Shelf', related_name='books', on_delete=models.CASCADE)
-
-    objects = FastUpdateManager()
+from django.db.models import Sum
 
 class Shelf(ComputedFieldsModel):
     name = models.CharField(max_length=5)
@@ -1270,6 +1266,21 @@ class Shelf(ComputedFieldsModel):
         compute=lambda inst:','.join(inst.books.all().values_list('name', flat=True)),
         default_on_create=True
     )
+    page_sum = ComputedField(
+        models.PositiveIntegerField(default=0),
+        depends=[('books.pages', ['num'])],
+        compute=lambda inst: Page.objects.filter(book__shelf=inst).aggregate(sum=Sum('num'))['sum'] or 0,
+        default_on_create=True
+    )
+
+class Book(models.Model):
+    name = models.CharField(max_length=5)
+    shelf = models.ForeignKey(Shelf, related_name='books', on_delete=models.CASCADE)
+    objects = FastUpdateManager()
+
+class Page(models.Model):
+    num = models.PositiveIntegerField()
+    book = models.ForeignKey(Book, related_name='pages', on_delete=models.CASCADE)
 
 
 # fix #187 - CF on through model w'o any other m2m dependency
