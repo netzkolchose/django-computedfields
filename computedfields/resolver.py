@@ -137,7 +137,7 @@ class Resolver:
                 if hasattr(field, '_computed') and field.creation_counter in field_ids:
                     fields.add(field)
             if fields:
-                yield (model, fields)
+                yield (model, cast(Set[IComputedField], fields))
 
     @property
     def computedfields_with_models(self) -> Generator[Tuple[IComputedField, Set[Type[Model]]], None, None]:
@@ -303,11 +303,11 @@ class Resolver:
         # fix #100
         # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
         # thus we extract pks explicitly instead
-        # TODO: cleanup type mess here including this workaround
+        real_inst: Union[Model, QuerySet, Set[Any]] = instance
         if isinstance(instance, QuerySet):
             from django.db import connections
             if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
-                instance = set(instance.values_list('pk', flat=True).iterator())
+                real_inst = set(instance.values_list('pk', flat=True).iterator())
 
         model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = defaultdict(lambda: (set(), set()))
         for update in updates:
@@ -326,7 +326,7 @@ class Resolver:
             query_pipe_method = self._choose_optimal_query_pipe_method(paths)
             queryset = reduce(
                 query_pipe_method,
-                (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
+                (model._base_manager.filter(**{path+subquery: real_inst}) for path in paths),
                 queryset
             )
             if pk_list:
