@@ -348,7 +348,7 @@ class Resolver:
         # generate narrowed down querysets for all cf dependencies
         for m, data in model_updates.items():
             fields, paths = data
-            queryset: Any = m._base_manager.none()
+            queryset: Union[QuerySet, Set[Any]] = m._base_manager.none()
             query_pipe_method = self._choose_optimal_query_pipe_method(paths)
             queryset = reduce(
                 query_pipe_method,
