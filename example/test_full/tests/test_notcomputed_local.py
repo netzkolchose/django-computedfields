@@ -43,12 +43,13 @@ class NotComputedLocal(TestCase):
         return time() - start
     
     def create_bulk(self, n=100):
+        previous = list(SelfRef.objects.all().values_list('pk', flat=True))
         start = time()
         objects = []
         for i in range(n):
             objects.append(SelfRef(name=f'x{i}', xy=i))
         SelfRef.objects.bulk_create(objects)
-        update_dependent(SelfRef.objects.filter(pk__in=[o.pk for o in objects]))
+        update_dependent(SelfRef.objects.exclude(pk__in=previous))
         return time() - start
 
     def test_compare_create(self):
