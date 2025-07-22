@@ -2,7 +2,7 @@ from threading import local
 
 from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
-    from .resolver import NotComputed
+    from .resolver import NotComputed   # pragma: no cover
 
 
 _STORAGE = local()
