@@ -535,8 +535,8 @@ class Resolver:
             queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
-        mro = self.get_local_mro(model, update_fields)
-        fields: Any = set(mro)  # FIXME: narrow type once issue in django-stubs is resolved
+        mro: List[str] = self.get_local_mro(model, update_fields)
+        fields = set(mro)
         if update_fields:
             update_fields.update(fields)
 
@@ -586,7 +586,7 @@ class Resolver:
             )
         return set(pks) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Sequence[str]) -> Union[int, None]:
+    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Iterable[str]) -> Union[int, None]:
         # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, None)
