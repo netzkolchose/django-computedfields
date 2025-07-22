@@ -9,14 +9,14 @@ the signal handlers.
 """
 from os import PathLike
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import ForeignKey
+from django.db.models import ForeignKey, ManyToOneRel
 from computedfields.helpers import pairwise, modelname, parent_to_inherited_path, skip_equal_segments
 from collections import defaultdict
 
 
 # typing imports
 from typing import (Callable, Dict, FrozenSet, Generic, Hashable, Any, List, Optional, Sequence,
-                    Set, Tuple, TypeVar, Type, Union)
+                    Set, Tuple, TypeVar, Type, Union, cast)
 from typing_extensions import TypedDict
 from django.db.models import Model, Field
 
@@ -602,6 +602,14 @@ class ComputedModelsGraph(Graph):
                     for symbol in path.split('.'):
                         try:
                             rel: Any = cls._meta.get_field(symbol)
+                            if isinstance(rel, ManyToOneRel):
+                                symbol = rel.field.related_query_name()
+                                # add dependency to reverse relation field as well
+                                # this needs to be added in opposite direction on related model
+                                path_segments.append(symbol)
+                                fieldentry[cast(Type[Model], rel.related_model)].append(
+                                    {'path': '__'.join(path_segments), 'depends': rel.field.name})
+                                path_segments.pop()
                         except FieldDoesNotExist:
                             # handle reverse relation (not a concrete field)
                             descriptor = getattr(cls, symbol)
@@ -624,7 +632,7 @@ class ComputedModelsGraph(Graph):
                             fieldentry[cls].append(
                                 {'path': '__'.join(path_segments), 'depends': symbol})
                         path_segments.append(symbol)
-                        cls = rel.related_model
+                        cls = cast(Type[Model], rel.related_model)
                     for target_field in fieldnames:
                         self._right_constrain(cls, target_field)
                         fieldentry[cls].append(

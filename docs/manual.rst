@@ -756,10 +756,12 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
-- 0.3.1
+- 0.3.2
+    - regression fix (#190): add implicit fk dependencies from reverse relations
+- 0.3.1 (discouraged due to regression #190)
     - improved CF updates on through models
     - limitations section in docs
-- 0.3.0 - new beta release
+- 0.3.0 - new beta release (discouraged due to regression #190)
     - new features:
         - default_on_create argument for @computed
         - not_computed context to disable resolver temporarily
