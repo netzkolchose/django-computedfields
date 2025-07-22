@@ -1106,26 +1106,44 @@ class NotComputed:
     def resync(self):
         if not self.pre and not self.upd:
             return
-        with transaction.atomic():
-            # TODO: merge pre and upd list in a clever way
-            # issues:
-            # - pre starts always on bulk_updater (already resolved qs)
-            # - upd starts on:
-            #   - bulk_updater (model itself contains CFs)
-            #   - resolved qs' --> bulk_updater
-            # - pre has exact fields to be updated
-            # - upd fields state might be undefined (update all)
-            # --> needs a proper "flatten" strategy
-            for model, pre_data in self.pre.items():
-                active_resolver.bulk_updater(
-                    model._base_manager.filter(pk__in=pre_data['pks']),
-                    pre_data['fields'],
-                    querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                )
-            for model, upd_data in self.upd.items():
-                active_resolver.update_dependent(
-                    model._base_manager.filter(pk__in=upd_data['pks']),
+
+        # do a one level flattening with field expansion:
+        # - take pre data granted for bulk_updater
+        # - expand upd data:
+        #   - merge CF models for bulk_updater
+        #   - resolve qs for non-CF models first, merge result for bulk_updater
+        # - merged in data expands fields (might hurt performance with None!)
+        for model, upd_data in self.upd.items():
+            if active_resolver.has_computedfields(model):
+                # if the model itself has CFs, add it directly for bulk_update
+                entry = self.pre[model]
+                entry['pks'] |= upd_data['pks']
+                if upd_data['fields'] is None:
+                    entry['fields'] = None
+                else:
+                    if not entry['fields'] is None:
+                        entry['fields'] |= upd_data['fields']
+            else:
+                # if the model has no CFs, resolve querysets first, then add for bulk_update
+                data = active_resolver._querysets_for_update(
                     model,
-                    upd_data['fields'],
+                    model._base_manager.filter(pk__in=upd_data['pks']),
+                    update_fields=upd_data['fields'],
+                    pk_list=True
+                )
+                for m, qs_data in data.items():
+                    pks, fields = qs_data
+                    entry = self.pre[m]
+                    entry['pks'] |= pks
+                    # we have now to respect None (changes the behavior of bulk_updater)
+                    # as it may have entered from CFs upd models above
+                    if not entry['fields'] is None:
+                        entry['fields'] |= fields
+        # finally update all remaining changesets
+        with transaction.atomic():
+            for model, data in self.pre.items():
+                active_resolver.bulk_updater(
+                    model._base_manager.filter(pk__in=data['pks']),
+                    data['fields'],
                     querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                 )

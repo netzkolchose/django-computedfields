@@ -4,6 +4,7 @@ from computedfields.models import not_computed, update_dependent
 from time import time
 from django.db.transaction import atomic
 from fast_update.query import fast_update
+import os
 
 
 def fms(v):
@@ -59,13 +60,14 @@ class NotComputedLocal(TestCase):
             notcomputed_recover = self.create_notcomputed_recover()
             bulk = self.create_bulk()
         
-        print(
-            f'\nCREATE\n'
-            f'looped           : {fms(looped)}\n'
-            f'not_computed     : {fms(notcomputed)}\n'
-            f'not_computed_rec : {fms(notcomputed_recover)}\n'
-            f'bulk             : {fms(bulk)}'
-        )
+        if os.environ.get('PRINT_PERF'):
+            print(
+                f'\nCREATE - test_notcomputed_local.py\n'
+                f'looped           : {fms(looped)}\n'
+                f'not_computed     : {fms(notcomputed)}\n'
+                f'not_computed_rec : {fms(notcomputed_recover)}\n'
+                f'bulk             : {fms(bulk)}'
+            )
 
         # all values should be in sync
         for sf in SelfRef.objects.all().order_by('pk'):
@@ -112,20 +114,15 @@ class NotComputedLocal(TestCase):
             notcomputed_recover = self.update_notcomputed_recover(SelfRef.objects.all()[200:300])
             bulk = self.update_bulk(SelfRef.objects.all()[300:400])
         
-        print(
-            f'\nUPDATE\n'
-            f'looped           : {fms(looped)}\n'
-            f'not_computed     : {fms(notcomputed)}\n'
-            f'not_computed_rec : {fms(notcomputed_recover)}\n'
-            f'bulk             : {fms(bulk)}'
-        )
+        if os.environ.get('PRINT_PERF'):
+            print(
+                f'\nUPDATE - test_notcomputed_local.py\n'
+                f'looped           : {fms(looped)}\n'
+                f'not_computed     : {fms(notcomputed)}\n'
+                f'not_computed_rec : {fms(notcomputed_recover)}\n'
+                f'bulk             : {fms(bulk)}'
+            )
 
         # all values should be in sync
         for sf in SelfRef.objects.all().order_by('pk'):
             self.assertEqual(sf.c5, c5(sf.name, sf.xy))
-        
-        start = time()
-        with not_computed(recover=True):
-            for sf in SelfRef.objects.all().order_by('pk'):
-                sf.delete()
-        print(time()-start)
