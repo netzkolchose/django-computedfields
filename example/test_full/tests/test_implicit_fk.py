@@ -12,14 +12,25 @@ class ImplicitFk(TestCase):
         Page.objects.create(num=11, book=self.book)
 
     def test_map(self):
-        self.assertDictContainsSubset(
-            {'shelf': {Shelf: ({'book_names', 'page_sum'}, {'books'})}},
-            active_resolver._map[Book]
-        )
-        self.assertDictContainsSubset(
-            {'book': {Shelf: ({'page_sum'}, {'books__pages'})}},
-            active_resolver._map[Page]
-        )
+        try:
+            self.assertDictContainsSubset(
+                {'shelf': {Shelf: ({'book_names', 'page_sum'}, {'books'})}},
+                active_resolver._map[Book]
+            )
+            self.assertDictContainsSubset(
+                {'book': {Shelf: ({'page_sum'}, {'books__pages'})}},
+                active_resolver._map[Page]
+            )
+        except AttributeError:
+            # python 3.11+
+            self.assertEqual(
+                active_resolver._map[Book],
+                active_resolver._map[Book] | {'shelf': {Shelf: ({'book_names', 'page_sum'}, {'books'})}}
+            )
+            self.assertEqual(
+                active_resolver._map[Page],
+                active_resolver._map[Page] | {'book': {Shelf: ({'page_sum'}, {'books__pages'})}}
+            )
 
     def test_move(self):
         self.book.shelf = self.shelf_b

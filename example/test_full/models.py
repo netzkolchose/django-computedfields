@@ -1259,7 +1259,7 @@ from fast_update.query import FastUpdateManager
 from django.db.models import Sum
 
 class Shelf(ComputedFieldsModel):
-    name = models.CharField(max_length=5)
+    name = models.CharField(max_length=32)
     book_names = ComputedField(
         models.CharField(max_length=1000, default=''),
         depends=[('books', ['name'])],
@@ -1274,7 +1274,7 @@ class Shelf(ComputedFieldsModel):
     )
 
 class Book(models.Model):
-    name = models.CharField(max_length=5)
+    name = models.CharField(max_length=32)
     shelf = models.ForeignKey(Shelf, related_name='books', on_delete=models.CASCADE)
     objects = FastUpdateManager()
 
