@@ -407,8 +407,11 @@ class Resolver:
         """
         result = self._querysets_for_update(
             model or self._get_model(instance), instance, update_fields, pk_list=True)
+
+        # exit empty, if we are in not_computed context
         if ctx := get_not_computed_context():
-            ctx.record(['pre', result])
+            if result and ctx.recover:
+                ctx.record('pre', result)
             return {}
         return result
 
@@ -481,14 +484,16 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
-        if ctx := get_not_computed_context():
-            ctx.record(['upd', instance, model or self._get_model(instance), update_fields])
-            return
-
         _model = model or self._get_model(instance)
 
         # bulk_updater might change fields, ensure we have set/None
         _update_fields = None if update_fields is None else set(update_fields)
+
+        # exit early if we are in not_computed context
+        if ctx := get_not_computed_context():
+            if ctx.recover:
+                ctx.record('upd', [instance, _model, _update_fields])
+            return
 
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
@@ -1072,52 +1077,55 @@ class NotComputed:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.remove_ctx:
             set_not_computed_context(None)
-            if self.pre or self.upd:
-                with transaction.atomic():
-                    # TODO: merge pre and upd list in a clever way
-                    # issues:
-                    # - pre starts always on bulk_updater (already resolved qs)
-                    # - upd starts on:
-                    #   - bulk_updater (model itself contains CFs)
-                    #   - resolved qs' --> bulk_updater
-                    # - pre has exact fields to be updated
-                    # - upd fields state might be undefined (update all)
-                    # --> needs a proper "flatten" strategy
-                    for model, pre_data in self.pre.items():
-                        active_resolver.bulk_updater(
-                            model._base_manager.filter(pk__in=pre_data['pks']),
-                            pre_data['fields'],
-                            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                        )
-                    for model, upd_data in self.upd.items():
-                        active_resolver.update_dependent(
-                            model._base_manager.filter(pk__in=upd_data['pks']),
-                            model,
-                            upd_data['fields'],
-                            querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                        )
+            if self.recover:
+                self.resync()
         return False
 
-    def record(self, data):
+    def record(self, recordtype, data):
         if not self.recover:
             return
-        if data[0] == 'pre':
-            for model, pre_data in data[1].items():
+        if recordtype == 'pre':
+            for model, pre_data in data.items():
                 pks, fields = pre_data
                 entry = self.pre[model]
                 entry['pks'] |= pks
-                # FIXME: do we need here special None handling?
                 entry['fields'] |= fields
-        elif data[0] == 'upd':
-            _, inst, model, fields = data
+        elif recordtype == 'upd':
+            inst, model, fields = data
             entry = self.upd[model]
             if isinstance(inst, QuerySet):
                 entry['pks'].update(inst.values_list('pk', flat=True))
             else:
                 entry['pks'].add(inst.pk)
-            # FIXME: investigate on special None handling
             if fields is None:
                 entry['fields'] = None
             else:
                 if not entry['fields'] is None:
                     entry['fields'] |= fields
+
+    def resync(self):
+        if not self.pre and not self.upd:
+            return
+        with transaction.atomic():
+            # TODO: merge pre and upd list in a clever way
+            # issues:
+            # - pre starts always on bulk_updater (already resolved qs)
+            # - upd starts on:
+            #   - bulk_updater (model itself contains CFs)
+            #   - resolved qs' --> bulk_updater
+            # - pre has exact fields to be updated
+            # - upd fields state might be undefined (update all)
+            # --> needs a proper "flatten" strategy
+            for model, pre_data in self.pre.items():
+                active_resolver.bulk_updater(
+                    model._base_manager.filter(pk__in=pre_data['pks']),
+                    pre_data['fields'],
+                    querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                )
+            for model, upd_data in self.upd.items():
+                active_resolver.update_dependent(
+                    model._base_manager.filter(pk__in=upd_data['pks']),
+                    model,
+                    upd_data['fields'],
+                    querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                )

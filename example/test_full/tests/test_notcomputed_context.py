@@ -17,7 +17,7 @@ def fms(v):
     return '% 5d' % v + ' ms'
 
 
-class NoComputedContext(TestCase):
+class NotComputedContext(TestCase):
     def create_looped(self):
         start = time()
         for i in range(10):
