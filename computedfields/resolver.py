@@ -22,7 +22,7 @@ from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Se
                     Tuple, Type, Union, cast, overload)
 from django.db.models import Field, Model
 from .graph import (IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F,
-                    IRecorded, IModelUpdate, IModelUpdateCache)
+                    IRecorded, IRecordedStrict, IModelUpdate, IModelUpdateCache)
 
 
 MALFORMED_DEPENDS = """
@@ -411,7 +411,7 @@ class Resolver:
         # exit empty, if we are in not_computed context
         if ctx := get_not_computed_context():
             if result and ctx.recover:
-                ctx.record('pre', result)
+                ctx.record_querysets(result)
             return {}
         return result
 
@@ -492,7 +492,7 @@ class Resolver:
         # exit early if we are in not_computed context
         if ctx := get_not_computed_context():
             if ctx.recover:
-                ctx.record('upd', [instance, _model, _update_fields])
+                ctx.record_update(instance, _model, _update_fields)
             return
 
         # Note: update_local is always off for updates triggered from the resolver
@@ -1063,8 +1063,8 @@ class NotComputed:
     def __init__(self, recover=False):
         self.remove_ctx = True
         self.recover = recover
-        self.pre: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
-        self.upd: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
+        self.qs: IRecordedStrict = defaultdict(lambda: {'pks': set(), 'fields': set()})
+        self.up: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
 
     def __enter__(self):
         ctx = get_not_computed_context()
@@ -1080,70 +1080,123 @@ class NotComputed:
             if self.recover:
                 self.resync()
         return False
-
-    def record(self, recordtype, data):
+    
+    def record_querysets(
+        self,
+        data: Dict[Type[Model], List[Any]]
+    ):
+        """
+        Records the results of a previous _queryset_for_updates call
+        (must be called with argument *pk_list=True*).
+        """
         if not self.recover:
             return
-        if recordtype == 'pre':
-            for model, pre_data in data.items():
-                pks, fields = pre_data
-                entry = self.pre[model]
-                entry['pks'] |= pks
+        for model, mdata in data.items():
+            pks, fields = mdata
+            entry = self.qs[model]
+            entry['pks'] |= pks
+            # expand fields (might show a negative perf impact)
+            entry['fields'] |= fields
+
+    def record_update(
+        self,
+        instance: Union[QuerySet, Model],
+        model: Type[Model],
+        fields: Optional[Set[str]] = None
+    ):
+        """
+        Records any update as typically given to update_dependent.
+        """
+        if not self.recover:
+            return
+        entry = self.up[model]
+        if isinstance(instance, QuerySet):
+            entry['pks'].update(instance.values_list('pk', flat=True))
+        else:
+            entry['pks'].add(instance.pk)
+        # expand fields (might show a negative perf impact)
+        # special None handling in fields here is needed to preserve
+        # "all" rule from update_dependent on local CF model updates
+        if fields is None:
+            entry['fields'] = None
+        else:
+            if not entry['fields'] is None:
                 entry['fields'] |= fields
-        elif recordtype == 'upd':
-            inst, model, fields = data
-            entry = self.upd[model]
-            if isinstance(inst, QuerySet):
-                entry['pks'].update(inst.values_list('pk', flat=True))
-            else:
-                entry['pks'].add(inst.pk)
-            if fields is None:
-                entry['fields'] = None
-            else:
-                if not entry['fields'] is None:
-                    entry['fields'] |= fields
 
     def resync(self):
-        if not self.pre and not self.upd:
+        """
+        This method tries to recover from the desync state by replaying the updates
+        of the recorded db actions.
+
+        The resync does a flattening on the first update tree level:
+        - determine all follow-up changesets as pk lists (next tree level)
+        - update all CF models with *local_only*, subtract their pks from changeset
+        - execute remaining changesets with full descent
+
+        The method currently favours field- and changeset merges over isolated updates.
+        The final updates are done the same way as during normal operation (DFS).
+
+        In theory it would be possible to further optimize the execution order
+        of the final updates by topsorting their update trees into one big update tree.
+        We currently dont do this, as it is somewhat hard to achieve:
+        - performance impact is unclear, we simply don't know, whether
+          multiple isolated updates on smaller change- and fieldsets
+          would be faster than merged updates with field expansion (no proper metric)
+        - performance is altered by the question, whether a field's relation is close
+          and its compute function workload
+        - topsort across related models has a 2D dependency to models and fields
+        - involves a partial DFS to BFS transformation
+        """
+        if not self.qs and not self.up:
             return
 
-        # do a one level flattening with field expansion:
-        # - take pre data granted for bulk_updater
-        # - expand upd data:
-        #   - merge CF models for bulk_updater
-        #   - resolve qs for non-CF models first, merge result for bulk_updater
-        # - merged in data expands fields (might hurt performance with None!)
-        for model, upd_data in self.upd.items():
-            if active_resolver.has_computedfields(model):
-                # if the model itself has CFs, add it directly for bulk_update
-                entry = self.pre[model]
-                entry['pks'] |= upd_data['pks']
-                if upd_data['fields'] is None:
-                    entry['fields'] = None
-                else:
-                    if not entry['fields'] is None:
-                        entry['fields'] |= upd_data['fields']
-            else:
-                # if the model has no CFs, resolve querysets first, then add for bulk_update
-                data = active_resolver._querysets_for_update(
-                    model,
-                    model._base_manager.filter(pk__in=upd_data['pks']),
-                    update_fields=upd_data['fields'],
-                    pk_list=True
-                )
-                for m, qs_data in data.items():
-                    pks, fields = qs_data
-                    entry = self.pre[m]
-                    entry['pks'] |= pks
-                    # we have now to respect None (changes the behavior of bulk_updater)
-                    # as it may have entered from CFs upd models above
-                    if not entry['fields'] is None:
-                        entry['fields'] |= fields
-        # finally update all remaining changesets
+        # first collect querysets from record_update for later bulk_update
+        # this additional pk extraction introduces a timy perf penalty,
+        # but pays off by pk merging
+        for model, local_data in self.up.items():
+            mdata = active_resolver._querysets_for_update(
+                model,
+                model._base_manager.filter(pk__in=local_data['pks']),
+                update_fields=local_data['fields'],
+                pk_list=True
+            )
+            for m, mdata in mdata.items():
+                pks, fields = mdata
+                entry = self.qs[m]
+                entry['pks'] |= pks
+                entry['fields'] |= fields
+    
+        # subtract CF model local_only updates from final changesets
+        for model, mdata in self.up.items():
+            if active_resolver.has_computedfields(model) and model in self.qs:
+                local_entry = self.up[model]
+                final_entry = self.qs[model]
+                # we can only subtract pks, if fields in done forms a superset
+                # note that None always is a superset
+                if (
+                    local_entry['fields'] is None
+                    or local_entry['fields'].issuperset(final_entry['fields'])
+                ):
+                    final_entry['pks'] -= local_entry['pks']
+
+        # finally update all remaining changesets:
+        # 1. local_only update for CF models in up
+        # 2. all remaining changesets in qs
         with transaction.atomic():
-            for model, data in self.pre.items():
-                active_resolver.bulk_updater(
-                    model._base_manager.filter(pk__in=data['pks']),
-                    data['fields'],
-                    querysize=settings.COMPUTEDFIELDS_QUERYSIZE
-                )
+            for model, local_data in self.up.items():
+                if active_resolver.has_computedfields(model):
+                    # postponed local_only upd for CFs models
+                    # IMPORTANT: must happen before final updates
+                    active_resolver.bulk_updater(
+                        model._base_manager.filter(pk__in=local_data['pks']),
+                        local_data['fields'],
+                        local_only=True,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
+            for model, mdata in self.qs.items():
+                if mdata['pks']:
+                    active_resolver.bulk_updater(
+                        model._base_manager.filter(pk__in=mdata['pks']),
+                        mdata['fields'],
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )

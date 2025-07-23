@@ -72,6 +72,11 @@ class IChange(TypedDict):
     fields: Optional[Set[str]]
 IRecorded = Dict[Type[Model], IChange]
 
+class IChangeStrict(TypedDict):
+    pks: Set[Any]
+    fields: Set[str]
+IRecordedStrict = Dict[Type[Model], IChangeStrict]
+
 IModelUpdate = Dict[Type[Model], Tuple[Set[str], Set[str]]]
 IModelUpdateCache = Dict[Type[Model], Dict[Optional[FrozenSet[str]], IModelUpdate]]
 
