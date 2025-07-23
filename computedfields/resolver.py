@@ -1091,6 +1091,7 @@ class NotComputed:
         """
         if not self.recover:
             return
+        #print('\nPRE:', data)
         for model, mdata in data.items():
             pks, fields = mdata
             entry = self.qs[model]
@@ -1109,6 +1110,7 @@ class NotComputed:
         """
         if not self.recover:
             return
+        #print('\nUPD:', instance, model, fields)
         entry = self.up[model]
         if isinstance(instance, QuerySet):
             entry['pks'].update(instance.values_list('pk', flat=True))
@@ -1154,13 +1156,21 @@ class NotComputed:
         # this additional pk extraction introduces a timy perf penalty,
         # but pays off by pk merging
         for model, local_data in self.up.items():
+
+            # for CF models expand the local MRO before getting the querysets
+            fields = local_data['fields']
+            if fields and active_resolver.has_computedfields(model):
+                fields = set(active_resolver.get_local_mro(model, local_data['fields']))
+
             mdata = active_resolver._querysets_for_update(
                 model,
                 model._base_manager.filter(pk__in=local_data['pks']),
-                update_fields=local_data['fields'],
+                update_fields=fields,
                 pk_list=True
             )
+            #print('\nCF-UPDATE:', model, local_data)
             for m, mdata in mdata.items():
+                #print('\nCF-COLLECTED:', m, mdata)
                 pks, fields = mdata
                 entry = self.qs[m]
                 entry['pks'] |= pks
@@ -1185,6 +1195,7 @@ class NotComputed:
         with transaction.atomic():
             for model, local_data in self.up.items():
                 if active_resolver.has_computedfields(model):
+                    #print('\nCF-LOCAL:', model, local_data)
                     # postponed local_only upd for CFs models
                     # IMPORTANT: must happen before final updates
                     active_resolver.bulk_updater(
@@ -1195,6 +1206,7 @@ class NotComputed:
                     )
             for model, mdata in self.qs.items():
                 if mdata['pks']:
+                    #print('\nFINAL:', model, mdata)
                     active_resolver.bulk_updater(
                         model._base_manager.filter(pk__in=mdata['pks']),
                         mdata['fields'],
