@@ -36,3 +36,47 @@ class ComputedForeignKeys(TestCase):
             c1.delete()
         self.assertEqual(models.CFKData.objects.all().count(), 0)
         self.assertEqual(models.CFKRelatedData.objects.all().count(), 0)
+
+
+from computedfields.models import not_computed
+class ComputedForeignKeysNC(TestCase):
+    def setUp(self):
+        with not_computed(recover=True):
+            self.names = ['a', 'b', 'c', 'd', 'e', 'f']
+            for name in self.names:
+                models.CFKCatalogue1.objects.create(name='c1%s' % name)
+                models.CFKCatalogue2.objects.create(name='c2%s' % name)
+
+    def test_basic(self):
+        for c1 in models.CFKCatalogue1.objects.all():
+            for c2 in models.CFKCatalogue2.objects.all():
+                with not_computed(recover=True):
+                    m = models.CFKData.objects.create(c1name=c1.name, c2name=c2.name)
+                m.refresh_from_db()
+                self.assertEqual(m.c1, c1)
+                self.assertEqual(m.c2, c2)
+                for value in self.names:
+                    with not_computed(recover=True):
+                        v = models.CFKRelatedData.objects.create(parent=m, value=value)
+                    v.refresh_from_db()
+                    self.assertEqual(v.c1, c1)
+                    self.assertEqual(v.c2, c2)
+
+    def test_cascade_delete(self):
+        with not_computed(recover=True):
+            for c1 in models.CFKCatalogue1.objects.all():
+                for c2 in models.CFKCatalogue2.objects.all():
+                    m = models.CFKData.objects.create(c1name=c1.name, c2name=c2.name)
+                    for value in self.names:
+                        models.CFKRelatedData.objects.create(parent=m, value=value)
+        self.assertGreater(models.CFKData.objects.all().count(), 0)
+        self.assertGreater(models.CFKRelatedData.objects.all().count(), 0)
+
+        # on deleting all CFKCatalogue1 instances
+        # CFKData and CFKRelatedData should drop to zero count
+        # due to cascade deletion
+        with not_computed(recover=True):
+            for c1 in models.CFKCatalogue1.objects.all():
+                c1.delete()
+        self.assertEqual(models.CFKData.objects.all().count(), 0)
+        self.assertEqual(models.CFKRelatedData.objects.all().count(), 0)
