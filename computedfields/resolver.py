@@ -1291,9 +1291,10 @@ class NotComputed:
         for model, data in self.recorded_up.items():
             for fields, pks in data.items():
                 if active_resolver.has_computedfields(model):
+                    basemodel = proxy_to_base_model(model) if model._meta.proxy else model
                     ff = frozenset(active_resolver.get_local_mro(model) if fields is None else fields)
-                    if model in self.recorded_qs and ff in self.recorded_qs[model]:
-                        self.recorded_qs[model][ff] |= pks
+                    if basemodel in self.recorded_qs and ff in self.recorded_qs[basemodel]:
+                        self.recorded_qs[basemodel][ff] |= pks
                     else:
                         ff = None if fields is None else set(fields)
                         active_resolver.bulk_updater(
