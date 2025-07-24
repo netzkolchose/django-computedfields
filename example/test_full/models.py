@@ -896,7 +896,13 @@ class ChildModel(ParentModel):
 class ChildModel2(ParentModel):
     pseudo = models.CharField(max_length=255, default="")
 
-    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[("parentmodel_ptr", ["name", "z", "x"])])
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[
+        # fix random failure with pytest:
+        # self entry was missing, thus the MRO not stable
+        # (for unkown reason this never showed up with manage.py test)
+        ("self", ["name", "z", "x"]),
+        ("parentmodel_ptr", ["name", "z", "x"])
+    ])
     def other_name(self):
         return f"{self.x}{self.name}{self.z}"
 
