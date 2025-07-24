@@ -230,7 +230,10 @@ class TestMultiTableWithPtrNC(TestCase):
         with not_computed(recover=True):
             for i in range(10):
                 MtPtrDerived.objects.create(basename='D{}'.format(i))
-            b = MtPtrBase.objects.get(pk=1)
+            # work around ever increasing pks on postgres and mysql
+            b = MtPtrBase.objects.all().order_by('pk').first()
+            if not b:
+                raise MtPtrBase.DoesNotExist
             b.basename = 'changed'
             b.save(update_fields=['basename'])
         b.refresh_from_db()
