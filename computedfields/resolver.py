@@ -1206,6 +1206,7 @@ class NotComputed:
         # finally update all remaining changesets:
         # 1. local_only update for CF models in up
         # 2. all remaining changesets in qs
+        resolver_start.send(sender=active_resolver)
         with transaction.atomic():
             for model, local_data in self.up.items():
                 if local_data['pks'] and active_resolver.has_computedfields(model):
@@ -1228,6 +1229,7 @@ class NotComputed:
                         mdata['fields'],
                         querysize=settings.COMPUTEDFIELDS_QUERYSIZE
                     )
+        resolver_exit.send(sender=active_resolver)
 
     #################### new impl, slightly worse, but with proper fieldset separation and loop-based
     def record_querysets_new(
@@ -1244,35 +1246,15 @@ class NotComputed:
         model: Type[Model],
         fields: Optional[Set[str]] = None
     ):
+        ff = None if fields is None else frozenset(fields)
         if isinstance(instance, QuerySet):
-            self.recorded_up[model][None if fields is None else frozenset(fields)].update(instance.values_list('pk', flat=True))
+            self.recorded_up[model][ff].update(instance.values_list('pk', flat=True))
         else:
-            self.recorded_up[model][None if fields is None else frozenset(fields)].add(instance.pk)
+            self.recorded_up[model][ff].add(instance.pk)
 
-    @transaction.atomic
     def resync_new(self):
         if not self.recorded_qs and not self.recorded_up:
             return
-        #for model, data in self.recorded_up.items():
-        #    for fields, pks in data.items():
-        #        # CODESMELL: var with side-effect
-        #        ff = None if fields is None else set(fields)
-        #        if active_resolver.has_computedfields(model):
-        #            active_resolver.bulk_updater(
-        #                model._base_manager.filter(pk__in=pks),
-        #                ff,
-        #                local_only=True,
-        #                querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
-        #            )
-        #        mdata = active_resolver._querysets_for_update(
-        #            model,
-        #            model._base_manager.filter(pk__in=pks),
-        #            update_fields=ff,
-        #            pk_list=True
-        #        )
-        #        for qs_model, qs_data in mdata.items():
-        #            qs_pks, qs_fields = qs_data
-        #            self.recorded_qs[qs_model][frozenset(qs_fields)] |= qs_pks
 
         # working way: move pks to recorded_qs, if model:fields is alread there
         for model, data in self.recorded_up.items():
@@ -1288,56 +1270,60 @@ class NotComputed:
                 for qs_model, qs_data in mdata.items():
                     qs_pks, qs_fields = qs_data
                     self.recorded_qs[qs_model][frozenset(qs_fields)] |= qs_pks
-        for model, data in self.recorded_up.items():
-            for fields, pks in data.items():
-                if active_resolver.has_computedfields(model):
-                    basemodel = proxy_to_base_model(model) if model._meta.proxy else model
-                    ff = frozenset(active_resolver.get_local_mro(model) if fields is None else fields)
-                    if basemodel in self.recorded_qs and ff in self.recorded_qs[basemodel]:
-                        self.recorded_qs[basemodel][ff] |= pks
-                    else:
-                        ff = None if fields is None else set(fields)
-                        active_resolver.bulk_updater(
+
+        resolver_start.send(sender=active_resolver)
+        with transaction.atomic():
+            for model, data in self.recorded_up.items():
+                for fields, pks in data.items():
+                    if active_resolver.has_computedfields(model):
+                        basemodel = proxy_to_base_model(model) if model._meta.proxy else model
+                        ff = frozenset(active_resolver.get_local_mro(model) if fields is None else fields)
+                        if basemodel in self.recorded_qs and ff in self.recorded_qs[basemodel]:
+                            self.recorded_qs[basemodel][ff] |= pks
+                        else:
+                            ff = None if fields is None else set(fields)
+                            active_resolver.bulk_updater(
+                                model._base_manager.filter(pk__in=pks),
+                                ff,
+                                local_only=True,
+                                querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
+                            )
+
+            # attempt with merging into same recorded_qs run
+            # here we would benefit from a topsorted list ;)
+            recorded_qs = self.recorded_qs
+            while recorded_qs:
+                recorded_up = defaultdict(lambda: defaultdict(lambda: set()))
+                done = defaultdict(lambda: set())
+                for model, data in recorded_qs.items():
+                    for fields, pks in data.items():
+                        pks = active_resolver.bulk_updater(
                             model._base_manager.filter(pk__in=pks),
-                            ff,
+                            None if fields is None else set(fields),
                             local_only=True,
                             querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
+                            return_pks=True
                         )
-
-        # attempt with merging into same recorded_qs run
-        # here we would benefit from a topsorted list ;)
-        recorded_qs = self.recorded_qs
-        while recorded_qs:
-            recorded_up = defaultdict(lambda: defaultdict(lambda: set()))
-            done = defaultdict(lambda: set())
-            for model, data in recorded_qs.items():
-                for fields, pks in data.items():
-                    pks = active_resolver.bulk_updater(
-                        model._base_manager.filter(pk__in=pks),
-                        None if fields is None else set(fields),
-                        local_only=True,
-                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
-                        return_pks=True
-                    )
-                    done[model].add(frozenset(fields))
-                    if pks:
-                        fields = set(active_resolver.get_local_mro(model, fields))
-                        mdata = active_resolver._querysets_for_update(
-                            model,
-                            model._base_manager.filter(pk__in=pks),
-                            update_fields=fields,
-                            pk_list=True
-                        )
-                        for qs_model, qs_data in mdata.items():
-                            qs_pks, qs_fields = qs_data
-                            ff = frozenset(qs_fields)
-                            if (
-                                qs_model in recorded_qs
-                                and ff in recorded_qs[qs_model]
-                                and ff not in done[qs_model]
-                            ):
-                                recorded_qs[qs_model][ff] |= qs_pks
-                            else:
-                                recorded_up[qs_model][ff] |= qs_pks
-                            #recorded_up[qs_model][frozenset(qs_fields)] |= qs_pks
-            recorded_qs = recorded_up
+                        done[model].add(frozenset(fields))
+                        if pks:
+                            fields = set(active_resolver.get_local_mro(model, fields))
+                            mdata = active_resolver._querysets_for_update(
+                                model,
+                                model._base_manager.filter(pk__in=pks),
+                                update_fields=fields,
+                                pk_list=True
+                            )
+                            for qs_model, qs_data in mdata.items():
+                                qs_pks, qs_fields = qs_data
+                                ff = frozenset(qs_fields)
+                                if (
+                                    qs_model in recorded_qs
+                                    and ff in recorded_qs[qs_model]
+                                    and ff not in done[qs_model]
+                                ):
+                                    recorded_qs[qs_model][ff] |= qs_pks
+                                else:
+                                    recorded_up[qs_model][ff] |= qs_pks
+                                #recorded_up[qs_model][frozenset(qs_fields)] |= qs_pks
+                recorded_qs = recorded_up
+        resolver_exit.send(sender=active_resolver)
