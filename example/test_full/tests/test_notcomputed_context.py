@@ -17,7 +17,7 @@ def fms(v):
     return '% 5d' % v + ' ms'
 
 
-class NotComputedContext(TestCase):
+class NotComputedContextPerfComparison(TestCase):
     def create_looped(self):
         start = time()
         for i in range(10):
@@ -29,7 +29,7 @@ class NotComputedContext(TestCase):
     def create_notcomputed(self):
         start = time()
         shelf_pks = []
-        with not_computed(recover=True):
+        with not_computed():
             for i in range(10):
                 shelf = Shelf.objects.create(name=f's{i}')
                 shelf_pks.append(shelf.pk)
@@ -41,7 +41,16 @@ class NotComputedContext(TestCase):
         # Without good knowledge about the dependency tree an easier but more costly way
         # would be to just store all created object pks above and call update_dependent
         # on book and shelf pks separately.
-        #update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
+        update_dependent(Shelf.objects.filter(pk__in=shelf_pks))
+        return time() - start
+    
+    def create_notcomputed_recover(self):
+        start = time()
+        with not_computed(recover=True):
+            for i in range(10):
+                shelf = Shelf.objects.create(name=f's{i}')
+                for j in range(10):
+                    Book.objects.create(name=f'p{j}', shelf=shelf)
         return time() - start
     
     def create_bulk(self):
@@ -66,19 +75,22 @@ class NotComputedContext(TestCase):
         with atomic():
             looped = self.create_looped()
             notcomputed = self.create_notcomputed()
+            recovered = self.create_notcomputed_recover()
             bulk = self.create_bulk()
 
         # resync yields same result
         for i in range(10):
-            s_looped, s_notcomputed, s_bulk = Shelf.objects.filter(name=f's{i}').order_by('pk')
+            s_looped, s_notcomputed, s_recovered, s_bulk = Shelf.objects.filter(name=f's{i}').order_by('pk')
             self.assertEqual(s_looped.book_names, s_notcomputed.book_names)
+            self.assertEqual(s_looped.book_names, s_recovered.book_names)
             self.assertEqual(s_looped.book_names, s_bulk.book_names)
-        
+
         print(
             f'\nCREATE\n'
-            f'looped       : {fms(looped)}\n'
-            f'not_computed : {fms(notcomputed)}\n'
-            f'bulk         : {fms(bulk)}'
+            f'looped                     : {fms(looped)}\n'
+            f'not_computed               : {fms(notcomputed)}\n'
+            f'not_computed(recover=True) : {fms(recovered)}\n'
+            f'bulk                       : {fms(bulk)}'
         )
 
         # not_computed is magnitudes faster than looped (at least 3x)
@@ -95,12 +107,20 @@ class NotComputedContext(TestCase):
     
     def update_notcomputed(self, books):
         start = time()
-        with not_computed(recover=True):
+        with not_computed():
             for i, b in enumerate(books):
                 b.name += str(i)
                 b.save(update_fields=['name'])
         # resync
-        #update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
+        update_dependent(Shelf.objects.filter(pk__in=set(b.shelf_id for b in books)))
+        return time() - start
+
+    def update_notcomputed_recover(self, books):
+        start = time()
+        with not_computed(recover=True):
+            for i, b in enumerate(books):
+                b.name += str(i)
+                b.save(update_fields=['name'])
         return time() - start
     
     def update_bulk(self, books):
@@ -114,39 +134,46 @@ class NotComputedContext(TestCase):
 
     def test_compare_update(self):
         with atomic():
-            self.create_looped()
-            self.create_notcomputed()
+            self.create_bulk()
+            self.create_bulk()
+            self.create_bulk()
             self.create_bulk()
 
         loopeds = []
         notcomputeds = []
+        recovereds = []
         bulks = []
         for i in range(10):
             books = Book.objects.filter(name=f'p{i}').order_by('pk')
             loopeds.extend(books[0:10])
             notcomputeds.extend(books[10:20])
-            bulks.extend(books[20:30])
+            recovereds.extend(books[20:30])
+            bulks.extend(books[30:40])
         
         self.assertEqual(len(loopeds), 100)
         self.assertEqual(len(notcomputeds), 100)
+        self.assertEqual(len(recovereds), 100)
         self.assertEqual(len(bulks), 100)
         
         with atomic():
             looped = self.update_looped(loopeds)
             notcomputed = self.update_notcomputed(notcomputeds)
+            recovered = self.update_notcomputed_recover(recovereds)
             bulk = self.update_bulk(bulks)
 
         # resync yields same result
         for i in range(10):
-            s_looped, s_notcomputed, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
+            s_looped, s_notcomputed, s_recovered, s_bulk = list(Shelf.objects.filter(name=f's{i}').order_by('pk'))
             self.assertEqual(s_looped.book_names, s_notcomputed.book_names)
+            self.assertEqual(s_looped.book_names, s_recovered.book_names)
             self.assertEqual(s_looped.book_names, s_bulk.book_names)
 
         print(
             f'\nUPDATE\n'
-            f'looped       : {fms(looped)}\n'
-            f'not_computed : {fms(notcomputed)}\n'
-            f'bulk         : {fms(bulk)}'
+            f'looped                     : {fms(looped)}\n'
+            f'not_computed               : {fms(notcomputed)}\n'
+            f'not_computed(recover=True) : {fms(recovered)}\n'
+            f'bulk                       : {fms(bulk)}'
         )
 
         # no_computed is magnitudes faster than looped (at least 3x)
@@ -154,6 +181,8 @@ class NotComputedContext(TestCase):
         # but cannot beat bulk
         self.assertGreater(notcomputed, bulk)
 
+
+class NotComputedContext(TestCase):
     def test_nesting(self):
         self.assertEqual(get_not_computed_context(), None)
         with not_computed() as ctx:
