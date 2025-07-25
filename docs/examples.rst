@@ -1195,21 +1195,39 @@ with the help of a context manager:
 
     with not_computed():
         # computed field calculations: off
+        # desync here
         ...
     # computed field calculations: on
-    # fix desync state manually here
+    # desync here
 
-The behavior within the context is, as if you had declared your computed fields directly on your models,
-means the fields still exist on your models but without any calculations being done.
-Calls into resolver methods like `update_dependent` are turned into NOOPs, so no dependency resolving happens.
-Therefore any insert, update or delete actions done within this context have a high chance to create a desync state
-in the database.
+    # or with auto recovery
+    with not_computed(recover=True):
+        # computed field calculations: off
+        # desync here
+        ...
+    # computed field calculations: on
+    # sync here
 
-.. WARNING::
+In this context, computed fields act the same as their wrapped inner fields,
+as if they had been declared directly on your models. All computed field calculations are skipped,
+dependency resolving is either off (no auto recovery) or reduced to collecting pre-update pk sets.
+Therefore any insert, update or delete actions done within this context will lead to
+a desync state in the database, if the action modified a source field of a dependent computed field.
 
-    For a future version it is planned to offer some auto recovery from the desync state on the context's exit.
-    Until then - **you are totally on your own to get the database state back in sync after the
-    `not_computed` context**.
+The context supports an **auto recovery** mode, which you can enable with *recover=True*.
+In this mode the context will track all database relevant actions similar to the normal resolver.
+On the context's exit the pending computed field updates will be executed.
+This recover feature is currently treated as alpha (due to missing fundamental performance
+optimizations), but should be safe to use, as it is fully tested against all resolver tests.
+
+The context introduces a few side effects you should be aware of:
+
+- Other than with the normal resolver, all wrapped fields must now have
+  a *null=True* or a *default* argument, otherwise django cannot save a newly created instance.
+- With auto recovery retained computed model instances always need a ``instance.refresh_from_db()`` update,
+  if you want to access the values after the context.
+- With auto recovery the *default_on_create* argument does not work anymore. This is caused by the fact,
+  that the field update on the context's exit is a second save.
 
 .. WARNING::
 
@@ -1219,9 +1237,9 @@ in the database.
 At a first glance it may seem odd to disable all the nifty denormalization trickery, you just carefully introduced,
 and to run into a desync state deliberately. So what is the deal here?
 
-Well, the auto resolver creates a runtime penalty during inserts, updates and deletes.
+Well, the normal resolver creates a runtime penalty during inserts, updates and deletes.
 Furthermore the realtime approach on single instance actions puts that penalty on each step of looped actions
-like loop-saving, although you might not really care about the sync state before the loop has finished:
+like loop-saving, although you might not really care about the sync state before the end of your code section:
 
 .. code-block:: python
 
@@ -1238,25 +1256,30 @@ To avoid the calculation penalty on each save call, the code can be rewritten as
 
 .. code-block:: python
 
-    with not_computed():
+    with not_computed(recover=True):
         for instance in A_instances:
             instance.xy = some_new_value
             instance.save()  # returns much faster now
             # desync here
             ...
-    # HELP: how to get things back to sync?
+    # with recover=True : sync again
+    # with recover=False: desync hell
     ...
 
-Now you have traded a much faster loop execution for a potential desync state afterwards. To get things back
-to sync in the example above, a call of
-``update_dependent(A.objects.filter(pk__in=[a.pk for a in A_instances]))`` might be enough.
-For much more complicated code you have to track the changes done to the database,
-intersect them with your computed fields' dependencies and call `update_dependent` for the remaining changesets.
-Note that the process of finding the needed changesets is error-prone, so it should be done carefully.
+Now the loop will execute much faster, as it avoids hitting the database over and over.
+After leaving the context block, the database state will be in sync again with *recover=True*.
+By not using auto recovery, you will end up with a desync state and have to resync the database yourself.
 
-*If resolving the desync state is that tricky, when should I actually use the context?*
+.. WARNING::
 
-In general you should avoid the context as much as possible. When you really need performant insert and update code,
+    Skipping the auto recovery is not recommended, esp. if you don't have a good understanding
+    of the computed field dependencies in your project. Manually resolving the needed update
+    changesets is an error-prone task and should be done carefully.
+
+
+*When should I actually use the context?*
+
+In general you should avoid the context as much as possible. When you need performant insert and update code,
 my first advice will always be to switch to proper bulk usage in your business logic.
 This is guaranteed to give you the best performance without getting into dirty raw SQL business,
 and databases just love set-like mass actions. Furthermore the querysets for those bulk actions
@@ -1264,22 +1287,20 @@ are directly supported by `(pre)update_dependent`, so most of the time you can j
 of the desync state. Done?
 
 Well, there are still those cases, where you have to rely a lot on looped instance actions,
-e.g. due to tons of `save` overloads - then using this context can be a relief to your insert or update actions.
-Here manually fixing the desync state might be less disrupting than refactoring half of your previous code
-into a more bulk-friendly version.
+e.g. due to tons of `save` overloads or signal usage - then using this context can be a performance relief
+without too much changes introduced into your code.
 
 .. TIP::
 
     For performant database business logic, django's favoured single instance approach is often toxic.
-    If you know in advance, that performance will play a major role in parts of your application, than you should
-    try to restrain from anything binding your code to that pattern (e.g. avoid heavy `save` overloads
-    or instance signal hooks). If you cannot really avoid using those, then preparing the hook code to be used
-    with multiple instances at once turning them into set-like mass actions will help to keep your code working
-    in conjunction with bulk actions later on.
+    If you know in advance, that performance will play a major role in your application, than you should
+    try to avoid pattern like `save` overloads or instance signals. If you cannot avoid them,
+    then preparing your business logic to also being used as set-like mass actions might help a later
+    transition to bulk actions.
 
     *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it had to support
-    the single instance pattern to integrate tightly. Solution was to extend critical methods like
-    `update_dependent` to support an instance or a queryset as first argument. 
+    the single instance pattern to integrate tightly with django. Solution was to extend critical methods
+    like `update_dependent` to support an instance or a queryset as first argument. 
 
 But since "all theory is grey", there is a test case in `test_notcomputed_context.py` illustrating the different
 approaches.
@@ -1291,22 +1312,34 @@ approaches.
 
 The runtime numbers are (in msec):
 
-+--------------+--------+----------+-------+---------+
-|              | sqlite | postgres | mysql | mariadb |
-+==============+========+==========+=======+=========+
-| **CREATE**   |        |          |       |         |
-+--------------+--------+----------+-------+---------+
-| looped       | 206    | 404      | 372   | 370     |
-+--------------+--------+----------+-------+---------+
-| not_computed | 38     | 65       | 70    | 72      |
-+--------------+--------+----------+-------+---------+
-| bulk         | 14     | 18       | 20    | 19      |
-+--------------+--------+----------+-------+---------+
-| **UPDATE**   |        |          |       |         |
-+--------------+--------+----------+-------+---------+
-| looped       | 211    | 394      | 387   | 368     |
-+--------------+--------+----------+-------+---------+
-| not_computed | 43     | 71       | 80    | 74      |
-+--------------+--------+----------+-------+---------+
-| bulk         | 8      | 12       | 14    | 12      |
-+--------------+--------+----------+-------+---------+
++-----------------------------------------------+--------+----------+-------+---------+
+|                                               | sqlite | postgres | mysql | mariadb |
++===============================================+========+==========+=======+=========+
+| **CREATE**                                    |        |          |       |         |
++-----------------------------------------------+--------+----------+-------+---------+
+| looped                                        | 279    | 507      | 522   | 476     |
++-----------------------------------------------+--------+----------+-------+---------+
+| not_computed                                  | 45     | 77       | 84    | 84      |
++-----------------------------------------------+--------+----------+-------+---------+
+| not_computed(recover=True)                    | 48     | 79       | 90    | 85      |
++-----------------------------------------------+--------+----------+-------+---------+
+| bulk                                          | 20     | 29       | 32    | 29      |
++-----------------------------------------------+--------+----------+-------+---------+
+| **UPDATE**                                    |        |          |       |         |
++-----------------------------------------------+--------+----------+-------+---------+
+| looped                                        | 208    | 399      | 409   | 373     |
++-----------------------------------------------+--------+----------+-------+---------+
+| not_computed                                  | 49     | 85       | 95    | 87      |
++-----------------------------------------------+--------+----------+-------+---------+
+| not_computed(recover=True)                    | 44     | 78       | 87    | 80      |
++-----------------------------------------------+--------+----------+-------+---------+
+| bulk                                          | 15     | 23       | 27    | 24      |
++-----------------------------------------------+--------+----------+-------+---------+
+
+*(The values are taken from the CI tests of commit e9314f0. Take this as a grain of salt,
+as the github CI is not meant for performance testing. The overall tendency is still preserved
+compared to local tests.)*
+
+*not_computed* is at least 4 times faster, it still cannot compete with *bulk*.
+The auto resolver introduces a tiny overhead for **CREATE**, but runs faster for **UPDATE**,
+which is perfect reasonable for the given example (you will see a different impact on your models).
