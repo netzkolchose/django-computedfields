@@ -896,7 +896,13 @@ class ChildModel(ParentModel):
 class ChildModel2(ParentModel):
     pseudo = models.CharField(max_length=255, default="")
 
-    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[("parentmodel_ptr", ["name", "z", "x"])])
+    @computed(models.CharField(max_length=255, null=True, blank=True), depends=[
+        # fix random failure with pytest:
+        # self entry was missing, thus the MRO not stable
+        # (for unkown reason this never showed up with manage.py test)
+        ("self", ["name", "z", "x"]),
+        ("parentmodel_ptr", ["name", "z", "x"])
+    ])
     def other_name(self):
         return f"{self.x}{self.name}{self.z}"
 
@@ -1081,8 +1087,8 @@ def calc_d(inst):
 class FactorySimple(ComputedFieldsModel):
     a = models.IntegerField()
     b = models.IntegerField()
-    c = ComputedField(models.IntegerField(), compute=lambda inst: inst.a + inst.b)
-    d = ComputedField(models.IntegerField(), compute=calc_d)
+    c = ComputedField(models.IntegerField(default=0), compute=lambda inst: inst.a + inst.b)
+    d = ComputedField(models.IntegerField(default=0), compute=calc_d)
 
 
 # better M2M handling #131
@@ -1152,11 +1158,11 @@ class CFKData(ComputedFieldsModel):
     c1name = models.CharField(max_length=10)
     c2name = models.CharField(max_length=10)
 
-    @computed(models.ForeignKey(CFKCatalogue1, on_delete=models.CASCADE))
+    @computed(models.ForeignKey(CFKCatalogue1, null=True, on_delete=models.CASCADE))
     def c1(self):
         return CFKCatalogue1.objects.get(name=self.c1name)
 
-    @computed(models.ForeignKey(CFKCatalogue2, on_delete=models.CASCADE))
+    @computed(models.ForeignKey(CFKCatalogue2, null=True, on_delete=models.CASCADE))
     def c2(self):
         return CFKCatalogue2.objects.get(name=self.c2name)
 
@@ -1165,11 +1171,11 @@ class CFKRelatedData(ComputedFieldsModel):
     parent = models.ForeignKey(CFKData, on_delete=models.CASCADE)
     value = models.CharField(max_length=10)
 
-    @computed(models.ForeignKey(CFKCatalogue1, on_delete=models.CASCADE))
+    @computed(models.ForeignKey(CFKCatalogue1, null=True, on_delete=models.CASCADE))
     def c1(self):
         return self.parent.c1
 
-    @computed(models.ForeignKey(CFKCatalogue2, on_delete=models.CASCADE))
+    @computed(models.ForeignKey(CFKCatalogue2, null=True, on_delete=models.CASCADE))
     def c2(self):
         return self.parent.c2
 
@@ -1208,7 +1214,7 @@ class Room(ComputedFieldsModel):
     advert = models.ForeignKey(Advert, related_name="rooms", on_delete=models.CASCADE)
 
     @computed(
-        field=models.BooleanField(),
+        field=models.BooleanField(default=False),
         depends=[("advert.tags", ["name"])]
     )
     def is_ready(self) -> bool:

@@ -83,7 +83,7 @@ def predelete_handler(sender: Type[Model], instance: Model, **_) -> None:
     """
     # get the querysets as pk lists to hold them in storage
     # we have to get pks here since the queryset will be empty after deletion
-    data = active_resolver._querysets_for_update(sender, instance, pk_list=True)
+    data = active_resolver.preupdate_dependent(instance, sender)
     if data:
         get_DELETES()[instance] = data
 
