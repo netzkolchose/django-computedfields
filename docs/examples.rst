@@ -1228,11 +1228,16 @@ The context introduces a few side effects you should be aware of:
   if you want to access the values after the context.
 - With auto recovery the *default_on_create* argument does not work anymore. This is caused by the fact,
   that the field update on the context's exit is a second save.
+- With auto recovery the context will track all database relevant actions with pk sets in memory.
+  This might create new RAM bottlenecks, if the context block works on overly huge changesets.
+- Should be self-explanatory - using a computed field value in the context block for other calculations
+  is almost always a mistake. The value will be outdated after an action that would normally have
+  updated it. Also trying to retrieve an updated value with *compute* will not work.
 
 .. WARNING::
 
     The context state is stored as thread local data. To not get surprising results, you should avoid threaded code
-    with ORM actions in the context.
+    with ORM actions in the context block.
 
 At a first glance it may seem odd to disable all the nifty denormalization trickery, you just carefully introduced,
 and to run into a desync state deliberately. So what is the deal here?
@@ -1279,7 +1284,7 @@ By not using auto recovery, you will end up with a desync state and have to resy
 
 *When should I actually use the context?*
 
-In general you should avoid the context as much as possible. When you need performant insert and update code,
+In general you should avoid the context. When you need performant insert and update code,
 my first advice will always be to switch to proper bulk usage in your business logic.
 This is guaranteed to give you the best performance without getting into dirty raw SQL business,
 and databases just love set-like mass actions. Furthermore the querysets for those bulk actions
@@ -1290,13 +1295,16 @@ Well, there are still those cases, where you have to rely a lot on looped instan
 e.g. due to tons of `save` overloads or signal usage - then using this context can be a performance relief
 without too much changes introduced into your code.
 
+Note that the context will not help with model local computed fields. In fact it will be slightly worse,
+if all fields depend only on values, that are already held by the ORM from your loop actions.
+
 .. TIP::
 
     For performant database business logic, django's favoured single instance approach is often toxic.
     If you know in advance, that performance will play a major role in your application, than you should
-    try to avoid pattern like `save` overloads or instance signals. If you cannot avoid them,
-    then preparing your business logic to also being used as set-like mass actions might help a later
-    transition to bulk actions.
+    try to avoid pattern like `save` overloads or instance signals. If you cannot avoid them, designing
+    your business logic with a more set-oriented approach can make it easier to transition
+    to bulk operations later on.
 
     *On a sidenote*: :mod:`django-computedfields` had basically the same issue - it had to support
     the single instance pattern to integrate tightly with django. Solution was to extend critical methods
@@ -1343,5 +1351,5 @@ as the github CI is not meant for performance testing. The overall tendency is s
 compared to local tests.)*
 
 *not_computed* is at least 4 times faster, it still cannot compete with *bulk*.
-The auto resolver introduces a tiny overhead for **CREATE**, but runs faster for **UPDATE**,
+The auto recovery introduces a tiny overhead for **CREATE**, but runs faster for **UPDATE**,
 which is perfect reasonable for the given example (you will see a different impact on your models).
