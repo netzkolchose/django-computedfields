@@ -756,6 +756,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.3.3
+    - auto recovery for not_computed context
 - 0.3.2
     - regression fix (#190): add implicit fk dependencies from reverse relations
 - 0.3.1 (discouraged due to regression #190)
