@@ -3,8 +3,8 @@ Contains the resolver logic for automated computed field updates.
 """
 from .thread_locals import get_not_computed_context, set_not_computed_context
 import operator
-from collections import OrderedDict
 from functools import reduce
+from collections import defaultdict
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -21,7 +21,8 @@ from fast_update.fast import fast_update
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
                     Tuple, Type, Union, cast, overload)
 from django.db.models import Field, Model
-from .graph import IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F
+from .graph import (IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F,
+                    IRecorded, IRecordedStrict, IModelUpdate, IModelUpdateCache)
 
 
 MALFORMED_DEPENDS = """
@@ -90,6 +91,9 @@ class Resolver:
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
 
+        # model update cache
+        self._updates_cache: IModelUpdateCache = defaultdict(dict)
+
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
         `class_prepared` signal hook to collect models during ORM registration.
@@ -137,7 +141,7 @@ class Resolver:
                 if hasattr(field, '_computed') and field.creation_counter in field_ids:
                     fields.add(field)
             if fields:
-                yield (model, fields)
+                yield (model, cast(Set[IComputedField], fields))
 
     @property
     def computedfields_with_models(self) -> Generator[Tuple[IComputedField, Set[Type[Model]]], None, None]:
@@ -232,6 +236,7 @@ class Resolver:
         self._m2m = self._graph._m2m
         self._patch_proxy_models()
         self._map_loaded = True
+        self._updates_cache = defaultdict(dict)
 
     def _patch_proxy_models(self) -> None:
         """
@@ -276,6 +281,44 @@ class Resolver:
             mro |= fields.get(field, 0)
         return [name for pos, name in enumerate(base) if mro & (1 << pos)]
 
+    def get_model_updates(
+        self,
+        model: Type[Model],
+        update_fields: Optional[Iterable[str]] = None
+    ) -> IModelUpdate:
+        """
+        For a given model and updated fields this method
+        returns a dictionary with dependent models (keys) and a tuple
+        with dependent fields and the queryset accessor string (value).
+        """
+        modeldata = self._map.get(model)
+        if not modeldata:
+            return {}
+        if not update_fields is None:
+            update_fields = frozenset(update_fields)
+        try:
+            return self._updates_cache[model][update_fields]
+        except KeyError:
+            pass
+        if not update_fields:
+            updates: Set[str] = set(modeldata.keys())
+        else:
+            updates = set()
+            for fieldname in update_fields:
+                if fieldname in modeldata:
+                    updates.add(fieldname)
+        model_updates: IModelUpdate = defaultdict(lambda: (set(), set()))
+        for update in updates:
+            # aggregate fields and paths to cover
+            # multiple comp field dependencies
+            for m, r in modeldata[update].items():
+                fields, paths = r
+                m_fields, m_paths = model_updates[m]
+                m_fields.update(fields)
+                m_paths.update(paths)
+        self._updates_cache[model][update_fields] = model_updates
+        return model_updates
+
     def _querysets_for_update(
         self,
         model: Type[Model],
@@ -287,49 +330,29 @@ class Resolver:
         Returns a mapping of all dependent models, dependent fields and a
         queryset containing all dependent objects.
         """
-        final: Dict[Type[Model], List[Any]] = OrderedDict()
-        if get_not_computed_context():
-            # TODO: track instance/queryset for context re-plays
+        final: Dict[Type[Model], List[Any]] = {}
+        model_updates = self.get_model_updates(model, update_fields)
+        if not model_updates:
             return final
-        modeldata = self._map.get(model)
-        if not modeldata:
-            return final
-        if not update_fields:
-            updates: Set[str] = set(modeldata.keys())
-        else:
-            updates = set()
-            for fieldname in update_fields:
-                if fieldname in modeldata:
-                    updates.add(fieldname)
-        subquery = '__in' if isinstance(instance, QuerySet) else ''
 
+        subquery = '__in' if isinstance(instance, QuerySet) else ''
         # fix #100
         # mysql does not support 'LIMIT & IN/ALL/ANY/SOME subquery'
         # thus we extract pks explicitly instead
-        # TODO: cleanup type mess here including this workaround
+        real_inst: Union[Model, QuerySet, Set[Any]] = instance
         if isinstance(instance, QuerySet):
             from django.db import connections
             if not instance.query.can_filter() and connections[instance.db].vendor == 'mysql':
-                instance = set(instance.values_list('pk', flat=True).iterator())
-
-        model_updates: Dict[Type[Model], Tuple[Set[str], Set[str]]] = OrderedDict()
-        for update in updates:
-            # first aggregate fields and paths to cover
-            # multiple comp field dependencies
-            for model, resolver in modeldata[update].items():
-                fields, paths = resolver
-                m_fields, m_paths = model_updates.setdefault(model, (set(), set()))
-                m_fields.update(fields)
-                m_paths.update(paths)
+                real_inst = set(instance.values_list('pk', flat=True).iterator())
 
         # generate narrowed down querysets for all cf dependencies
-        for model, data in model_updates.items():
+        for m, data in model_updates.items():
             fields, paths = data
-            queryset: Any = model._base_manager.none()
+            queryset: Union[QuerySet, Set[Any]] = m._base_manager.none()
             query_pipe_method = self._choose_optimal_query_pipe_method(paths)
             queryset = reduce(
                 query_pipe_method,
-                (model._base_manager.filter(**{path+subquery: instance}) for path in paths),
+                (m._base_manager.filter(**{path+subquery: real_inst}) for path in paths),
                 queryset
             )
             if pk_list:
@@ -341,7 +364,7 @@ class Resolver:
                 if not queryset:
                     continue
             # FIXME: change to tuple or dict for narrower type
-            final[model] = [queryset, fields]
+            final[m] = [queryset, fields]
         return final
     
     def _get_model(self, instance: Union[Model, QuerySet]) -> Type[Model]:
@@ -382,8 +405,15 @@ class Resolver:
         Feed the mapping back to ``update_dependent`` as `old` argument
         after your bulk action to update de-associated computed field records as well.
         """
-        return self._querysets_for_update(
+        result = self._querysets_for_update(
             model or self._get_model(instance), instance, update_fields, pk_list=True)
+
+        # exit empty, if we are in not_computed context
+        if ctx := get_not_computed_context():
+            if result and ctx.recover:
+                ctx.record_querysets(result)
+            return {}
+        return result
 
     def update_dependent(
         self,
@@ -454,14 +484,16 @@ class Resolver:
         `update_local=False` disables model local computed field updates of the entry node. 
         (used as optimization during tree traversal). You should not disable it yourself.
         """
-        if get_not_computed_context():
-            # TODO: track instance/queryset for context re-plays
-            return
-
         _model = model or self._get_model(instance)
 
         # bulk_updater might change fields, ensure we have set/None
         _update_fields = None if update_fields is None else set(update_fields)
+
+        # exit early if we are in not_computed context
+        if ctx := get_not_computed_context():
+            if ctx.recover:
+                ctx.record_update(instance, _model, _update_fields)
+            return
 
         # Note: update_local is always off for updates triggered from the resolver
         # but True by default to avoid accidentally skipping updates called by user
@@ -534,8 +566,8 @@ class Resolver:
             queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
-        mro = self.get_local_mro(model, update_fields)
-        fields: Any = set(mro)  # FIXME: narrow type once issue in django-stubs is resolved
+        mro: List[str] = self.get_local_mro(model, update_fields)
+        fields = set(mro)
         if update_fields:
             update_fields.update(fields)
 
@@ -585,7 +617,7 @@ class Resolver:
             )
         return set(pks) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Sequence[str]) -> Union[int, None]:
+    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Iterable[str]) -> Union[int, None]:
         # we can skip batch_size here, as it already was batched in bulk_updater
         if self.use_fastupdate:
             return fast_update(queryset, change, fields, None)
@@ -1023,13 +1055,14 @@ class NotComputed:
     """
     Context to disable all computed field calculations and resolver updates temporarily.
 
-    .. CAUTION::
-
-        Currently there is no auto-recovery implemented at all,
-        therefore it is your responsibility to recover properly from the desync state.
+    With *recover=True* the context will track all database relevant actions and update
+    affected computed fields on exit of the context.
     """
-    def __init__(self):
+    def __init__(self, recover=False):
         self.remove_ctx = True
+        self.recover = recover
+        self.qs: IRecordedStrict = defaultdict(lambda: {'pks': set(), 'fields': set()})
+        self.up: IRecorded = defaultdict(lambda: {'pks': set(), 'fields': set()})
 
     def __enter__(self):
         ctx = get_not_computed_context()
@@ -1042,5 +1075,252 @@ class NotComputed:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.remove_ctx:
             set_not_computed_context(None)
-            # TODO: re-play aggregated changes
+            if self.recover:
+                self._resync()
         return False
+    
+    def record_querysets(
+        self,
+        data: Dict[Type[Model], List[Any]]
+    ):
+        """
+        Records the results of a previous _queryset_for_updates call
+        (must be called with argument *pk_list=True*).
+        """
+        if not self.recover:
+            return
+        for model, mdata in data.items():
+            pks, fields = mdata
+            entry = self.qs[model]
+            entry['pks'] |= pks
+            # expand fields (might show a negative perf impact)
+            entry['fields'] |= fields
+
+    def record_update(
+        self,
+        instance: Union[QuerySet, Model],
+        model: Type[Model],
+        fields: Optional[Set[str]] = None
+    ):
+        """
+        Records any update as typically given to update_dependent.
+        """
+        if not self.recover:
+            return
+        entry = self.up[model]
+        if isinstance(instance, QuerySet):
+            entry['pks'].update(instance.values_list('pk', flat=True))
+        else:
+            entry['pks'].add(instance.pk)
+        # expand fields (might show a negative perf impact)
+        # special None handling in fields here is needed to preserve
+        # "all" rule from update_dependent on local CF model updates
+        if fields is None:
+            entry['fields'] = None
+        else:
+            if not entry['fields'] is None:
+                entry['fields'] |= fields
+
+    def _resync(self):
+        """
+        This method tries to recover from the desync state by replaying the updates
+        of the recorded db actions.
+
+        The resync does a flattening on the first update tree level:
+        - determine all follow-up changesets as pk lists (next tree level)
+        - merge *local_only* CF models with follow-up changesets (limited flattening)
+        - update remaining *local_only* CF models
+        - update remaining changesets with full descent
+
+        The method currently favours field- and changeset merges over isolated updates.
+        The final updates are done the same way as during normal operation (DFS).
+        """
+        if not self.qs and not self.up:
+            return
+
+        # first collect querysets from record_update for later bulk_update
+        # this additional pk extraction introduces a timy perf penalty,
+        # but pays off by pk merging
+        for model, local_data in self.up.items():
+
+            # for CF models expand the local MRO before getting the querysets
+            # FIXME: untangle the side effect update of fields in update_dependent <-- bulk_updater
+            fields = local_data['fields']
+            if fields and active_resolver.has_computedfields(model):
+                fields = set(active_resolver.get_local_mro(model, local_data['fields']))
+
+            mdata = active_resolver._querysets_for_update(
+                model,
+                model._base_manager.filter(pk__in=local_data['pks']),
+                update_fields=fields,
+                pk_list=True
+            )
+            for m, mdata in mdata.items():
+                pks, fields = mdata
+                entry = self.qs[m]
+                entry['pks'] |= pks
+                entry['fields'] |= fields
+    
+        # move CF model local_only updates to final changesets, if already there
+        for model, mdata in self.up.items():
+            # patch for proxy models (resolver works internally with basemodels only)
+            basemodel = proxy_to_base_model(model) if model._meta.proxy else model
+            if active_resolver.has_computedfields(model) and basemodel in self.qs:
+                local_entry = self.up[model]
+                final_entry = self.qs[basemodel]
+                if local_entry['fields'] is None:
+                    final_entry['fields'] = set(active_resolver.get_local_mro(model))
+                else:
+                    final_entry['fields'] |= final_entry['fields']
+                final_entry['pks'] |= local_entry['pks']
+                local_entry['pks'].clear()
+
+        # finally update all remaining changesets:
+        # 1. local_only update for CF models in up
+        # 2. all remaining changesets in qs
+        resolver_start.send(sender=active_resolver)
+        with transaction.atomic():
+            for model, local_data in self.up.items():
+                if local_data['pks'] and active_resolver.has_computedfields(model):
+                    # postponed local_only upd for CFs models
+                    # IMPORTANT: must happen before final updates
+                    active_resolver.bulk_updater(
+                        model._base_manager.filter(pk__in=local_data['pks']),
+                        local_data['fields'],
+                        local_only=True,
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
+            for model, mdata in self.qs.items():
+                if mdata['pks']:
+                    active_resolver.bulk_updater(
+                        model._base_manager.filter(pk__in=mdata['pks']),
+                        mdata['fields'],
+                        querysize=settings.COMPUTEDFIELDS_QUERYSIZE
+                    )
+        resolver_exit.send(sender=active_resolver)
+
+
+#class NotComputed:
+#    """
+#    Context to disable all computed field calculations and resolver updates temporarily.
+#
+#    With *recover=True* the context will track all database relevant actions and update
+#    affected computed fields on exit of the context.
+#    """
+#    def __init__(self, recover=False):
+#        self.remove_ctx = True
+#        self.recover = recover
+#        self.recorded_qs = defaultdict(lambda: defaultdict(lambda: set()))
+#        self.recorded_up = defaultdict(lambda: defaultdict(lambda: set()))
+#
+#    def __enter__(self):
+#        ctx = get_not_computed_context()
+#        if ctx:
+#            self.remove_ctx = False
+#            return ctx
+#        set_not_computed_context(self)
+#        return self
+#
+#    def __exit__(self, exc_type, exc_value, traceback):
+#        if self.remove_ctx:
+#            set_not_computed_context(None)
+#            if self.recover:
+#                self._resync()
+#        return False
+#
+#    def record_querysets(
+#        self,
+#        data: Dict[Type[Model], List[Any]]
+#    ):
+#        for model, mdata in data.items():
+#            pks, fields = mdata
+#            self.recorded_qs[model][frozenset(fields)] |= pks
+#
+#    def record_update(
+#        self,
+#        instance: Union[QuerySet, Model],
+#        model: Type[Model],
+#        fields: Optional[Set[str]] = None
+#    ):
+#        ff = None if fields is None else frozenset(fields)
+#        if isinstance(instance, QuerySet):
+#            self.recorded_up[model][ff].update(instance.values_list('pk', flat=True))
+#        else:
+#            self.recorded_up[model][ff].add(instance.pk)
+#
+#    def _resync(self):
+#        if not self.recorded_qs and not self.recorded_up:
+#            return
+#
+#        # working way: move pks to recorded_qs, if model:fields is alread there
+#        for model, data in self.recorded_up.items():
+#            for fields, pks in data.items():
+#                if fields and active_resolver.has_computedfields(model):
+#                    fields = set(active_resolver.get_local_mro(model, fields))
+#                mdata = active_resolver._querysets_for_update(
+#                    model,
+#                    model._base_manager.filter(pk__in=pks),
+#                    update_fields=fields,
+#                    pk_list=True
+#                )
+#                for qs_model, qs_data in mdata.items():
+#                    qs_pks, qs_fields = qs_data
+#                    self.recorded_qs[qs_model][frozenset(qs_fields)] |= qs_pks
+#
+#        resolver_start.send(sender=active_resolver)
+#        with transaction.atomic():
+#            for model, data in self.recorded_up.items():
+#                for fields, pks in data.items():
+#                    if active_resolver.has_computedfields(model):
+#                        basemodel = proxy_to_base_model(model) if model._meta.proxy else model
+#                        ff = frozenset(active_resolver.get_local_mro(model) if fields is None else fields)
+#                        if basemodel in self.recorded_qs and ff in self.recorded_qs[basemodel]:
+#                            self.recorded_qs[basemodel][ff] |= pks
+#                        else:
+#                            ff = None if fields is None else set(fields)
+#                            active_resolver.bulk_updater(
+#                                model._base_manager.filter(pk__in=pks),
+#                                ff,
+#                                local_only=True,
+#                                querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
+#                            )
+#
+#            # attempt with merging into same recorded_qs run
+#            # here we would benefit from a topsorted list ;)
+#            # FIXME: loop needs a recursion abort
+#            recorded_qs = self.recorded_qs
+#            while recorded_qs:
+#                recorded_up = defaultdict(lambda: defaultdict(lambda: set()))
+#                done = defaultdict(lambda: set())
+#                for model, data in recorded_qs.items():
+#                    for fields, pks in data.items():
+#                        pks = active_resolver.bulk_updater(
+#                            model._base_manager.filter(pk__in=pks),
+#                            None if fields is None else set(fields),
+#                            local_only=True,
+#                            querysize=settings.COMPUTEDFIELDS_QUERYSIZE,
+#                            return_pks=True
+#                        )
+#                        done[model].add(frozenset(fields))
+#                        if pks:
+#                            fields = set(active_resolver.get_local_mro(model, fields))
+#                            mdata = active_resolver._querysets_for_update(
+#                                model,
+#                                model._base_manager.filter(pk__in=pks),
+#                                update_fields=fields,
+#                                pk_list=True
+#                            )
+#                            for qs_model, qs_data in mdata.items():
+#                                qs_pks, qs_fields = qs_data
+#                                ff = frozenset(qs_fields)
+#                                if (
+#                                    qs_model in recorded_qs
+#                                    and ff in recorded_qs[qs_model]
+#                                    and ff not in done[qs_model]
+#                                ):
+#                                    recorded_qs[qs_model][ff] |= qs_pks
+#                                else:
+#                                    recorded_up[qs_model][ff] |= qs_pks
+#                                #recorded_up[qs_model][frozenset(qs_fields)] |= qs_pks
+#                recorded_qs = recorded_up
+#        resolver_exit.send(sender=active_resolver)
