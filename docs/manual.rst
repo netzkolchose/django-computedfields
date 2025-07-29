@@ -756,6 +756,8 @@ a similar feature in Django's ORM.
 Changelog
 ---------
 
+- 0.3.5
+    - performance improvement: allow select_related/prefetch_related on UNIONed resolver updates
 - 0.3.4
     - Fix UNIONed resolver updates, that contain select_related
 - 0.3.3
