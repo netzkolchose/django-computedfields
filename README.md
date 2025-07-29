@@ -103,6 +103,8 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
 
 
 #### Changelog
+- 0.3.4
+    - Fix UNIONed resolver updates, that contain select_related
 - 0.3.3
     - auto recovery for not_computed context
 - 0.3.2
