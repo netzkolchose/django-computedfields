@@ -571,13 +571,14 @@ class Resolver:
         if update_fields:
             update_fields.update(fields)
 
-        select = self.get_select_related(model, fields)
-        prefetch = self.get_prefetch_related(model, fields)
-        if select:
-            queryset = queryset.select_related(*select)
-        # fix #167: skip prefetch if union was used
-        if prefetch and queryset.query.combinator != "union":
-            queryset = queryset.prefetch_related(*prefetch)
+        # fix #167: skip prefetch/select if union was used
+        if queryset.query.combinator != "union":
+            select = self.get_select_related(model, fields)
+            prefetch = self.get_prefetch_related(model, fields)
+            if select:
+                queryset = queryset.select_related(*select)
+            if prefetch:
+                queryset = queryset.prefetch_related(*prefetch)
 
         pks = []
         if fields:
