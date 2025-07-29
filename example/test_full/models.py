@@ -1305,3 +1305,30 @@ class ATBT(ComputedFieldsModel):
         depends=[('at', ['name']), ('bt', ['name'])],
         compute=lambda inst: inst.at.name + inst.bt.name
     )
+
+
+# union & select/prefetch_related settings (test_union_related_settings.py)
+class UAppartment(models.Model):
+    number = models.PositiveIntegerField()
+    street = models.CharField(max_length=32)
+
+class UPerson(ComputedFieldsModel):
+    appartment = models.ForeignKey(UAppartment, null=True, related_name='persons', on_delete=models.CASCADE)
+    parent = models.ForeignKey('self', null=True, related_name='children', on_delete=models.CASCADE)
+    at_parent = models.BooleanField(default=False)
+
+    @computed(
+        models.CharField(max_length=64),
+        depends=[
+            ('self', ['at_parent']),
+            ('appartment', ['number', 'street']),
+            ('parent.appartment', ['number', 'street'])
+        ],
+        # gets patched in by the test case
+        #select_related=['appartment', 'parent__appartment']
+        #prefetch_related=['appartment', 'parent__appartment']
+    )
+    def address(self):
+        if self.at_parent:
+            return f'App #{self.parent.appartment.number}, {self.parent.appartment.street}'
+        return f'App #{self.appartment.number}, {self.appartment.street}'
