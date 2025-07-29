@@ -572,13 +572,15 @@ class Resolver:
             update_fields.update(fields)
 
         # fix #167: skip prefetch/select if union was used
-        if queryset.query.combinator != "union":
-            select = self.get_select_related(model, fields)
-            prefetch = self.get_prefetch_related(model, fields)
-            if select:
-                queryset = queryset.select_related(*select)
-            if prefetch:
-                queryset = queryset.prefetch_related(*prefetch)
+        # fix #193: if select or prefetch is set, extract pks on UNIONed queryset
+        select = self.get_select_related(model, fields)
+        prefetch = self.get_prefetch_related(model, fields)
+        if (select or prefetch) and queryset.query.combinator == "union":
+            queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
+        if select:
+            queryset = queryset.select_related(*select)
+        if prefetch:
+            queryset = queryset.prefetch_related(*prefetch)
 
         pks = []
         if fields:
