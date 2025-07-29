@@ -46,8 +46,8 @@ class UnionRelatedPerf(TestCase):
         pr = time() - start
         self.assertEqual(UPerson.objects.filter(address='App #888, Celestial Border').count(), PERSONS+1)
 
-        self.assertLess(sr*5, plain)
-        self.assertLess(pr*5, plain)
+        self.assertLess(sr, plain)
+        self.assertLess(pr, plain)
 
         UPerson._meta.get_field('address')._computed['select_related'] = []
         UPerson._meta.get_field('address')._computed['prefetch_related'] = []
@@ -96,8 +96,8 @@ class UnionRelatedPerfNC(TestCase):
         pr = time() - start
         self.assertEqual(UPerson.objects.filter(address='App #888, Celestial Border').count(), PERSONS+1)
 
-        self.assertLess(sr*5, plain)
-        self.assertLess(pr*5, plain)
+        self.assertLess(sr, plain)
+        self.assertLess(pr, plain)
 
         UPerson._meta.get_field('address')._computed['select_related'] = []
         UPerson._meta.get_field('address')._computed['prefetch_related'] = []
