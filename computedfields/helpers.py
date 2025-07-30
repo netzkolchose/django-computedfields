@@ -1,6 +1,7 @@
 from itertools import tee, zip_longest
 from django.db.models import Model, QuerySet
-from typing import Any, Iterator, List, Sequence, Type, TypeVar, Tuple, Union, Generator, Iterable
+from typing import (Any, Iterator, List, Sequence, Type, TypeVar, Tuple, Union,
+                    Generator, Iterable, Optional, FrozenSet)
 
 T = TypeVar('T', covariant=True)
 
@@ -88,3 +89,9 @@ def proxy_to_base_model(proxymodel: Type[Model]) -> Union[Type[Model], None]:
 
 def are_same(*args) -> bool:
     return len(set(args)) == 1
+
+
+def frozenset_none(data: Optional[Iterable[Any]]) -> Optional[FrozenSet[Any]]:
+    if data is None:
+        return
+    return frozenset(data)

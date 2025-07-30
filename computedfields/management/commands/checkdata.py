@@ -80,7 +80,7 @@ class Command(BaseCommand):
         for model in models:
             qs = model._base_manager.all()
             amount = qs.count()
-            fields = set(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             qsize = active_resolver.get_querysize(model, fields, size)
             self.eprint(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.eprint(f'  Fields: {", ".join(fields)}')

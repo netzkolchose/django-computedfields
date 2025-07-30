@@ -85,7 +85,7 @@ class Command(BaseCommand):
             model_name, desync = data.get('model'), data.get('desync')
             model: Type[Model] = cast(Type[Model], apps.get_model(model_name))
             amount = len(desync)
-            fields = set(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')
             self.stdout.write(f'  Desync Records: {amount}')
@@ -120,7 +120,7 @@ class Command(BaseCommand):
         for model in models:
             qs = model._base_manager.all()
             amount = qs.count()
-            fields = set(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')
             self.stdout.write(f'  Records: {amount}')
@@ -181,7 +181,7 @@ class Command(BaseCommand):
         for model in models:
             qs = model._base_manager.all()
             amount = qs.count()
-            fields = list(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             qsize = active_resolver.get_querysize(model, fields, size)
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')

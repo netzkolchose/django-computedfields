@@ -1,11 +1,18 @@
 from django.test import TestCase
 from ..models import UAppartment, UPerson
-from computedfields.models import update_dependent
+from computedfields.models import active_resolver
 from django.db.transaction import atomic
 from time import time
 
+from typing import cast
+from computedfields.graph import IComputedField
+
 
 PERSONS = 100
+
+def casted_cf(fieldname):
+    return cast(IComputedField, UPerson._meta.get_field(fieldname))
+
 
 class UnionRelatedPerf(TestCase):
     def setUp(self):
@@ -25,8 +32,10 @@ class UnionRelatedPerf(TestCase):
         self.assertEqual(UPerson.objects.filter(address='App #666, Hellway').count(), PERSONS+1)
         
         # patch select_related
-        UPerson._meta.get_field('address')._computed['select_related'] = ['appartment', 'parent__appartment']
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = []
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = ['appartment', 'parent__appartment']
+        casted_cf('address')._computed['prefetch_related'] = []
         start = time()
         with atomic():
             self.a.street = 'Heaven Lane'
@@ -36,8 +45,10 @@ class UnionRelatedPerf(TestCase):
         self.assertEqual(UPerson.objects.filter(address='App #777, Heaven Lane').count(), PERSONS+1)
 
         # patch prefetch_related
-        UPerson._meta.get_field('address')._computed['select_related'] = []
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = ['appartment', 'parent__appartment']
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = []
+        casted_cf('address')._computed['prefetch_related'] = ['appartment', 'parent__appartment']
         start = time()
         with atomic():
             self.a.street = 'Celestial Border'
@@ -49,8 +60,10 @@ class UnionRelatedPerf(TestCase):
         self.assertLess(sr, plain)
         self.assertLess(pr, plain)
 
-        UPerson._meta.get_field('address')._computed['select_related'] = []
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = []
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = []
+        casted_cf('address')._computed['prefetch_related'] = []
 
 
 
@@ -75,8 +88,10 @@ class UnionRelatedPerfNC(TestCase):
         self.assertEqual(UPerson.objects.filter(address='App #666, Hellway').count(), PERSONS+1)
         
         # patch select_related
-        UPerson._meta.get_field('address')._computed['select_related'] = ['appartment', 'parent__appartment']
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = []
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = ['appartment', 'parent__appartment']
+        casted_cf('address')._computed['prefetch_related'] = []
         start = time()
         with atomic() and not_computed(recover=True):
             self.a.street = 'Heaven Lane'
@@ -86,8 +101,10 @@ class UnionRelatedPerfNC(TestCase):
         self.assertEqual(UPerson.objects.filter(address='App #777, Heaven Lane').count(), PERSONS+1)
 
         # patch prefetch_related
-        UPerson._meta.get_field('address')._computed['select_related'] = []
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = ['appartment', 'parent__appartment']
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = []
+        casted_cf('address')._computed['prefetch_related'] = ['appartment', 'parent__appartment']
         start = time()
         with atomic() and not_computed(recover=True):
             self.a.street = 'Celestial Border'
@@ -99,5 +116,7 @@ class UnionRelatedPerfNC(TestCase):
         self.assertLess(sr, plain)
         self.assertLess(pr, plain)
 
-        UPerson._meta.get_field('address')._computed['select_related'] = []
-        UPerson._meta.get_field('address')._computed['prefetch_related'] = []
+        active_resolver._cached_select_related.clear()
+        active_resolver._cached_prefetch_related.clear()
+        casted_cf('address')._computed['select_related'] = []
+        casted_cf('address')._computed['prefetch_related'] = []
