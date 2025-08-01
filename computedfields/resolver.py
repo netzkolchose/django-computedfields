@@ -519,9 +519,11 @@ class Resolver:
         if update_local and self.has_computedfields(_model):
             # We skip a transaction here in the same sense,
             # as local cf updates are not guarded either.
-            queryset = instance if isinstance(instance, QuerySet) \
-                else _model._base_manager.filter(pk__in=[instance.pk])
-            self.bulk_updater(queryset, _update_fields, local_only=True, querysize=querysize)
+            # FIXME: signals are broken here...
+            if isinstance(instance, QuerySet):
+                self.bulk_updater(instance, _update_fields, local_only=True, querysize=querysize)
+            else:
+                self.single_updater(_model, instance, _update_fields)
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
@@ -543,6 +545,27 @@ class Resolver:
                     self.bulk_updater(queryset, fields, return_pks=False, querysize=querysize)
             if not _is_recursive:
                 resolver_exit.send(sender=self)
+
+    def single_updater(
+        self,
+        model,
+        instance,
+        update_fields
+    ):
+        # TODO: needs a couple of tests, proper typing and doc
+        cf_mro = self.get_local_mro(model, frozenset_none(update_fields))
+        if update_fields:
+            update_fields.update(cf_mro)
+        changed = []
+        for fieldname in cf_mro:
+            old_value = getattr(instance, fieldname)
+            new_value = self._compute(instance, model, fieldname)
+            if new_value != old_value:
+                changed.append(fieldname)
+                setattr(instance, fieldname, new_value)
+        if changed:
+            self._update(model.objects.all(), [instance], changed)
+            resolver_update.send(sender=self, model=model, fields=changed, pks=[instance.pk])
 
     def bulk_updater(
         self,
@@ -604,7 +627,7 @@ class Resolver:
         pks = []
         if fields:
             q_size = self.get_querysize(model, fields, querysize)
-            change: List[Model] = []
+            changed_objs: List[Model] = []
             for elem in slice_iterator(queryset, q_size):
                 # note on the loop: while it is technically not needed to batch things here,
                 # we still prebatch to not cause memory issues for very big querysets
@@ -615,13 +638,13 @@ class Resolver:
                         has_changed = True
                         setattr(elem, comp_field, new_value)
                 if has_changed:
-                    change.append(elem)
+                    changed_objs.append(elem)
                     pks.append(elem.pk)
-                if len(change) >= self._batchsize:
-                    self._update(model._base_manager.all(), change, fields)
-                    change = []
-            if change:
-                self._update(model._base_manager.all(), change, fields)
+                if len(changed_objs) >= self._batchsize:
+                    self._update(model._base_manager.all(), changed_objs, fields)
+                    changed_objs = []
+            if changed_objs:
+                self._update(model._base_manager.all(), changed_objs, fields)
 
             if pks:
                 resolver_update.send(sender=self, model=model, fields=fields, pks=pks)
@@ -639,11 +662,30 @@ class Resolver:
             )
         return set(pks) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Iterable[str]) -> Union[int, None]:
+    def _update(self, queryset: QuerySet, objs: Sequence[Any], fields: Iterable[str]) -> None:
+        # TODO: offer multiple backends here 'FAST' | 'BULK' | 'SAVE' | 'FLAT' | 'MERGED'
         # we can skip batch_size here, as it already was batched in bulk_updater
+        # --> 'FAST'
         if self.use_fastupdate:
-            return fast_update(queryset, change, fields, None)
-        return queryset.model._base_manager.bulk_update(change, fields)
+            fast_update(queryset, objs, fields, None)
+            return
+
+        # --> 'BULK'
+        # really bad :(
+        queryset.model._base_manager.bulk_update(objs, fields)
+
+        # --> 'SAVE'
+        # ok but with save side effects
+        #with NotComputed():
+        #    for inst in objs:
+        #        inst.save(update_fields=fields)
+
+        # TODO: move merged_update & flat_update to fast_update package
+        # --> 'FLAT' & 'MERGED'
+        from .raw_update import merged_update, flat_update
+        merged_update(queryset, objs, fields)
+        #flat_update(queryset, objs, fields)
+
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
