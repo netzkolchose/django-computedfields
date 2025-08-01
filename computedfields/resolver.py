@@ -11,7 +11,7 @@ from django.db.models import QuerySet
 
 from .settings import settings
 from .graph import ComputedModelsGraph, ComputedFieldsException, Graph, ModelGraph, IM2mMap
-from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same
+from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same, frozenset_none
 from . import __version__
 from .signals import resolver_start, resolver_exit, resolver_update
 
@@ -19,7 +19,7 @@ from fast_update.fast import fast_update
 
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
-                    Tuple, Type, Union, cast, overload)
+                    Tuple, Type, Union, cast, overload, FrozenSet)
 from django.db.models import Field, Model
 from .graph import (IComputedField, IDepends, IFkMap, ILocalMroMap, ILookupMap, _ST, _GT, F,
                     IRecorded, IRecordedStrict, IModelUpdate, IModelUpdateCache)
@@ -91,8 +91,12 @@ class Resolver:
         self._initialized: bool = False   # initialized (computed_models populated)?
         self._map_loaded: bool = False    # final stage with fully loaded maps
 
-        # model update cache
-        self._updates_cache: IModelUpdateCache = defaultdict(dict)
+        # runtime caches
+        self._cached_updates: IModelUpdateCache = defaultdict(dict)
+        self._cached_mro = defaultdict(dict)
+        self._cached_select_related = defaultdict(dict)
+        self._cached_prefetch_related = defaultdict(dict)
+        self._cached_querysize = defaultdict(lambda: defaultdict(dict))
 
     def add_model(self, sender: Type[Model], **kwargs) -> None:
         """
@@ -236,7 +240,17 @@ class Resolver:
         self._m2m = self._graph._m2m
         self._patch_proxy_models()
         self._map_loaded = True
-        self._updates_cache = defaultdict(dict)
+        self._clear_runtime_caches()
+
+    def _clear_runtime_caches(self):
+        """
+        Clear all runtime caches.
+        """
+        self._cached_updates.clear()
+        self._cached_mro.clear()
+        self._cached_select_related.clear()
+        self._cached_prefetch_related.clear()
+        self._cached_querysize.clear()
 
     def _patch_proxy_models(self) -> None:
         """
@@ -258,7 +272,7 @@ class Resolver:
     def get_local_mro(
         self,
         model: Type[Model],
-        update_fields: Optional[Iterable[str]] = None
+        update_fields: Optional[FrozenSet[str]] = None
     ) -> List[str]:
         """
         Return `MRO` for local computed field methods for a given set of `update_fields`.
@@ -267,39 +281,44 @@ class Resolver:
 
         Returns computed fields as self dependent to simplify local field dependency calculation.
         """
-        # TODO: investigate - memoization of update_fields result? (runs ~4 times faster)
+        try:
+            return self._cached_mro[model][update_fields]
+        except KeyError:
+            pass
         entry = self._local_mro.get(model)
         if not entry:
+            self._cached_mro[model][update_fields] = []
             return []
         if update_fields is None:
+            self._cached_mro[model][update_fields] = entry['base']
             return entry['base']
-        update_fields = frozenset(update_fields)
         base = entry['base']
         fields = entry['fields']
         mro = 0
         for field in update_fields:
             mro |= fields.get(field, 0)
-        return [name for pos, name in enumerate(base) if mro & (1 << pos)]
+        result = [name for pos, name in enumerate(base) if mro & (1 << pos)]
+        self._cached_mro[model][update_fields] = result
+        return result
 
     def get_model_updates(
         self,
         model: Type[Model],
-        update_fields: Optional[Iterable[str]] = None
+        update_fields: Optional[FrozenSet[str]] = None
     ) -> IModelUpdate:
         """
         For a given model and updated fields this method
         returns a dictionary with dependent models (keys) and a tuple
         with dependent fields and the queryset accessor string (value).
         """
-        modeldata = self._map.get(model)
-        if not modeldata:
-            return {}
-        if not update_fields is None:
-            update_fields = frozenset(update_fields)
         try:
-            return self._updates_cache[model][update_fields]
+            return self._cached_updates[model][update_fields]
         except KeyError:
             pass
+        modeldata = self._map.get(model)
+        if not modeldata:
+            self._cached_updates[model][update_fields] = {}
+            return {}
         if not update_fields:
             updates: Set[str] = set(modeldata.keys())
         else:
@@ -316,7 +335,7 @@ class Resolver:
                 m_fields, m_paths = model_updates[m]
                 m_fields.update(fields)
                 m_paths.update(paths)
-        self._updates_cache[model][update_fields] = model_updates
+        self._cached_updates[model][update_fields] = model_updates
         return model_updates
 
     def _querysets_for_update(
@@ -331,7 +350,7 @@ class Resolver:
         queryset containing all dependent objects.
         """
         final: Dict[Type[Model], List[Any]] = {}
-        model_updates = self.get_model_updates(model, update_fields)
+        model_updates = self.get_model_updates(model, frozenset_none(update_fields))
         if not model_updates:
             return final
 
@@ -500,9 +519,11 @@ class Resolver:
         if update_local and self.has_computedfields(_model):
             # We skip a transaction here in the same sense,
             # as local cf updates are not guarded either.
-            queryset = instance if isinstance(instance, QuerySet) \
-                else _model._base_manager.filter(pk__in=[instance.pk])
-            self.bulk_updater(queryset, _update_fields, local_only=True, querysize=querysize)
+            # FIXME: signals are broken here...
+            if isinstance(instance, QuerySet):
+                self.bulk_updater(instance, _update_fields, local_only=True, querysize=querysize)
+            else:
+                self.single_updater(_model, instance, _update_fields)
 
         updates = self._querysets_for_update(_model, instance, _update_fields).values()
         if updates:
@@ -524,6 +545,27 @@ class Resolver:
                     self.bulk_updater(queryset, fields, return_pks=False, querysize=querysize)
             if not _is_recursive:
                 resolver_exit.send(sender=self)
+
+    def single_updater(
+        self,
+        model,
+        instance,
+        update_fields
+    ):
+        # TODO: needs a couple of tests, proper typing and doc
+        cf_mro = self.get_local_mro(model, frozenset_none(update_fields))
+        if update_fields:
+            update_fields.update(cf_mro)
+        changed = []
+        for fieldname in cf_mro:
+            old_value = getattr(instance, fieldname)
+            new_value = self._compute(instance, model, fieldname)
+            if new_value != old_value:
+                changed.append(fieldname)
+                setattr(instance, fieldname, new_value)
+        if changed:
+            self._update(model.objects.all(), [instance], changed)
+            resolver_update.send(sender=self, model=model, fields=changed, pks=[instance.pk])
 
     def bulk_updater(
         self,
@@ -566,8 +608,8 @@ class Resolver:
             queryset = model._base_manager.filter(pk__in=subquery_pk(queryset, queryset.db))
 
         # correct update_fields by local mro
-        mro: List[str] = self.get_local_mro(model, update_fields)
-        fields = set(mro)
+        mro: List[str] = self.get_local_mro(model, frozenset_none(update_fields))
+        fields = frozenset(mro)
         if update_fields:
             update_fields.update(fields)
 
@@ -585,7 +627,7 @@ class Resolver:
         pks = []
         if fields:
             q_size = self.get_querysize(model, fields, querysize)
-            change: List[Model] = []
+            changed_objs: List[Model] = []
             for elem in slice_iterator(queryset, q_size):
                 # note on the loop: while it is technically not needed to batch things here,
                 # we still prebatch to not cause memory issues for very big querysets
@@ -596,13 +638,13 @@ class Resolver:
                         has_changed = True
                         setattr(elem, comp_field, new_value)
                 if has_changed:
-                    change.append(elem)
+                    changed_objs.append(elem)
                     pks.append(elem.pk)
-                if len(change) >= self._batchsize:
-                    self._update(model._base_manager.all(), change, fields)
-                    change = []
-            if change:
-                self._update(model._base_manager.all(), change, fields)
+                if len(changed_objs) >= self._batchsize:
+                    self._update(model._base_manager.all(), changed_objs, fields)
+                    changed_objs = []
+            if changed_objs:
+                self._update(model._base_manager.all(), changed_objs, fields)
 
             if pks:
                 resolver_update.send(sender=self, model=model, fields=fields, pks=pks)
@@ -620,11 +662,30 @@ class Resolver:
             )
         return set(pks) if return_pks else None
     
-    def _update(self, queryset: QuerySet, change: Sequence[Any], fields: Iterable[str]) -> Union[int, None]:
+    def _update(self, queryset: QuerySet, objs: Sequence[Any], fields: Iterable[str]) -> None:
+        # TODO: offer multiple backends here 'FAST' | 'BULK' | 'SAVE' | 'FLAT' | 'MERGED'
         # we can skip batch_size here, as it already was batched in bulk_updater
+        # --> 'FAST'
         if self.use_fastupdate:
-            return fast_update(queryset, change, fields, None)
-        return queryset.model._base_manager.bulk_update(change, fields)
+            fast_update(queryset, objs, fields, None)
+            return
+
+        # --> 'BULK'
+        # really bad :(
+        queryset.model._base_manager.bulk_update(objs, fields)
+
+        # --> 'SAVE'
+        # ok but with save side effects
+        #with NotComputed():
+        #    for inst in objs:
+        #        inst.save(update_fields=fields)
+
+        # TODO: move merged_update & flat_update to fast_update package
+        # --> 'FLAT' & 'MERGED'
+        from .raw_update import merged_update, flat_update
+        merged_update(queryset, objs, fields)
+        #flat_update(queryset, objs, fields)
+
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """
@@ -679,49 +740,65 @@ class Resolver:
                 stack.append((field, getattr(instance, field)))
                 setattr(instance, field, self._compute(instance, model, field))
 
-    # TODO: the following 3 lookups are very expensive at runtime adding ~2s for 1M calls
-    #       --> all need pregenerated lookup maps
-    # Note: the same goes for get_local_mro and _queryset_for_update...
     def get_select_related(
         self,
         model: Type[Model],
-        fields: Optional[Iterable[str]] = None
+        fields: Optional[FrozenSet[str]] = None
     ) -> Set[str]:
         """
         Get defined select_related rules for `fields` (all if none given).
         """
-        if fields is None:
-            fields = self._computed_models[model].keys()
+        try:
+            return self._cached_select_related[model][fields]
+        except KeyError:
+            pass
         select: Set[str] = set()
-        for field in fields:
+        ff = fields
+        if ff is None:
+            ff = frozenset(self._computed_models[model].keys())
+        for field in ff:
             select.update(self._computed_models[model][field]._computed['select_related'])
+        self._cached_select_related[model][fields] = select
         return select
 
     def get_prefetch_related(
         self,
         model: Type[Model],
-        fields: Optional[Iterable[str]] = None
+        fields: Optional[FrozenSet[str]] = None
     ) -> List:
         """
         Get defined prefetch_related rules for `fields` (all if none given).
         """
-        if fields is None:
-            fields = self._computed_models[model].keys()
+        try:
+            return self._cached_prefetch_related[model][fields]
+        except KeyError:
+            pass
         prefetch: List[Any] = []
-        for field in fields:
+        ff = fields
+        if ff is None:
+            ff = frozenset(self._computed_models[model].keys())
+        for field in ff:
             prefetch.extend(self._computed_models[model][field]._computed['prefetch_related'])
+        self._cached_prefetch_related[model][fields] = prefetch
         return prefetch
 
     def get_querysize(
         self,
         model: Type[Model],
-        fields: Optional[Iterable[str]] = None,
+        fields: Optional[FrozenSet[str]] = None,
         override: Optional[int] = None
     ) -> int:
+        try:
+            return self._cached_querysize[model][fields][override]
+        except KeyError:
+            pass
+        ff = fields
+        if ff is None:
+            ff = frozenset(self._computed_models[model].keys())
         base = settings.COMPUTEDFIELDS_QUERYSIZE if override is None else override
-        if fields is None:
-            fields = self._computed_models[model].keys()
-        return min(self._computed_models[model][f]._computed['querysize'] or base for f in fields)
+        result = min(self._computed_models[model][f]._computed['querysize'] or base for f in ff)
+        self._cached_querysize[model][fields][override] = result
+        return result
 
     def get_contributing_fks(self) -> IFkMap:
         """
@@ -994,7 +1071,7 @@ class Resolver:
         model = type(instance)
         if not self.has_computedfields(model):
             return update_fields
-        cf_mro = self.get_local_mro(model, update_fields)
+        cf_mro = self.get_local_mro(model, frozenset_none(update_fields))
         if update_fields:
             update_fields = set(update_fields)
             update_fields.update(set(cf_mro))
@@ -1150,7 +1227,7 @@ class NotComputed:
             # FIXME: untangle the side effect update of fields in update_dependent <-- bulk_updater
             fields = local_data['fields']
             if fields and active_resolver.has_computedfields(model):
-                fields = set(active_resolver.get_local_mro(model, local_data['fields']))
+                fields = set(active_resolver.get_local_mro(model, frozenset(fields)))
 
             mdata = active_resolver._querysets_for_update(
                 model,
