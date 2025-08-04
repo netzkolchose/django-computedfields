@@ -15,7 +15,7 @@ from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same,
 from . import __version__
 from .signals import resolver_start, resolver_exit, resolver_update
 
-from fast_update.fast import fast_update
+from . import backends
 
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
@@ -82,9 +82,9 @@ class Resolver:
         self._local_mro: ILocalMroMap = {}
         self._m2m: IM2mMap = {}
         self._proxymodels: Dict[Type[Model], Type[Model]] = {}
-        self.use_fastupdate: bool = settings.COMPUTEDFIELDS_FASTUPDATE
-        self._batchsize: int = (settings.COMPUTEDFIELDS_BATCHSIZE_FAST
-            if self.use_fastupdate else settings.COMPUTEDFIELDS_BATCHSIZE_BULK)
+        self._batchsize: int = settings.COMPUTEDFIELDS_BATCHSIZE
+        self._update_backend: str = settings.COMPUTEDFIELDS_UPDATE_BACKEND
+        self._update = getattr(backends, self._update_backend)
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
@@ -661,31 +661,6 @@ class Resolver:
                 _is_recursive=True
             )
         return set(pks) if return_pks else None
-    
-    def _update(self, queryset: QuerySet, objs: Sequence[Any], fields: Iterable[str]) -> None:
-        # TODO: offer multiple backends here 'FAST' | 'BULK' | 'SAVE' | 'FLAT' | 'MERGED'
-        # we can skip batch_size here, as it already was batched in bulk_updater
-        # --> 'FAST'
-        if self.use_fastupdate:
-            fast_update(queryset, objs, fields, None)
-            return
-
-        # --> 'BULK'
-        # really bad :(
-        queryset.model._base_manager.bulk_update(objs, fields)
-
-        # --> 'SAVE'
-        # ok but with save side effects
-        #with NotComputed():
-        #    for inst in objs:
-        #        inst.save(update_fields=fields)
-
-        # TODO: move merged_update & flat_update to fast_update package
-        # --> 'FLAT' & 'MERGED'
-        from .raw_update import merged_update, flat_update
-        merged_update(queryset, objs, fields)
-        #flat_update(queryset, objs, fields)
-
 
     def _compute(self, instance: Model, model: Type[Model], fieldname: str) -> Any:
         """

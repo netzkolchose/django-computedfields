@@ -42,9 +42,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 ]
 
+
+# computedfields settings
 COMPUTEDFIELDS_ADMIN = True
-# COMPUTEDFIELDS_MAP = os.path.join(BASE_DIR, 'map.pickle')
-COMPUTEDFIELDS_FASTUPDATE = True
+COMPUTEDFIELDS_UPDATE_BACKEND = 'FAST'
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

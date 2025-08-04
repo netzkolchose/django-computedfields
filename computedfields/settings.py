@@ -9,14 +9,11 @@ DEFAULTS = {
     # whether to allow intermodel field recursions
     'COMPUTEDFIELDS_ALLOW_RECURSION': False,
 
-    # batchsize for bulk_update
-    'COMPUTEDFIELDS_BATCHSIZE_BULK': 100,
+    # update backend to use
+    'COMPUTEDFIELDS_UPDATE_BACKEND': 'FAST',
 
-    # batchsize for fast_update
-    'COMPUTEDFIELDS_BATCHSIZE_FAST': 10000,
-
-    # whether to use fast_update
-    'COMPUTEDFIELDS_FASTUPDATE': False,
+    # batchsize for update
+    'COMPUTEDFIELDS_BATCHSIZE': 5000,
 
     # batchsize of select queries done by resolver
     'COMPUTEDFIELDS_QUERYSIZE': 10000
