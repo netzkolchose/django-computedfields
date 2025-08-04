@@ -9,4 +9,4 @@ typing_extensions>=4.13.2
 mysqlclient>=2.2.7
 psycopg2-binary>=2.9.10
 tqdm>=4.67.1
-django-fast-update
+django-fast-update>=0.3.0
