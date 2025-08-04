@@ -279,10 +279,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        backend: ['FLAT', 'SAVE', 'BULK']
+        updatemode: ['FLAT', 'SAVE', 'BULK']
         python-version: ["3.13"]
     env:
-      BACKEND: ${{ matrix.backend }}
+      UPDATEMODE: ${{ matrix.updatemode }}
     steps:
     - uses: actions/checkout@v2
     - uses: kamiazya/setup-graphviz@v1
@@ -301,6 +301,7 @@ jobs:
         ./example/manage.py migrate
     - name: Run tests
       run: |
+        echo $UPDATEMODE
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine

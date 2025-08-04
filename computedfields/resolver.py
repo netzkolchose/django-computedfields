@@ -83,12 +83,12 @@ class Resolver:
         self._m2m: IM2mMap = {}
         self._proxymodels: Dict[Type[Model], Type[Model]] = {}
         self._batchsize: int = settings.COMPUTEDFIELDS_BATCHSIZE
-        self._update_backend: str = settings.COMPUTEDFIELDS_UPDATE_BACKEND
+        self._update_mode: str = settings.COMPUTEDFIELDS_UPDATEMODE
         try:
-            self._update = UPDATE_IMPLEMENTATIONS[self._update_backend]
+            self._update = UPDATE_IMPLEMENTATIONS[self._update_mode]
         except KeyError:
             raise ResolverException(
-                f'\nCOMPUTEDFIELDS_UPDATE_BACKEND must be one of '
+                f'\nCOMPUTEDFIELDS_UPDATEMODE must be one of '
                 f'{list(UPDATE_IMPLEMENTATIONS.keys())}'
             )
 

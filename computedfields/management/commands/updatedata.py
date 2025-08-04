@@ -10,6 +10,7 @@ from django.db import transaction
 from computedfields.models import active_resolver
 from computedfields.helpers import modelname, slice_iterator
 from computedfields.settings import settings
+from computedfields.backends import UPDATE_IMPLEMENTATIONS
 from ._helpers import retrieve_computed_models, HAS_TQDM, tqdm
 
 from typing import Type, cast
@@ -48,7 +49,7 @@ class Command(BaseCommand):
             '-m', '--mode',
             default='default',
             type=str,
-            choices=('fast', 'flat', 'save', 'bulk', 'loop'),
+            choices=('FAST', 'FLAT', 'SAVE', 'BULK', 'LOOP'),
             help='Set explicit update mode, default is taken from settings.py.'
         )
         parser.add_argument(
@@ -112,7 +113,7 @@ class Command(BaseCommand):
         Runs either in fast or bulk mode, whatever was set in settings.
         """
         if not mode:
-            mode = settings.COMPUTEDFIELDS_UPDATE_BACKEND.lower()
+            mode = settings.COMPUTEDFIELDS_UPDATEMODE
             self.stdout.write(f'Update mode: settings.py --> {mode}')
 
         self.stdout.write(f'Default querysize: {size}')
@@ -145,29 +146,33 @@ class Command(BaseCommand):
             else:
                 active_resolver.update_dependent(qs, querysize=size)
 
-    def action_fast(self, models, size, show_progress):
-        active_resolver._update_backend = 'FAST'
+    def action_FAST(self, models, size, show_progress):
+        active_resolver._update_mode = 'FAST'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['FAST']
         self.stdout.write('Update mode: fast')
-        self.action_default(models, size, show_progress, 'fast')
+        self.action_default(models, size, show_progress, 'FAST')
 
-    def action_flat(self, models, size, show_progress):
-        active_resolver._update_backend = 'FLAT'
+    def action_FLAT(self, models, size, show_progress):
+        active_resolver._update_mode = 'FLAT'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['FLAT']
         self.stdout.write('Update mode: flat')
-        self.action_default(models, size, show_progress, 'flat')
+        self.action_default(models, size, show_progress, 'FLAT')
 
-    def action_save(self, models, size, show_progress):
-        active_resolver._update_backend = 'SAVE'
+    def action_SAVE(self, models, size, show_progress):
+        active_resolver._update_mode = 'SAVE'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['SAVE']
         self.stdout.write('Update mode: save')
-        self.action_default(models, size, show_progress, 'save')
+        self.action_default(models, size, show_progress, 'SAVE')
 
-    def action_bulk(self, models, size, show_progress):
-        active_resolver._update_backend = 'BULK'
+    def action_BULK(self, models, size, show_progress):
+        active_resolver._update_mode = 'BULK'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['BULK']
         self.stdout.write('Update mode: bulk')
-        self.action_default(models, size, show_progress, 'bulk')
+        self.action_default(models, size, show_progress, 'BULK')
 
     @transaction.atomic
-    def action_loop(self, models, size, show_progress):
-        self.stdout.write('Update mode: loop')
+    def action_LOOP(self, models, size, show_progress):
+        self.stdout.write('Update mode: LOOP')
         self.stdout.write(f'Global querysize: {size}')
         self.stdout.write('Models:')
         if size != settings.COMPUTEDFIELDS_QUERYSIZE:

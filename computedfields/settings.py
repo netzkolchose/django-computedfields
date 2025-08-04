@@ -9,8 +9,8 @@ DEFAULTS = {
     # whether to allow intermodel field recursions
     'COMPUTEDFIELDS_ALLOW_RECURSION': False,
 
-    # update backend to use
-    'COMPUTEDFIELDS_UPDATE_BACKEND': 'FAST',
+    # update mode to use
+    'COMPUTEDFIELDS_UPDATEMODE': 'FAST',
 
     # batchsize for update
     'COMPUTEDFIELDS_BATCHSIZE': 5000,

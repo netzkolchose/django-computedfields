@@ -657,8 +657,6 @@ them unchanged and not update anything).
 
 The update speed is still quite high, which is possible due to using the `fast` update mode.
 With `bulk` it already drops to 4600 rec/s (3:30 min), with `loop` we are at 240 rec/s (1h 10 min).
-Therefore it might be a good idea to activate ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py` for
-update intensive projects.
 
 The example already contains another optimization discussed below - a `select_related` entry for
 `Baz.foo_bar_baz`. Without it, the record throughput drops to 1500 - 2000 rec/s for `fast` or `bulk`.
@@ -749,10 +747,6 @@ Of course this does not come for free - multiple n:1 relations put into `select_
 the temporary JOIN table rather quick, possibly leading to memory / performance issues on the DBMS.
 This is also the reason, why it is not enabled by default.
 
-.. TIP::
-
-    The resolver batches computed field update queries itself with `bulk_update` and a default batch size
-    of 100. This can be further tweaked project-wide in `settings.py` with ``COMPUTEDFIELDS_BATCHSIZE``.
 
 
 Using `prefetch_related`
