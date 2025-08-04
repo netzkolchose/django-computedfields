@@ -279,8 +279,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.13"]
         backend: ['FLAT', 'SAVE', 'BULK']
+        python-version: ["3.13"]
     env:
       BACKEND: ${{ matrix.backend }}
     steps:
@@ -301,7 +301,6 @@ jobs:
         ./example/manage.py migrate
     - name: Run tests
       run: |
-        echo $BACKEND
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
         coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
         coverage combine
