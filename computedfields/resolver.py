@@ -15,7 +15,7 @@ from .helpers import proxy_to_base_model, slice_iterator, subquery_pk, are_same,
 from . import __version__
 from .signals import resolver_start, resolver_exit, resolver_update
 
-from . import backends
+from .backends import UPDATE_IMPLEMENTATIONS
 
 # typing imports
 from typing import (Any, Callable, Dict, Generator, Iterable, List, Optional, Sequence, Set,
@@ -84,7 +84,13 @@ class Resolver:
         self._proxymodels: Dict[Type[Model], Type[Model]] = {}
         self._batchsize: int = settings.COMPUTEDFIELDS_BATCHSIZE
         self._update_backend: str = settings.COMPUTEDFIELDS_UPDATE_BACKEND
-        self._update = getattr(backends, self._update_backend)
+        try:
+            self._update = UPDATE_IMPLEMENTATIONS[self._update_backend]
+        except KeyError:
+            raise ResolverException(
+                f'\nCOMPUTEDFIELDS_UPDATE_BACKEND must be one of '
+                f'{list(UPDATE_IMPLEMENTATIONS.keys())}'
+            )
 
         # some internal states
         self._sealed: bool = False        # initial boot phase
