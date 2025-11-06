@@ -16,7 +16,7 @@ setup(
     install_requires=[
         'Django>=4.2,<6.0',
         'typing_extensions>=4.1',
-        'django-fast-update'
+        'django-fast-update>=0.3.0'
     ],
     version=get_version(),
     license='MIT',

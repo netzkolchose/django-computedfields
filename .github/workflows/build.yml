@@ -12,12 +12,10 @@ on:
 jobs:
 
   django_42:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.8", "3.11", "3.12", "3.13"]
-
     steps:
     - uses: actions/checkout@v2
     - uses: kamiazya/setup-graphviz@v1
@@ -50,13 +48,11 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
-  django_5:
-
+  django_52:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-
     steps:
     - uses: actions/checkout@v2
     - uses: kamiazya/setup-graphviz@v1
@@ -88,9 +84,8 @@ jobs:
       with:
         parallel: true
         flag-name: Unit Test
-        
-  mysql:
 
+  mysql:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -139,7 +134,6 @@ jobs:
         flag-name: Unit Test
 
   postgres:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -187,7 +181,6 @@ jobs:
         flag-name: Unit Test
 
   postgres-psycopg3:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -235,7 +228,6 @@ jobs:
         flag-name: Unit Test
 
   mariadb:
-
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -283,8 +275,50 @@ jobs:
         parallel: true
         flag-name: Unit Test
 
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        updatemode: ['FLAT', 'SAVE', 'BULK']
+        python-version: ["3.13"]
+    env:
+      UPDATEMODE: ${{ matrix.updatemode }}
+    steps:
+    - uses: actions/checkout@v2
+    - uses: kamiazya/setup-graphviz@v1
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install "Django~=5.2"
+        pip install -r example/requirements-ci.txt
+    - name: Setup DB
+      run: |
+        ./example/manage.py makemigrations
+        ./example/manage.py migrate
+    - name: Run tests
+      run: |
+        echo $UPDATEMODE
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test exampleapp
+        coverage run --parallel-mode --branch --source='computedfields' ./example/manage.py test test_full
+        coverage combine
+        coverage report
+    - name: Build docs
+      run: |
+        cd docs && make html
+        cd ../
+    - name: Coveralls
+      uses: AndreMiras/coveralls-python-action@develop
+      with:
+        parallel: true
+        flag-name: Unit Test
+
+
   coveralls_finish:
-    needs: [django_42, django_5, mysql, postgres, postgres-psycopg3, mariadb]
+    needs: [django_42, django_52, mysql, postgres, postgres-psycopg3, mariadb, backend]
     runs-on: ubuntu-latest
     steps:
     - name: Coveralls Finished

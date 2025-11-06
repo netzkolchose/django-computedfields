@@ -10,6 +10,7 @@ from django.db import transaction
 from computedfields.models import active_resolver
 from computedfields.helpers import modelname, slice_iterator
 from computedfields.settings import settings
+from computedfields.backends import UPDATE_IMPLEMENTATIONS
 from ._helpers import retrieve_computed_models, HAS_TQDM, tqdm
 
 from typing import Type, cast
@@ -48,8 +49,8 @@ class Command(BaseCommand):
             '-m', '--mode',
             default='default',
             type=str,
-            choices=('loop', 'bulk', 'fast'),
-            help='Set explicit update mode, default: bulk/fast from settings.py.'
+            choices=('FAST', 'FLAT', 'SAVE', 'BULK', 'LOOP'),
+            help='Set explicit update mode, default is taken from settings.py.'
         )
         parser.add_argument(
             '-q', '--querysize',
@@ -85,7 +86,7 @@ class Command(BaseCommand):
             model_name, desync = data.get('model'), data.get('desync')
             model: Type[Model] = cast(Type[Model], apps.get_model(model_name))
             amount = len(desync)
-            fields = set(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')
             self.stdout.write(f'  Desync Records: {amount}')
@@ -112,7 +113,7 @@ class Command(BaseCommand):
         Runs either in fast or bulk mode, whatever was set in settings.
         """
         if not mode:
-            mode = 'fast' if settings.COMPUTEDFIELDS_FASTUPDATE else 'bulk'
+            mode = settings.COMPUTEDFIELDS_UPDATEMODE
             self.stdout.write(f'Update mode: settings.py --> {mode}')
 
         self.stdout.write(f'Default querysize: {size}')
@@ -120,23 +121,11 @@ class Command(BaseCommand):
         for model in models:
             qs = model._base_manager.all()
             amount = qs.count()
-            fields = set(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')
             self.stdout.write(f'  Records: {amount}')
             self.stdout.write(f'  Querysize: {active_resolver.get_querysize(model, fields, size)}')
-
-            # TODO: dummy test code to get some idea about long taking tasks in the update tree
-            # this is linked to bad perf from slicing and distinct() calls in bulk_updater (#101)
-            ##qs = qs.filter(pk__in=range(1, 1001))
-            #counted = count_dependent(qs)
-            #explained = explain_dependent(qs, query_pks=False)
-            #self.stdout.write('records to check:', counted)
-            #for ex in explained:
-            #    self.stdout.write(ex)
-            #timer(lambda: explain_dependent(qs), 1)
-            #timer(lambda: count_dependent(qs), 1)
-            #return
 
             if not amount:
                 continue
@@ -157,20 +146,33 @@ class Command(BaseCommand):
             else:
                 active_resolver.update_dependent(qs, querysize=size)
 
-    def action_bulk(self, models, size, show_progress):
-        active_resolver.use_fastupdate = False
-        self.stdout.write('Update mode: bulk')
-        self.action_default(models, size, show_progress, 'bulk')
-
-    def action_fast(self, models, size, show_progress):
-        active_resolver.use_fastupdate = True
-        active_resolver._batchsize = settings.COMPUTEDFIELDS_BATCHSIZE_FAST
+    def action_FAST(self, models, size, show_progress):
+        active_resolver._update_mode = 'FAST'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['FAST']
         self.stdout.write('Update mode: fast')
-        self.action_default(models, size, show_progress, 'fast')
+        self.action_default(models, size, show_progress, 'FAST')
+
+    def action_FLAT(self, models, size, show_progress):
+        active_resolver._update_mode = 'FLAT'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['FLAT']
+        self.stdout.write('Update mode: flat')
+        self.action_default(models, size, show_progress, 'FLAT')
+
+    def action_SAVE(self, models, size, show_progress):
+        active_resolver._update_mode = 'SAVE'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['SAVE']
+        self.stdout.write('Update mode: save')
+        self.action_default(models, size, show_progress, 'SAVE')
+
+    def action_BULK(self, models, size, show_progress):
+        active_resolver._update_mode = 'BULK'
+        active_resolver._update = UPDATE_IMPLEMENTATIONS['BULK']
+        self.stdout.write('Update mode: bulk')
+        self.action_default(models, size, show_progress, 'BULK')
 
     @transaction.atomic
-    def action_loop(self, models, size, show_progress):
-        self.stdout.write('Update mode: loop')
+    def action_LOOP(self, models, size, show_progress):
+        self.stdout.write('Update mode: LOOP')
         self.stdout.write(f'Global querysize: {size}')
         self.stdout.write('Models:')
         if size != settings.COMPUTEDFIELDS_QUERYSIZE:
@@ -181,7 +183,7 @@ class Command(BaseCommand):
         for model in models:
             qs = model._base_manager.all()
             amount = qs.count()
-            fields = list(active_resolver.computed_models[model].keys())
+            fields = frozenset(active_resolver.computed_models[model].keys())
             qsize = active_resolver.get_querysize(model, fields, size)
             self.stdout.write(f'- {self.style.MIGRATE_LABEL(modelname(model))}')
             self.stdout.write(f'  Fields: {", ".join(fields)}')
@@ -204,33 +206,3 @@ class Command(BaseCommand):
             else:
                 for obj in slice_iterator(qs, qsize):
                     obj.save()
-
-
-# get some explaining on update_dependent
-#def count_dependent(queryset, fields=None):
-#    #counted = queryset.count()
-#    counted = len(set(queryset.values_list('pk', flat=True).iterator()))
-#    if counted:
-#        updates = active_resolver._querysets_for_update(queryset.model, queryset, fields).values()
-#        for qs, f in updates:
-#            counted += count_dependent(qs, f)
-#    return counted
-#
-#def explain_dependent(queryset, fields=None, level=0, query_pks=False):
-#    s = time()
-#    #counted = queryset.count()
-#    counted = len(set(queryset.values_list('pk', flat=True).iterator()))
-#    d = time() - s
-#    res = [(level, queryset.model, fields, counted, d, queryset.distinct().values_list('pk', flat=True) if query_pks else [])]
-#    if counted:
-#        updates = active_resolver._querysets_for_update(queryset.model, queryset, fields).values()
-#        for qs, f in updates:
-#            res += explain_dependent(qs, f, level+1, query_pks)
-#    return res
-#
-#
-#def timer(f, n):
-#    start = time()
-#    for _ in range(n):
-#        f()
-#    print(time()-start)

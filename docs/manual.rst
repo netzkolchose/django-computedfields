@@ -5,6 +5,12 @@ User Guide
 model methods.
 
 
+.. ATTENTION::
+
+    With version 0.4.0 the update mode has changed to use `fast_update` by default.
+    If you want the old behavior back, see ``COMPUTEDFIELDS_UPDATEMODE`` below.
+
+
 Installation
 ------------
 
@@ -16,59 +22,56 @@ Install the package with pip:
 
 and add ``computedfields`` to your ``INSTALLED_APPS``.
 
-To render the update dependency graph during development, also install :mod:`graphviz`:
-
-.. code:: bash
-
-    $ pip install graphviz
-
 
 Settings
 --------
 
 The module respects optional settings in `settings.py`:
 
-- ``COMPUTEDFIELDS_ADMIN``
+- ``COMPUTEDFIELDS_UPDATEMODE``
+    The update mode determines, how the auto resolver writes update data to the database.
+    It understands one of the following string values:
+
+    - 'FAST' (default)
+        Update mode using UPDATE ... FROM VALUES pattern from the package :mod:`django-fast-update`.
+        This mode is typically magnitudes faster than all other modes.
+    - 'FLAT'
+        Second fastest update mode using looping `update` calls. Use this mode if you experience
+        issues with 'FAST'.
+    - 'SAVE'
+        Update mode using looped `save` calls on model instances. Use this mode if you have to rely
+        on signals of computed model instances (not recommended due to high performance penalty).
+    - 'BULK'
+        This was the old default mode using Djano's `bulk_update`, but got replaced due to
+        serious performance issues. Use this if you want to stick with the old behavior.
+        Most likely you also have to lower the batch size to 100 - 1000.
+
+- ``COMPUTEDFIELDS_BATCHSIZE`` (default 5000)
+    Set the batch size used for computed field updates by the auto resolver. The setting depends on
+    the selected update mode above. For 'FAST' values 1000 - 10k are reasonable, with 'BULK'
+    you might have to lower the value below 1000 to not stress the database planners too much.
+    Default value is 5000.
+
+- ``COMPUTEDFIELDS_QUERYSIZE`` (default 10000)
+    Limits the query size used by the resolver to slices of the given value. This setting is mainly
+    to avoid excessive memory usage from big querysets, where a direct evaluation would try to cache
+    everything into RAM. The global setting acts as a "damper" on all reading querysets invoked by
+    the resolver.
+
+    The querysize can be further adjusted for individual computed fields as optional argument `querysize`
+    on the ``@computed`` decorator. This is especially useful, if a field has overly complicated
+    dependencies pulling much more into memory than other fields. Also see :ref:`memory-issues` in examples.
+
+- ``COMPUTEDFIELDS_ADMIN`` (default False)
     Set this to ``True`` to get a listing of ``ComputedFieldsModel`` models with their field
     dependencies in admin. Useful during development.
 
-- ``COMPUTEDFIELDS_ALLOW_RECURSION``
+- ``COMPUTEDFIELDS_ALLOW_RECURSION`` (default False)
     Normally cycling updates to the same model field indicate an error in database design.
     Therefore the dependency resolver raises a ``CycleNodeException`` if a cycle was
     encountered. For more complicated setups (like tree structures) you can disable the
     recursion check. This comes with the drawback, that the underlying graph cannot
     linearize and optimize the update paths anymore.
-
-- ``COMPUTEDFIELDS_BATCHSIZE_BULK`` and ``COMPUTEDFIELDS_BATCHSIZE_FAST``
-    Set the batch size used for computed field updates by the auto resolver.
-    Internally the resolver updates computed fields either by `bulk_update` or `fast_update`,
-    which might penalize update performance for very big updates due high memory usage or
-    expensive SQL evaluation, if done in a single update statement. Here batch size will split
-    the update into smaller batches of the given size. For `bulk_update` reasonable batch sizes
-    are typically between 100 to 1000 (going much higher will degrade performance a lot with
-    `bulk_update`), for `fast_update` higher values in 10k to 100k are still reasonable,
-    if RAM usage is no concern. If not explicitly set in `settings.py` the default value will be
-    set to 100 for `bulk_update` and 10k for `fast_update`.
-    The batch size might be further restricted by certain database adapters.
-
-- ``COMPUTEDFIELDS_FASTUPDATE`` (Beta)
-    Set this to ``True`` to use `fast_update` from  :mod:`django-fast-update` instead of
-    `bulk_update`. This is recommended if you face serious update pressure from computed fields,
-    and will speed up writing to the database by multitudes. While :mod:`django-computedfields`
-    depends on the package by default (gets installed automatically), it does not enable it yet.
-    This is likely to change once :mod:`django-fast-update` has seen more in-the-wild testing and fixes.
-    Note that `fast_update` relies on recent database versions (see `package description
-    <https://github.com/netzkolchose/django-fast-update>`_).
-
-- ``COMPUTEDFIELDS_QUERYSIZE``
-    Limits the query size used by the resolver to slices of the given value (global default is 10k).
-    This setting is mainly to avoid excessive memory usage from big querysets, where a direct
-    evaluation would try to cache everything into RAM. The global setting acts as a "damper" on all
-    reading querysets invoked by the resolver.
-
-    The querysize can be further adjusted for individual computed fields as optional argument `querysize`
-    on the ``@computed`` decorator. This is especially useful, if a field has overly complicated
-    dependencies pulling much more into memory than other fields. Also see :ref:`memory-issues` in examples.
 
 
 Basic usage
@@ -280,7 +283,7 @@ computed field updates.
 In the next step ``resolver.bulk_updater`` applies `select_related` and `prefetch_related` optimizations
 to the queryset (if defined) and executes the queryset pulling all possible affected records. It walks the
 instances calculating computed field values in in topological order and places the results
-in the database by batched `bulk_update` calls.
+in the database by batched update calls.
 
 If another computed field on a different model depends on these changes the process repeats until all
 computed fields have been finally updated.
@@ -645,11 +648,10 @@ Management Commands
 
     - ``--progress``
         Show a progressbar during the run (needs :mod:`tqdm` to be installed).
-    - ``--mode {loop,bulk,fast}``
-        Set the update operation mode explicitly. By default either `bulk` or `fast` will be used, depending on
-        ``COMPUTEDFIELDS_FASTUPDATE`` in `settings.py`. The mode `loop` resembles the old command behavior
-        and will update all computed fields instances by loop-saving. Its usage is strongly discouraged,
-        as it shows very bad update performance (can easily take hours to update bigger tables). This argument
+    - ``--mode {FAST,FLAT,SAVE,BULK,LOOP}``
+        Set the update operation mode explicitly. By default ``COMPUTEDFIELDS_UPDATEMODE`` in `settings.py`
+        will be used. The mode `LOOP` resembles the old command behavior of version 0.1 by loop-saving.
+        Its usage is strongly discouraged, as it shows very bad update performance. This argument
         has no effect in conjunction with ``--from-json`` (always uses mode from `settings.py`).
     - ``--querysize NUMBER``
         See ``COMPUTEDFIELDS_QUERYSIZE`` setting.

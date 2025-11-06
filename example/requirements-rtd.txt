@@ -9,4 +9,4 @@ coverage>=7.6.1
 typing_extensions>=4.13.2
 
 tqdm>=4.67.1
-django-fast-update
+django-fast-update>=0.3.0
