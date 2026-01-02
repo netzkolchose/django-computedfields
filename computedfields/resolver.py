@@ -1150,7 +1150,7 @@ class NotComputed:
             # FIXME: untangle the side effect update of fields in update_dependent <-- bulk_updater
             fields = local_data['fields']
             if fields and active_resolver.has_computedfields(model):
-                fields = set(active_resolver.get_local_mro(model, local_data['fields']))
+                fields.update(set(active_resolver.get_local_mro(model, local_data['fields'])))
 
             mdata = active_resolver._querysets_for_update(
                 model,
