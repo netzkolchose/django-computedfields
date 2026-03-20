@@ -1174,7 +1174,7 @@ class NotComputed:
                 if local_entry['fields'] is None:
                     final_entry['fields'] = set(active_resolver.get_local_mro(model))
                 else:
-                    final_entry['fields'] |= final_entry['fields']
+                    final_entry['fields'] |= local_entry['fields']
                 final_entry['pks'] |= local_entry['pks']
                 local_entry['pks'].clear()
 
