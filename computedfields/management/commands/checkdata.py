@@ -73,7 +73,8 @@ class Command(BaseCommand):
         end_time = time()
         duration = int(end_time - start_time)
         self.eprint(f'\nTotal check time: {timedelta(seconds=duration)}')
-        sys.exit(1 if has_desync else 0)
+        if has_desync:
+            raise CommandError('Desync data found.', returncode=1)
     
     @transaction.atomic
     def action_check(self, models, progress, size, json_out):
