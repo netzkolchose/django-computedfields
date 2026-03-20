@@ -107,6 +107,7 @@ The documentation can be found [here](https://django-computedfields.readthedocs.
     - Django 6.0 support
     - Django 4.2 support dropped
     - Fix 2 field merge bugs in not_computed resync (#207, #211)
+    - Fix checkdata bugs (#203, #204)
 - 0.3.5
     - performance improvement: allow select_related/prefetch_related on UNIONed resolver updates
 - 0.3.4
