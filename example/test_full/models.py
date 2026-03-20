@@ -1332,3 +1332,67 @@ class UPerson(ComputedFieldsModel):
         if self.at_parent:
             return f'App #{self.parent.appartment.number}, {self.parent.appartment.street}'
         return f'App #{self.appartment.number}, {self.appartment.street}'
+
+
+# issue #210: not_computed context _resync update_fields handling
+# Test Case 1: Model save with update_fields that don't affect M2M dependency field
+# should NOT trigger unnecessary updates on related models
+class ResyncModelA(ComputedFieldsModel):
+    field_1 = models.FloatField(default=0.0)
+    field_2 = models.FloatField(default=0.0)
+
+    @computed(
+        models.FloatField(default=0.0),
+        depends=[('self', ['field_1', 'field_2'])]
+    )
+    def computed_field(self):
+        return self.field_1 + self.field_2
+
+
+class ResyncModelB(ComputedFieldsModel):
+    m2m_field = models.ManyToManyField(ResyncModelA, related_name='model_b_set')
+
+    @computed(
+        models.FloatField(default=0.0),
+        depends=[('m2m_field', ['id'])]
+    )
+    def computed_field(self):
+        """
+        This computed field depends only on the 'id' of related ResyncModelA instances.
+        When ResyncModelA.save(update_fields=['field_1']) is called, this should NOT
+        trigger an update of ResyncModelB because 'field_1' is not in the depends list.
+        """
+        if not self.pk:
+            return 0.0
+        return sum(obj.field_1 for obj in self.m2m_field.all())
+
+
+# Test Case 2: Model save with update_fields that SHOULD trigger dependent model update
+class ResyncModelC(ComputedFieldsModel):
+    field_1 = models.FloatField(default=0.0)
+
+    @computed(
+        models.FloatField(default=0.0),
+        depends=[('self', ['field_1'])]
+    )
+    def computed_field(self):
+        return self.field_1 * 2
+
+
+class ResyncModelD(ComputedFieldsModel):
+    m2m_field = models.ManyToManyField(ResyncModelC, related_name='model_d_set')
+
+    @computed(
+        models.FloatField(default=0.0),
+        depends=[('m2m_field', ['field_1'])]
+    )
+    def computed_field(self):
+        """
+        This computed field depends on 'field_1' of related ResyncModelC instances.
+        When ResyncModelC.save(update_fields=['field_1']) is called, this SHOULD
+        trigger an update of ResyncModelD because 'field_1' is in the depends list.
+        """
+        if not self.pk:
+            return 0.0
+        return sum(obj.field_1 for obj in self.m2m_field.all())
+
